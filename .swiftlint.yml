@@ -1,0 +1,68 @@
+# WG-004: SwiftLint policy. Run: `make lint` (swiftlint --strict).
+# Generated project (WakeGuard.xcodeproj) and build output are excluded.
+
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+  - DerivedData
+  - WakeGuard.xcodeproj
+
+opt_in_rules:
+  - force_unwrapping          # CLAUDE.md: no force unwraps in production paths
+  - empty_count
+  - explicit_init
+  - first_where
+  - contains_over_first_not_nil
+  - redundant_nil_coalescing
+  - closure_spacing
+  - fatal_error_message
+  - overridden_super_call
+  - unneeded_parentheses_in_closure_argument
+# Import ordering is owned by swift-format (OrderedImports), not swiftlint,
+# so the two tools never disagree.
+
+# CLAUDE.md quality rules -> hard errors (no force unwrap/try/cast in production).
+force_unwrapping:
+  severity: error
+force_try:
+  severity: error
+force_cast:
+  severity: error
+
+# swift-format owns the 100-col hard wrap for *code* (see .swift-format). This
+# 120 is a looser safety-net warning for lines the formatter won't break
+# (comments/URLs are ignored below), so the two tools never oscillate.
+line_length:
+  warning: 120
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+identifier_name:
+  min_length:
+    warning: 2                # 2-char names (id, tz) are already allowed
+  excluded: [id, tz, x, y, i, j]
+
+# ADR-003 / ARCHITECTURE §1: the domain layer (and the application use-case layer
+# above it) must stay framework-independent. In a single-module build the
+# compiler cannot catch a stray framework import, so these rules are the guard
+# ADR-003's revisit trigger promised. Scope: *Domain (strict) + the two
+# *Application modules (use cases orchestrate via ports, so also framework-free;
+# AIApplication importing AlarmKit would breach SAFETY_INVARIANTS #1/#30).
+custom_rules:
+  domain_no_apple_frameworks:
+    name: "Domain purity"
+    message: "Domain/Application modules must not import Apple UI/hardware frameworks (ARCHITECTURE §1, ADR-003). Use an Infrastructure adapter behind a protocol."
+    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication)/.*\.swift'
+    # Tolerates leading attributes (@_exported, @preconcurrency(...)) and
+    # submodule/kind imports (import struct CoreLocation.CLLocation).
+    regex: '^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|func|let|var)\s+)?(AlarmKit|CoreMotion|CoreLocation|HealthKit|EventKit|UserNotifications|FoundationModels|UIKit|SwiftUI|AppKit|WidgetKit)\b'
+    severity: error
+  domain_no_apple_framework_canimport:
+    name: "Domain purity (canImport)"
+    message: "Domain/Application modules must not conditionally import Apple UI/hardware frameworks (ARCHITECTURE §1, ADR-003)."
+    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication)/.*\.swift'
+    regex: 'canImport\(\s*(AlarmKit|CoreMotion|CoreLocation|HealthKit|EventKit|UserNotifications|FoundationModels|UIKit|SwiftUI|AppKit|WidgetKit)\s*\)'
+    severity: error

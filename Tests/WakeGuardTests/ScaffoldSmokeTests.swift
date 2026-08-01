@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import WakeGuard
 
 /// WG-003 structural smoke tests: prove the app target builds, the composition

@@ -273,3 +273,44 @@ decisions are recorded above using the ADR template.
   placeholder root view — no business logic (acceptance criterion).
 - `Info.plist` is synthesized (`GENERATE_INFOPLIST_FILE=YES`); no hand-written
   plist. `README.md` updated with the build/bootstrap instructions.
+
+### WG-004 (2026-08-01): Formatting, linting, and warning policy
+
+- **Formatter: Apple `swift-format`** (bundled in the Swift 6 toolchain), config
+  `.swift-format` — chosen over nicklockwood/SwiftFormat to avoid an extra
+  dependency. Import ordering is owned by swift-format (`OrderedImports`);
+  swiftlint's `sorted_imports` is intentionally left off so the two tools never
+  disagree.
+- **Linter: SwiftLint `--strict`**, config `.swiftlint.yml`.
+  `force_unwrapping` / `force_try` / `force_cast` escalated to **error** per
+  CLAUDE.md. A custom **`domain_no_apple_frameworks`** rule enforces ADR-003
+  domain purity — **verified** to error on an Apple-framework import inside a
+  `*Domain/` file and to stay silent for the same import in an Infrastructure
+  file. This is the compiler-independent guard ADR-003's revisit trigger
+  promised, closing the WG-003 review's L1 gap.
+- **Warnings-as-errors is global:** `SWIFT_TREAT_WARNINGS_AS_ERRORS` +
+  `GCC_TREAT_WARNINGS_AS_ERRORS` in `project.yml`, so **both** local and CI
+  builds fail on warnings (satisfies "CI fails on agreed warnings" and CLAUDE.md,
+  not CI-only). The scaffold builds clean under it (0 warnings).
+- **SwiftLint is not an Xcode build phase** — kept out of the compile to avoid
+  coupling/slowness; it runs via `make lint` / `make ci`, which WG-005's CI job
+  will invoke. Generated/build artifacts are excluded (`.swiftlint.yml
+  excluded:`; the `.xcodeproj` is already git-ignored).
+- `swiftlint` and `swift-format` are dev tools (not shipped SDKs), so CLAUDE.md's
+  third-party-SDK bar applies lightly; `README.md` documents every command.
+- **Adversarial-review refinements (ios-architect).** The domain-purity guard was
+  hardened after review: the regex now also catches submodule/kind imports
+  (`import struct CoreLocation.CLLocation`), attributed imports (`@_exported`,
+  `@preconcurrency`), and a companion rule catches `canImport(...)`. Scope widened
+  from the four `*Domain` modules to also cover `AlarmApplication`/`AIApplication`
+  (use cases orchestrate via ports; an `AIApplication` framework import would
+  breach `SAFETY_INVARIANTS.md` #1/#30). All six forms were verified to fail the
+  lint and then revert clean.
+- **Force-unwrap is an error in tests too** — intentionally stricter than
+  CLAUDE.md's "production paths" wording. Tests use `XCTUnwrap`, not `!`. Chosen
+  for a safety-critical codebase and documented here + in `README.md` so it is not
+  a silent surprise when WG-007 adds the test-support module.
+- **Warnings-as-errors tradeoff (accepted).** A future iOS SDK deprecation warning
+  will break the build **locally**, not only in CI. Accepted per CLAUDE.md
+  ("warnings are failures unless documented"); such a case gets a documented,
+  narrowly scoped exception rather than disabling the policy.
