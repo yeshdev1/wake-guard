@@ -1,0 +1,62 @@
+name: WakeGuard
+
+# WG-003: repository structure and Xcode project.
+# XcodeGen is the source of truth; the generated *.xcodeproj is git-ignored and
+# produced with `xcodegen generate` (see Makefile / README). This keeps the
+# project definition reviewable and free of pbxproj merge churn.
+
+options:
+  bundleIdPrefix: com.wakeguard
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"               # Swift 6 language mode (ADR-001 / CLAUDE.md)
+    SWIFT_STRICT_CONCURRENCY: complete # deliberate actor isolation (CLAUDE.md)
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Warning-as-error / lint policy is intentionally deferred to WG-004.
+
+targets:
+  WakeGuard:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources           # single app target, feature folders (ADR-003)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.app
+        PRODUCT_NAME: WakeGuard
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  WakeGuardTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Tests             # WakeGuardTests + TestSupport (fakes land in WG-007)
+    dependencies:
+      - target: WakeGuard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  WakeGuard:
+    build:
+      targets:
+        WakeGuard: all
+        WakeGuardTests: [test]
+    test:
+      targets:
+        - WakeGuardTests

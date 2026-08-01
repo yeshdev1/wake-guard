@@ -251,3 +251,25 @@ decisions are recorded above using the ADR template.
   boundary already contains). Remains cheaply amendable behind the protocols.
 - No automated suite exists yet (docs-only; build target is WG-003). Acceptance
   verified by inspection; available suite = 0 tests.
+
+### WG-003 (2026-08-01): Repository structure and Xcode project
+
+- **Project generation via XcodeGen.** `project.yml` is the source of truth; the
+  generated `WakeGuard.xcodeproj` is git-ignored. "Builds on a clean machine" =
+  `brew install xcodegen && make test`. Rationale: a reviewable, diffable project
+  definition with no `project.pbxproj` merge churn. XcodeGen is a build-time dev
+  tool (MIT), not linked into the shipped app, so CLAUDE.md's third-party-SDK
+  review bar applies only lightly; the CI task (WG-005) will pin/install it.
+- **Single app target, feature folders (ADR-003).** `Sources/` holds one folder
+  per `ARCHITECTURE.md` §2 module (16 folders incl. `WakeGuardApp`); each
+  non-app module is an empty `enum` namespace marker until its task adds real
+  types. `TestSupport` lives under `Tests/` and is empty until WG-007.
+- **Warning/lint policy deferred to WG-004.** WG-003 sets Swift 6 language mode
+  and `SWIFT_STRICT_CONCURRENCY=complete` only; it does **not** turn on
+  warnings-as-errors (that policy is WG-004's, to avoid scope overlap and a
+  fragile first build).
+- **No product logic.** No domain, persistence/Core Data, or AlarmKit code
+  (those are WG-010/WG-012/WG-013). The `@main` entry point composes only the
+  placeholder root view — no business logic (acceptance criterion).
+- `Info.plist` is synthesized (`GENERATE_INFOPLIST_FILE=YES`); no hand-written
+  plist. `README.md` updated with the build/bootstrap instructions.
