@@ -343,5 +343,8 @@ decisions are recorded above using the ADR template.
   (no guessed fallback), runs `make clean` before building, and calls **`make ci`
   directly** so the CI and local gates cannot drift; `main` runs are never
   cancelled. **Accepted follow-ups (non-blocking):** pin the runner image/Xcode
-  and SHA-pin the two first-party actions (+ Dependabot) before CI ever gains a
-  secret or a deploy step — blast radius today is nil (read-only, no secrets).
+  and SHA-pin **and bump** the two first-party actions (+ Dependabot) before CI
+  ever gains a secret or a deploy step — blast radius today is nil (read-only, no
+  secrets). The first green run (GitHub Actions run 30710911477, 3m20s) flagged
+  GitHub's Node20 runtime deprecation for `checkout@v4`/`upload-artifact@v4`
+  (auto-forced to Node24 — non-fatal), which the bump will resolve.
