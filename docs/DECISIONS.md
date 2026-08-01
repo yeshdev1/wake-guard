@@ -372,3 +372,36 @@ decisions are recorded above using the ADR template.
   like* a link, not merely be non-blank; H2: `--check` now catches structural
   drift, not just presence; M1: duplicate-marker guard; N1: robust dependency
   scan) — all verified by fault injection.
+
+### WG-007 (2026-08-02): Deterministic test-support module
+
+- **Delivered in `Tests/TestSupport/`** (compiled into the test target):
+  `WallClock` + `TestClock` (a wall-clock that only moves when moved),
+  `IdentifierGenerator` + `DeterministicIDGenerator` (reproducible seeded UUIDs),
+  a generic `InMemoryRepository<Element>` (insertion-ordered), and a
+  `Synchronized` (`Mutex`-backed) helper.
+- **Scope boundary — no domain-dependent fakes.** `FakeAlarmManager`,
+  `FakePedometer`, `FakeLanguageModelProvider`, the alarm-specific
+  `InMemoryAlarmRepository`, etc. need protocols that do not exist yet
+  (WG-010/012/024/060/AIInfrastructure) and are built with those tasks. The
+  generic `InMemoryRepository` satisfies "in-memory repository compiles"; the
+  alarm repository is WG-014.
+- **Ports live in TestSupport for now.** `WallClock` / `IdentifierGenerator` are
+  defined beside their fakes because no production code consumes them yet; they
+  are promoted to a production port module when production first needs them
+  (WG-018 container / WG-020 scheduling), per ADR-003. Defining production ports
+  now would pre-empt WG-010/012/018.
+- **`WallClock`, not `Clock`.** Named to avoid overloading the stdlib's
+  duration-based `Swift.Clock` (a module-level `Clock` compiles but is a
+  readability/inference footgun for WG-020+). `WallClock` also names the
+  semantics precisely (`now: Date`). This realizes CLAUDE.md's "injected clock
+  abstraction".
+- **Swift 6 strict concurrency:** every double is `Sendable` via a `Mutex`
+  (`Synchronization`) wrapped in `Synchronized`, whose `mutate` uses `sending`
+  closures to satisfy region-based isolation — no `@unchecked Sendable`.
+  Concurrency-stress tests (1,000 concurrent `next()`, 500 concurrent `upsert`)
+  confirm no lost updates.
+- **No force-unwrap** (WG-004): `DeterministicIDGenerator` packs UUIDs from a
+  fixed 8-byte buffer; tests use optional chaining / `XCTAssertNil`. (The UUIDs
+  are deterministic, not RFC-4122 v4 — fine for tests; noted for when the real
+  generator is wired in WG-018.)
