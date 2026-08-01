@@ -8,7 +8,7 @@ SOURCES     := Sources Tests
 # Override on the CLI, e.g. make test DESTINATION='platform=iOS Simulator,name=iPhone 16,OS=26.5'
 DESTINATION ?= platform=iOS Simulator,name=iPhone 17,OS=26.5
 
-.PHONY: generate build test lint format format-check ci clean
+.PHONY: generate build test lint format format-check check-tracking ci clean
 
 generate:
 	xcodegen generate
@@ -36,8 +36,12 @@ format:
 format-check:
 	swift format lint --strict --recursive $(SOURCES)
 
-# CI quality gate: formatting check, lint, then build + test (warnings-as-errors).
-ci: format-check lint test
+# WG-006: verify every backlog task is tracked, with evidence for active tasks.
+check-tracking:
+	python3 scripts/task_tracking.py --check
+
+# CI quality gate: tracking + formatting + lint, then build + test (warnings-as-errors).
+ci: check-tracking format-check lint test
 
 # clean also removes .build (SwiftPM output), for when ADR-003 package
 # extraction lands; harmless while the build is XcodeGen-only.

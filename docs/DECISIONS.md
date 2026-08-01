@@ -348,3 +348,27 @@ decisions are recorded above using the ADR template.
   secrets). The first green run (GitHub Actions run 30710911477, 3m20s) flagged
   GitHub's Node20 runtime deprecation for `checkout@v4`/`upload-artifact@v4`
   (auto-forced to Node24 — non-fatal), which the bump will resolve.
+
+### WG-006 (2026-08-01): Implementation status and task tracking
+
+- **Restructured `IMPLEMENTATION_STATUS.md`** into: a policy/legend, a generated
+  **Task index** (all 176 backlog tasks — status, `_unassigned_` owner placeholder,
+  evidence link) between generator markers, and the **Detailed evidence log**
+  (rich narrative for active/done tasks). The index is authoritative for
+  status/owner/evidence; the structural columns (Title/Epoch/Depends) are derived
+  from `BACKLOG.md` and cannot drift (enforced — see below).
+- **`scripts/task_tracking.py`** (stdlib-only Python) `--generate`s the index
+  (preserving human-set state) and `--check` enforces: every backlog task is
+  tracked, no orphan rows, valid statuses, **evidence-on-status-change** (an
+  In progress/In review/Complete task must carry a real evidence link — markdown
+  link, URL, commit hash, or `run <n>`), and no structural drift (byte-exact vs a
+  fresh generation). Wired into `make ci` as the fail-fast first step, so CI
+  enforces tracking on every push; macOS runners ship `python3`.
+- **Owner is a placeholder (`_unassigned_`).** The acceptance asks for an owner
+  placeholder, not assignment; owners are assigned later.
+- The Python dev-tool dependency is acceptable per CLAUDE.md (stdlib-only, not
+  shipped in the app; not a third-party SDK).
+- `release-test-engineer` review hardened the checker (H1: evidence must *look
+  like* a link, not merely be non-blank; H2: `--check` now catches structural
+  drift, not just presence; M1: duplicate-marker guard; N1: robust dependency
+  scan) — all verified by fault injection.
