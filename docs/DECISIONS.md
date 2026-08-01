@@ -314,3 +314,34 @@ decisions are recorded above using the ADR template.
   will break the build **locally**, not only in CI. Accepted per CLAUDE.md
   ("warnings are failures unless documented"); such a case gets a documented,
   narrowly scoped exception rather than disabling the policy.
+
+### WG-005 (2026-08-01): CI build and unit-test workflow
+
+- **GitHub Actions** (`.github/workflows/ci.yml`) on push-to-`main` + PR +
+  `workflow_dispatch`. **CI reuses the `make` targets** (`lint`, `format-check`,
+  `test`) so the CI gate is identical to the local one (DRY, no drift). Added an
+  optional `RESULT_BUNDLE` var to the Makefile `test` target for the artifact.
+- **No secrets** (`permissions: contents: read`; public tooling only) — satisfies
+  "secrets are not required for basic CI". Only first-party actions are used
+  (`actions/checkout@v4`, `actions/upload-artifact@v4`); the third-party
+  setup-xcode action was **avoided** to keep the dependency surface minimal.
+- **Runner adaptivity:** `runs-on: macos-latest`; the workflow selects the newest
+  installed Xcode (`/Applications/Xcode_*.app`) and the newest available iPhone
+  simulator dynamically (no OS pin), so it adapts to whatever the runner image
+  provides. **Assumption:** the runner supplies Xcode 26 / the iOS 26 SDK. If a
+  future `macos-latest` lacks it, pin a concrete image or Xcode version.
+- **Artifacts:** `TestResults.xcresult` uploaded (14-day retention, `if: always()`)
+  so results are retained even on failure — satisfies "artifacts retain test
+  results".
+- **Verification limits:** GitHub Actions cannot run locally (no `act` installed).
+  Validated **statically** with `actionlint` (clean, incl. embedded shellcheck)
+  and by running the **exact command sequence** locally (`make lint` +
+  `format-check` + `test RESULT_BUNDLE=…`) → green, `.xcresult` produced.
+- **Adversarial review (release-test-engineer) applied:** the setup step now
+  asserts the **iOS 26 SDK** and `swift format` are present (fail loud rather than
+  build green on the wrong SDK), hard-fails when no iPhone simulator is available
+  (no guessed fallback), runs `make clean` before building, and calls **`make ci`
+  directly** so the CI and local gates cannot drift; `main` runs are never
+  cancelled. **Accepted follow-ups (non-blocking):** pin the runner image/Xcode
+  and SHA-pin the two first-party actions (+ Dependabot) before CI ever gains a
+  secret or a deploy step — blast radius today is nil (read-only, no secrets).

@@ -18,10 +18,14 @@ build: generate
 		-project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION)'
 
+# Set RESULT_BUNDLE=path.xcresult to emit a result bundle (used by CI artifacts).
+# xcodebuild refuses to overwrite an existing bundle, so remove a stale one first.
 test: generate
+	$(if $(RESULT_BUNDLE),rm -rf '$(RESULT_BUNDLE)',)
 	xcodebuild test \
 		-project $(PROJECT) -scheme $(SCHEME) \
-		-destination '$(DESTINATION)'
+		-destination '$(DESTINATION)' \
+		$(if $(RESULT_BUNDLE),-resultBundlePath '$(RESULT_BUNDLE)',)
 
 lint:
 	swiftlint lint --strict --config .swiftlint.yml

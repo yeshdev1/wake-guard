@@ -1,0 +1,72 @@
+name: CI
+
+# WG-005: clean build + unit tests on every push to main and every PR.
+# No secrets are required (public tooling only); permissions are read-only.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Never cancel a run on main — a fast follow-up merge must not let a commit
+  # land without a completed CI run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test (iOS 26)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 and assert the iOS 26 SDK + formatter
+        id: setup
+        run: |
+          set -euo pipefail
+          # Prefer a versioned Xcode 26.x (excluding betas); else keep the active one.
+          XC="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' 2>/dev/null \
+            | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -n "${XC}" ]; then sudo xcode-select -s "${XC}"; fi
+          echo "Xcode:"; xcodebuild -version
+          echo "Swift:"; swift --version
+          # Fail loudly rather than build green on the wrong SDK.
+          xcodebuild -showsdks | grep -q 'iphonesimulator26' \
+            || { echo "::error::iOS 26 SDK not found on this runner (need Xcode 26)."; exit 1; }
+          # The formatter is a toolchain subcommand, not a brew package — assert it.
+          swift format --version >/dev/null 2>&1 \
+            || { echo "::error::'swift format' unavailable in the selected toolchain."; exit 1; }
+          # Newest available iPhone simulator (no OS pin — adapts to the runner);
+          # a missing simulator is a hard failure, not a guessed fallback.
+          DEVICE="$(xcrun simctl list devices available \
+            | grep -oE 'iPhone [0-9]+( Pro( Max)?| Plus| Air| mini)?' \
+            | sort -Vu | tail -1 || true)"
+          : "${DEVICE:?no available iPhone simulator on the runner}"
+          echo "Simulator: ${DEVICE}"
+          echo "device=${DEVICE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install tools
+        run: brew install xcodegen swiftlint
+
+      - name: Clean build + lint + format-check + test (make ci)
+        run: |
+          make clean
+          make ci \
+            DESTINATION="platform=iOS Simulator,name=${{ steps.setup.outputs.device }}" \
+            RESULT_BUNDLE="TestResults.xcresult"
+
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          # A pre-test failure (lint/format) legitimately yields no bundle -> warn.
+          if-no-files-found: warn
+          retention-days: 14

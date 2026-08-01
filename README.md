@@ -36,6 +36,14 @@ imports an Apple UI/hardware framework — the ADR-003 domain-purity guard
 (ARCHITECTURE §1). Formatting is Apple's formatter via `swift format` (bundled
 with the Swift 6 toolchain — no separate install; config `.swift-format`).
 
+## CI (WG-005)
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+it selects the newest Xcode, installs `xcodegen`/`swiftlint`, runs `make lint` +
+`make format-check` + a clean build and the unit tests, and uploads the
+`TestResults.xcresult` bundle as an artifact. No secrets are required
+(read-only permissions).
+
 ## Layout
 
 - `Sources/WakeGuardApp/` — app entry point and composition root (no business logic)
