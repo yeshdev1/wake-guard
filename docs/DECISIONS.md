@@ -39,8 +39,9 @@ decisions are recorded above using the ADR template.
   has one authoritative home. `PRODUCT_SPEC.md` remains the product detail.
 - The **operational** definition of "critical alarm" (which categories default
   to critical, snooze/challenge constraints, thresholds) is intentionally
-  deferred to **ADR-007** under WG-002. WG-001 fixes only the term and its
-  non-negotiable safety semantics, to avoid pre-empting the ADR task.
+  deferred to **ADR-007**, which is indexed in this file's ADR list but not yet
+  scheduled to a task (WG-002 owns ADR-001/002/003/004 only). WG-001 fixes only
+  the term and its non-negotiable safety semantics, to avoid pre-empting the ADR.
 - No automated test suite exists yet (no Xcode/SwiftPM target until WG-003;
   test-support module is WG-007). WG-001 is a documentation-only change, so its
   acceptance is verified by inspection; the "full available suite" is currently
@@ -49,3 +50,26 @@ decisions are recorded above using the ADR template.
 - `SCOPE.md` was intentionally **not** added to the `CLAUDE.md` always-read list
   in this task (editing `CLAUDE.md` would broaden scope). Recommended as a small
   follow-up.
+- **Stricter-than-source terminology (intentional).** `SCOPE.md` §2 deliberately
+  strengthens a few source statements: the "critical alarm" entry adds the verb
+  "suppressed" to invariant #6's prohibitions and bans AI *inference* of
+  criticality (beyond #31's wording), and §4 broadens the advertising exclusion
+  to match #40 (adds location + calendar). These tighten safety and never weaken
+  an invariant, so no ADR is required; recorded here so the deviations are not
+  silent.
+- **`AlarmManagerAdapter` naming reconciliation (follow-up).** `SAFETY_INVARIANTS.md`
+  #1–#2 name `AlarmManagerAdapter` as the sole AlarmKit caller, but
+  `ARCHITECTURE.md` §4 does not list that identifier. `SCOPE.md` §2.5 now defines
+  it; reconciling the name into `ARCHITECTURE.md` is left as a small follow-up
+  (candidate: WG-002 or the alarm-infrastructure tasks WG-024/027/028).
+
+### WG-001 adversarial review (2026-08-01)
+
+- A 3-round, 6-lens multi-agent adversarial review (safety-conflict,
+  internal-consistency, correctness-vs-source, completeness, exploitability
+  red-team, quality/clarity) with 3-skeptic majority verification confirmed **no
+  safety-invariant weakening** and surfaced **7 unique docs-accuracy defects**
+  (wrong invariant citations on `AlarmProposal`/DST/wake-challenge; a dropped
+  circadian-suggestion capability; undefined cloud-AI MVP status; an undefined
+  §2 change-control gate; overstated glossary count). All were fixed in the same
+  pass. Report: `docs/reviews/2026-08-01-wg001-scope-terminology.md`.
