@@ -751,3 +751,55 @@ decisions are recorded above using the ADR template.
 - **Privacy:** an `OutboxEntry.command` embeds the same `Alarm` (incl. free-text
   `label`) for `.create`/`.update` as the audit — the label-redaction boundary is
   the same WG-027 handoff recorded under WG-015 (#41/#42/#43).
+
+### WG-018 (2026-08-03): Dependency container and environment composition
+
+- **`AppEnvironment`** (`Sources/AppComposition/`, a `Sendable` struct) is the
+  composition root: it holds the six ports (`WallClock`, `IdentifierGenerator`, and
+  the four repositories) and exposes two **explicit** graphs — `production()`
+  (on-disk Core Data + `SystemClock`/`SystemIdentifierGenerator`) and
+  `inMemory(clock:identifierGenerator:)` (ephemeral `/dev/null` Core Data +
+  injectable clock/ids for tests and previews). Both list every dependency in one
+  `make(...)`, so the wiring is reviewable.
+- **Not a service locator:** there is no global/`shared` instance — the graph is
+  passed by injection only. This is enforced by a new `domain_no_composition_root`
+  SwiftLint rule (mirrors `domain_no_apple_frameworks`) that errors if `AppEnvironment`
+  is referenced anywhere outside the composition layer (AppComposition/WakeGuardApp);
+  its `included` list covers **every** other module (domain, application,
+  cross-cutting, and infrastructure). Verified the rule fires with a throwaway domain
+  probe.
+- **Ports promoted to the domain:** `WallClock` and `IdentifierGenerator` moved from
+  `TestSupport` into `Sources/AlarmDomain/` (mirroring `Repositories.swift`, so the
+  domain owns its ports); the live adapters (`SystemClock`,
+  `SystemIdentifierGenerator`) live in `AppComposition`, and the deterministic fakes
+  (`TestClock`, `DeterministicIDGenerator`) stay in `TestSupport`, now conforming via
+  `@testable import WakeGuard`.
+- **SwiftUI injection is an *optional* environment key** (`\.appEnvironment`,
+  default `nil`). A non-optional **fataling** default was tried and **rejected**:
+  SwiftUI evaluates a custom key's default during scene setup at app launch, so a
+  `fatalError` there crashes the app / test host even when the graph is correctly
+  injected. The contract is therefore: a consumer that reads `nil` MUST present an
+  explicit safe state (e.g. a storage-unavailable screen), **never** a silent
+  empty-success render that would falsely show "no alarms" (review MAJOR-2). Previews
+  inject the non-throwing `AppEnvironment.preview` (in-memory) so they are never nil.
+- **Launch:** `WakeGuardApp.init` builds `production()` synchronously on the main
+  actor (loadPersistentStores is synchronous for a local store). For the small store
+  this is sub-millisecond; the only watchdog risk is a future heavyweight migration
+  on a large store — an accepted MVP tradeoff, revisit with WG-017. On failure the
+  app shows `CompositionErrorView` (honest: storage unavailable, alarms not loaded,
+  no false safety claim; copy avoids recommending a destructive reinstall for the
+  transient file-protection-before-first-unlock case).
+- **Review (ios-architect, SDK-verified): no blocker.** Applied: MAJOR-1 — the test
+  no longer calls `production()` (which writes the real fixed-path on-disk store); it
+  asserts the live adapters directly + the container's default adapters via the
+  in-memory graph. MAJOR-2 — the optional-key contract above. MINOR — widened the
+  lint rule + fire-verification, a `Sendable` compile-time guard test, the watchdog
+  comment, and the softened error copy.
+- **Handoff to ADR-003 (package extraction):** when `AlarmDomain` is extracted, its
+  ports (`WallClock`/`IdentifierGenerator`/the repo ports) become `public` and
+  `TestSupport` switches from `@testable import WakeGuard` to `import AlarmDomain`.
+  The extraction stays mechanical; this is the only added step.
+- **Handoff to E03/WG-027 (consumers):** screens/services read ports from
+  `@Environment(\.appEnvironment)` (constructor injection for non-View consumers).
+  The container currently exposes no `PersistenceController` directly (repos are the
+  interface); add it only if reconciliation (WG-029) needs it.

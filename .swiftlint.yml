@@ -73,3 +73,12 @@ custom_rules:
     included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication)/.*\.swift'
     regex: 'canImport\(\s*(AlarmKit|CoreMotion|CoreLocation|HealthKit|EventKit|UserNotifications|FoundationModels|UIKit|SwiftUI|AppKit|WidgetKit)\s*\)'
     severity: error
+  domain_no_composition_root:
+    name: "No service locator"
+    message: "Only the composition layer (AppComposition / WakeGuardApp) may reference the app composition root (AppEnvironment) — everywhere else, dependencies are injected, not located (WG-018, ADR-003)."
+    # Every module except the composition layer itself: domain, application,
+    # cross-cutting (PrivacySecurity/Observability), and infrastructure adapters —
+    # none may reach the container; only AppComposition/WakeGuardApp wire it.
+    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication|PrivacySecurity|Observability|AlarmInfrastructure|AIInfrastructure|CalendarInfrastructure|HealthInfrastructure|MotionInfrastructure|TravelInfrastructure|DesignSystem)/.*\.swift'
+    regex: '\bAppEnvironment\b'
+    severity: error

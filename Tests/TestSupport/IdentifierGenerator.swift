@@ -1,16 +1,11 @@
 import Foundation
 
-/// Source of unique identifiers. Production injects a real generator; tests
-/// inject `DeterministicIDGenerator` so IDs are reproducible (CLAUDE.md: route
-/// UUID generation through an injected identifier generator in deterministic
-/// tests).
-protocol IdentifierGenerator: Sendable {
-    func next() -> UUID
-}
+@testable import WakeGuard
 
 /// Produces a reproducible sequence of UUIDs from a monotonic counter. The same
-/// `seed` always yields the same sequence, so ordering-sensitive tests are
-/// stable.
+/// `seed` always yields the same sequence, so ordering-sensitive tests are stable.
+/// The `IdentifierGenerator` port itself is a production type (`AppComposition`),
+/// promoted from TestSupport in WG-018.
 final class DeterministicIDGenerator: IdentifierGenerator {
     private let counter: Synchronized<UInt64>
 

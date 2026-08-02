@@ -1,16 +1,32 @@
 import SwiftUI
 
-/// Application entry point and composition root.
+/// Application entry point and composition root (WG-018).
 ///
-/// Per ADR-003 and the WG-003 acceptance criteria, this type holds **no
-/// business logic**. Feature wiring — repositories, the policy engine, the
-/// scheduling engine, sensor adapters — is composed here in later tasks. Today
-/// it only presents the root view.
+/// The production dependency graph is built **once** here and injected into the
+/// SwiftUI environment; feature screens read their repositories, clock, and id
+/// generator from `\.appEnvironment` — never a global locator. If persistence
+/// cannot load, the app shows an honest error rather than running without durable
+/// alarm storage.
 @main
 struct WakeGuardApp: App {
+    private let composition: Result<AppEnvironment, Error>
+
+    init() {
+        // Builds the on-disk Core Data graph synchronously on the main actor at
+        // launch. For the small alarm/audit/outbox store this is sub-millisecond; the
+        // only watchdog risk is a future heavyweight migration on a large store —
+        // revisit with WG-017. Accepted MVP tradeoff.
+        composition = Result { try AppEnvironment.production() }
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            switch composition {
+            case .success(let environment):
+                RootView().environment(\.appEnvironment, environment)
+            case .failure(let error):
+                CompositionErrorView(error: error)
+            }
         }
     }
 }

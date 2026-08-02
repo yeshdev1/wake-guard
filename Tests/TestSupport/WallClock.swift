@@ -1,18 +1,10 @@
 import Foundation
 
-/// A wall-clock time source (`now` as a `Date`). Production reads "now" through
-/// this port so tests can make time deterministic (CLAUDE.md: route all time
-/// reads through an injected clock abstraction). Named `WallClock` to avoid
-/// overloading the stdlib's duration-based `Swift.Clock`.
-///
-/// WG-007 defines it in TestSupport; promote to a production port module when
-/// production first consumes it (WG-018/WG-020), per ADR-003.
-protocol WallClock: Sendable {
-    var now: Date { get }
-}
+@testable import WakeGuard
 
 /// A deterministic `WallClock` for tests: time does not advance on its own — it
-/// changes only via `advance(by:)` or `set(_:)`.
+/// changes only via `advance(by:)` or `set(_:)`. The `WallClock` port itself is a
+/// production type (`AppComposition`), promoted from TestSupport in WG-018.
 final class TestClock: WallClock {
     private let storage: Synchronized<Date>
 
