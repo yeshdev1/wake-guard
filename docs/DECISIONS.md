@@ -405,3 +405,44 @@ decisions are recorded above using the ADR template.
   fixed 8-byte buffer; tests use optional chaining / `XCTAssertNil`. (The UUIDs
   are deterministic, not RFC-4122 v4 — fine for tests; noted for when the real
   generator is wired in WG-018.)
+
+### WG-010 (2026-08-02): Alarm domain models
+
+- **Entity models in `Sources/AlarmDomain/`** (Foundation-only, all `internal`):
+  validated leaf value types (`TimeOfDay`, `CalendarDate`, `Weekday`/`WeekdaySet`,
+  `IANATimeZone`), `ScheduleRule` (`.oneTime`/`.weekly`), the policies
+  (`Criticality`, `AlarmSound`, `SnoozePolicy`, `PreAlarmPolicy`, `TravelBehavior`
+  + `RegionRule`/`SafeFallback`, `ChallengePolicy` + `WalkChallenge`), and the
+  `Alarm` aggregate (+ typed `AlarmID`). All `Codable`/`Sendable`/`Equatable`/
+  `Hashable`.
+- **Invalid states unrepresentable-or-validated at construction *and* decode.**
+  Throwing initializers validate ranges/cross-field invariants; every validated
+  type has a custom `Decodable` that re-runs the throwing init, so no Codable
+  path bypasses validation (verified by the reviewer decoding adversarial JSON).
+  Enabled-but-zero snooze/pre-alarm states normalize or throw.
+- **`IANATimeZone` enforces #11.** Rejects the fixed-offset `GMT` family
+  (`GMT`, `GMT+0`, `GMT±HHMM`) via an input `hasPrefix("GMT")` guard plus a
+  canonical `GMT±` check (catches `UTC+5`); accepts `UTC`, named `Etc/*`, and all
+  geographic zones. (`knownTimeZoneIdentifiers` was unusable — it has alias gaps
+  like Calcutta-vs-Kolkata and omits UTC.)
+- **`ScheduleRule` "local-time behavior" (ARCHITECTURE §3) is consolidated into
+  the Alarm's `TravelBehavior`** (SCOPE §2.4), keeping the #12 wall-clock-vs-fixed
+  *recurrence intent* separate from the travel *response* — one source of truth,
+  not two.
+- **Criticality is stored user data only** — the model never assigns or infers it
+  (#31; the policy engine owns authorization, WG-028). `ChallengePolicy.walk`
+  always carries an `accessibleFallback`, so SCOPE §2.3 holds by construction.
+- **Known limitation (record before WG-020): identifier-based zone equality.**
+  Foundation does not canonicalize IANA aliases, so
+  `IANATimeZone("Asia/Calcutta") != IANATimeZone("Asia/Kolkata")` though they are
+  the same zone. `IANATimeZone` stores the *input* identifier (round-trips
+  cleanly). The reconciler/scheduler (WG-020+) must normalize before comparing or
+  dedup-keying; there is no clean Foundation alias-canonicalizer, so
+  canonicalization is deferred.
+- **Deferred field validation (no safety impact):** `Alarm.label`,
+  `AlarmSound.identifier`, and `RegionRule.regionIdentifier` accept empty strings
+  (unlabeled alarms are valid; sound/region resolution are UI/infra concerns).
+- **Scope:** no commands/proposals/audit (WG-011), no next-occurrence calculation
+  (WG-020), no repository protocols (WG-012). `ios-architect` review (executed
+  against the real SDK) found and I fixed a #11 blocker (bare-`GMT` hole) and
+  added GMT-family + composite-decode-rejection tests.

@@ -9,6 +9,11 @@ excluded:
   - DerivedData
   - WakeGuard.xcodeproj
 
+disabled_rules:
+  # swift-format owns trailing commas (it adds them in multiline collections),
+  # so the two tools don't disagree.
+  - trailing_comma
+
 opt_in_rules:
   - force_unwrapping          # CLAUDE.md: no force unwraps in production paths
   - empty_count
