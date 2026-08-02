@@ -519,3 +519,28 @@ decisions are recorded above using the ADR template.
     authority, #1).
 - **Scope:** WG-020 is the base calc only — zone selection (WG-021), explicit DST
   policy (WG-022), and date line / unusual offsets (WG-023) are separate tasks.
+
+### WG-021 (2026-08-02): Wall-clock vs fixed-zone semantics
+
+- **The single zone-selection choke point** (closing the WG-020 handoff):
+  `AlarmSchedulingEngine.schedulingTimeZone(for:anchor:deviceTimeZone:)` maps
+  `TravelBehavior` → the zone the base engine interprets the wall-clock in (#12):
+  `followLocal` → device zone; `stayFixed` → anchor zone. `nextOccurrence(for:
+  Alarm, after:, deviceTimeZone:)` composes it over WG-020.
+- **`.askOnChange` and `.regionRule` default to the anchor zone** — the
+  no-silent-shift choice (#16): until the user resolves an "ask" (or region logic
+  runs), the schedule stays in its original zone; the alternative (device zone)
+  would be exactly the silent shift #16 forbids. **When E06/WG-046 adds the
+  interactive ask + live region resolution, it must route through this same
+  function, not around it.** The `regionRule` branch currently always takes the
+  `safeFallback` (region identifier is not consulted here — that's E06).
+- **IANA anchor persists (#11):** follow-local only changes the *interpretation*
+  zone; the stored `ScheduleRule.anchorTimeZone` identifier is never mutated
+  (verified via Codable round-trip). Zone-only — no device *location* is read
+  (#16).
+- **`nextOccurrence(for: Alarm,...)` does not consult `isEnabled`** — a pure
+  primitive; the caller (WG-026/WG-029) gates whether a disabled alarm is
+  scheduled. Documented on the method.
+- **Follow-local DST gaps** resolve in the **device** zone (inherited WG-020
+  `.nextTime`/`date(from:)` behavior — forward, never skipped); the explicit
+  policy is WG-022. No criticality/authorization logic here (#31).
