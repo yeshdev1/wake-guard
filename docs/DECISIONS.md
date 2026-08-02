@@ -446,3 +446,39 @@ decisions are recorded above using the ADR template.
   (WG-020), no repository protocols (WG-012). `ios-architect` review (executed
   against the real SDK) found and I fixed a #11 blocker (bare-`GMT` hole) and
   added GMT-family + composite-decode-rejection tests.
+
+### WG-011 (2026-08-02): Command, proposal, and audit models
+
+- **Three distinct types in `Sources/AlarmDomain/`:** `AlarmCommand` (enum of the
+  ten command kinds + an `alarmID` accessor, `Codable` for the outbox),
+  `AlarmProposal` (advisory AI type carrying a `proposedCommand` + explanation /
+  evidence refs / `ConfidenceBand` / expiry / provider), and `AuditEvent`
+  (+ `AuditActor`/`CommandSource`/`Outcome` and `CorrelationID`/`AuditEventID`).
+- **Fail-closed enums (#27):** `AuditActor`, `CommandSource`, `Outcome`,
+  `ConfidenceBand`, and `EvidenceKind` are all `String`-raw, so decoding an
+  unknown/forged value throws (verified for the composite `AuditEvent` too, via a
+  tampered `"actor"`).
+- **`AuditActor`, not `Actor`** — avoids overloading the concurrency `Actor`
+  marker protocol (same lesson as `WallClock`).
+- **AI-can-only-propose boundary (#4/#5):** `AlarmProposal` is a distinct,
+  non-executable value; it merely *carries* a `proposedCommand`. The boundary is
+  convention + domain-purity-lint enforced today (single target, ADR-003); it
+  becomes a **compiler** wall only after package extraction. Handoffs recorded
+  below.
+- **Handoffs to downstream tasks (from the alarm-safety review):**
+  - **WG-028/WG-161 must allow-list which `AlarmCommand` kinds a proposal may
+    carry.** The model deliberately permits any kind (incl.
+    `markChallengePassed`/`recover`/`reconcile`), per #31 (the model embeds no
+    policy) — so the policy engine, not the type, must forbid an AI proposing
+    e.g. `markChallengePassed` (which would defeat the challenge, #20/#24).
+  - **Occurrence identity is `(AlarmID, fireTime: Date)`** — an absolute instant,
+    which correctly distinguishes DST fall-back/spring-forward occurrences
+    (verified). It carries **no `revision`**, so WG-027/WG-020 must reconcile a
+    stale occurrence command (queued before a reschedule) by revision.
+  - **A succeeded *mutation* audit must have non-nil old/new state hashes** —
+    documented on the fields; WG-027/WG-015 enforce it (the model can't know which
+    commands mutate). `AuditEvent` is an immutable value; append-only *storage* is
+    WG-015's job.
+  - `AlarmCommand`'s synthesized `Codable` tolerates extra payload keys (can't
+    change the case identity); note for WG-016 if outbox rows ever cross a trust
+    boundary.
