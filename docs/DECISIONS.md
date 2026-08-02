@@ -544,3 +544,33 @@ decisions are recorded above using the ADR template.
 - **Follow-local DST gaps** resolve in the **device** zone (inherited WG-020
   `.nextTime`/`date(from:)` behavior — forward, never skipped); the explicit
   policy is WG-022. No criticality/authorization logic here (#31).
+
+### WG-012 (2026-08-02): Repository protocols
+
+- **Four domain ports in `Sources/AlarmDomain/`** (`Repositories.swift`):
+  `AlarmRepository` (CRUD upsert), `AuditRepository`, `SettingsRepository`,
+  `OutboxRepository` — all `async throws`, `Sendable`. Plus the value types they
+  need: `AppSettings` (feature flags, privacy-first defaults — all opt-in, cloud
+  AI off per ADR-004) and `OutboxEntry` (+ `OutboxStatus`, `OutboxEntryID`).
+- **No Apple framework type leaks into the ports** (acceptance criterion, and the
+  headline #1/§5 rule): signatures reference only domain types + stdlib `String`;
+  `Repositories.swift`/`AppSettings.swift` import nothing, `OutboxEntry.swift`
+  imports only Foundation (for `UUID`/`Date`). The domain-purity lint covers all
+  three files (verified).
+- **Append-only is structural** — `AuditRepository` exposes no update/delete
+  (#48). `OutboxStatus` and other enums are `String`-raw → unknown fails to decode
+  (#27). `AppSettings`/`OutboxEntry` correctly live in `AlarmDomain` (the outbox
+  speaks `AlarmCommand`; settings feed the policy layer).
+- **`ios-architect` review shaped the outbox port for its WG-016 consumer**
+  (additive now, not churn later): `OutboxStatus` gained `applied` (was
+  `completed`) + **`uncertain`** (ARCHITECTURE §6 "reconcile after uncertain
+  outcomes"; terminal = applied/failed); `OutboxRepository` gained
+  **`unresolvedEntries()`** (reconciliation must recover stranded
+  `inProgress`/`uncertain`, #10, not just `pending`) and **`entry(idempotencyKey:)`**
+  (dedup lookup). `enqueue` documented idempotent-on-key; `markFailed` reason must
+  be coarse/user-safe (#41); `save` must honor optimistic revision concurrency
+  (WG-014); the retry cap is WG-016.
+- **Consciously deferred:** audit pagination / bounded reads await the retention
+  ADR (**ADR-009**, still pending) — additive later, not a breaking change; the
+  outbox transition *mechanics* (retry, dedup enforcement, reconciliation) are
+  **WG-016**. Implementations of all four ports are WG-013–016.
