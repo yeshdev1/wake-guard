@@ -695,3 +695,59 @@ decisions are recorded above using the ADR template.
   trigger. Cross-instance audit persistence (second controller on the same on-disk
   store) is deferrable to the migration harness (in-memory `/dev/null` can't show
   it).
+
+### WG-016 (2026-08-02): External-operation outbox (Core Data)
+
+- **`CoreDataOutboxRepository`** (`Sources/AlarmInfrastructure/`, actor) implements
+  WG-012's `OutboxRepository` over an `OutboxRecord` entity (id `String` unique,
+  **`idempotencyKey` `String` unique**, denormalized `status` + `createdAt` for
+  queries, JSON `payload`; schema → **v4**). Merge policy is `NSMergePolicy.error`
+  (consistent with alarm/audit).
+- **Idempotent enqueue (at-most-once):** fetch-by-key-first + the `idempotencyKey`
+  uniqueness constraint that absorbs the concurrent race (`isConflict` →
+  `rollback()`). Enqueue also **normalizes** the row to `.pending`/`attempts = 0` so
+  a caller cannot seed the queue mid-lifecycle (defense in depth). ios-architect
+  verified (real Core Data) that 12-way concurrent same-key enqueue yields exactly
+  one row and never throws.
+- **Guarded state machine** (`resolve`/`beginAttempt`/`setStatus`, pure + Core Data
+  plumbing split for lint complexity): `pending → inProgress → applied/uncertain/
+  failed`. A terminal entry is never resurrected into a second external apply;
+  `mark*` are idempotent on their own state. A concurrent read-modify-write on the
+  same entry is rejected with a typed **`.conflict`** (store optimistic lock) — no
+  silent lost update, no `attempts` inflation — verified by ios-architect probes and
+  a `testConcurrentMarkInProgress…` regression test (attempts == winners).
+- **Bounded retries (no unbounded retries):** `markInProgress` counts attempts and,
+  past `maxAttempts` (5), fails the entry and throws `retryLimitExceeded`. Keeping
+  the alarm active on exhaustion is the caller's safe fallback (#40).
+- **Recovery:** `unresolvedEntries()` = every non-terminal entry (pending/inProgress/
+  uncertain); reads are resilient (skip a corrupt row, per WG-015).
+- **Review (alarm-safety + ios-architect, both SDK-verified): no blocker.** Applied:
+  reworded doc comments that overstated the guarantees, enqueue normalization, and
+  the missing `mark*` concurrency test. Two MAJORs the alarm-safety agent raised are
+  **recovery-semantics delegations to WG-029, not outbox bugs** — recorded below.
+- **Handoffs to WG-027 (command processor):** it is the **single command-
+  serialization boundary** (ARCHITECTURE §6) — the outbox does not stop two
+  independent processors from each driving one entry, so WG-027 must not run the
+  live worker and launch reconciler over the same entry concurrently. It constructs
+  `.pending` entries, derives an `idempotencyKey` **unique per logical operation** (a
+  reused key is deduped forever), and on `retryLimitExceeded`/`.failed` keeps the
+  alarm safe (#40). A `mark*` `.conflict` is **retryable** — re-read and re-apply,
+  never treat as terminal.
+- **Handoffs to WG-029 (reconciliation):** (a) a terminal **`.failed`** op (incl.
+  retry-exhausted, or a crash after the fail-commit but before WG-027 secured the
+  alarm) is intentionally absent from `unresolvedEntries()`; recovering it is
+  WG-029's **independent local-alarm-vs-AlarmKit divergence scan**, not an outbox
+  scan — add a WG-029 test that a `.failed` entry with an unscheduled alarm is
+  repaired. (b) An **`uncertain`** entry must be reconciled by **reading AlarmKit
+  ground truth before any re-drive** — never a blind `markInProgress`, which at the
+  cap would wrongly declare it `.failed`, violating #10. (c) An **undecodable** row
+  is skipped by every query (a liveness gap — neither retried nor terminalized);
+  WG-029 should quarantine/terminalize it so #40 engages.
+- **Known permissive transitions (documented, caller-driven):** `pending → applied/
+  uncertain` is allowed without a prior `inProgress`, and re-`markInProgress` from
+  `inProgress` inflates `attempts` (each attempt to reach AlarmKit is real). WG-027
+  drives transitions in order; these are not guarded further to keep the mechanism
+  simple.
+- **Privacy:** an `OutboxEntry.command` embeds the same `Alarm` (incl. free-text
+  `label`) for `.create`/`.update` as the audit — the label-redaction boundary is
+  the same WG-027 handoff recorded under WG-015 (#41/#42/#43).

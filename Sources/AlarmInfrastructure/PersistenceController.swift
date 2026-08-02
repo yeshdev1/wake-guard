@@ -22,8 +22,8 @@ final class PersistenceController: @unchecked Sendable {
 
     /// The current Core Data schema version (grows as entities are added).
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
-    /// v3: + AuditRecord (WG-015).
-    static let schemaVersion = "3"
+    /// v3: + AuditRecord (WG-015). v4: + OutboxRecord (WG-016).
+    static let schemaVersion = "4"
 
     let container: NSPersistentContainer
 
@@ -65,7 +65,9 @@ final class PersistenceController: @unchecked Sendable {
     /// KVC access, so no code-generated subclasses are needed.
     static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
-        model.entities = [makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity()]
+        model.entities = [
+            makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity(), makeOutboxEntity(),
+        ]
         model.versionIdentifiers = [schemaVersion]
         return model
     }
@@ -122,6 +124,30 @@ final class PersistenceController: @unchecked Sendable {
         // is ignored, never used to overwrite the prior record (#48 append-only).
         audit.uniquenessConstraints = [["id"]]
         return audit
+    }
+
+    private static func makeOutboxEntity() -> NSEntityDescription {
+        let outbox = NSEntityDescription()
+        outbox.name = "OutboxRecord"
+        outbox.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        outbox.properties = [
+            attribute("id", .stringAttributeType),
+            // Dedup key: `enqueue` is idempotent on it (at most once), enforced by the
+            // uniqueness constraint below.
+            attribute("idempotencyKey", .stringAttributeType),
+            // Denormalized lifecycle state, so pending/unresolved queries filter in the
+            // store without decoding every payload.
+            attribute("status", .stringAttributeType),
+            // Enqueue order; recovery/reconciliation drives entries oldest-first.
+            attribute("createdAt", .dateAttributeType),
+            // Full `OutboxEntry` as JSON (status/attempts/lastFailureReason live here).
+            attribute("payload", .binaryDataAttributeType),
+        ]
+        // Two independent uniqueness constraints: one row per id, and at most one
+        // entry per idempotency key — so a retried enqueue cannot duplicate the
+        // external operation (WG-012 at-most-once).
+        outbox.uniquenessConstraints = [["id"], ["idempotencyKey"]]
+        return outbox
     }
 
     private static func attribute(
