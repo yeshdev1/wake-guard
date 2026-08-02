@@ -22,7 +22,8 @@ final class PersistenceController: @unchecked Sendable {
 
     /// The current Core Data schema version (grows as entities are added).
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
-    static let schemaVersion = "2"
+    /// v3: + AuditRecord (WG-015).
+    static let schemaVersion = "3"
 
     let container: NSPersistentContainer
 
@@ -64,7 +65,7 @@ final class PersistenceController: @unchecked Sendable {
     /// KVC access, so no code-generated subclasses are needed.
     static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
-        model.entities = [makeSettingsEntity(), makeAlarmEntity()]
+        model.entities = [makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity()]
         model.versionIdentifiers = [schemaVersion]
         return model
     }
@@ -96,6 +97,31 @@ final class PersistenceController: @unchecked Sendable {
         // the alarm repository's error merge policy (WG-014 optimistic concurrency).
         alarm.uniquenessConstraints = [["id"]]
         return alarm
+    }
+
+    private static func makeAuditEntity() -> NSEntityDescription {
+        let audit = NSEntityDescription()
+        audit.name = "AuditRecord"
+        audit.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        audit.properties = [
+            attribute("id", .stringAttributeType),
+            // Denormalized target-alarm id, so history-by-alarm queries (#49) filter
+            // in the store instead of decoding every payload.
+            attribute("alarmID", .stringAttributeType),
+            // Chronological key; queries order by (timestamp, id) for a stable,
+            // deterministic sequence even when two events share an instant.
+            attribute("timestamp", .dateAttributeType),
+            // The full `AuditEvent` as JSON. State deltas are hashed, and #41's
+            // enumerated sensitive categories (health/location/calendar/journal/LLM)
+            // have no field in the domain graph and so never appear. For
+            // create/update the embedded `Alarm` — including its free-text `label` —
+            // is stored verbatim (DECISIONS WG-015 tracks a redaction follow-up).
+            attribute("payload", .binaryDataAttributeType),
+        ]
+        // One row per event id. Append is insert-only and idempotent: a repeated id
+        // is ignored, never used to overwrite the prior record (#48 append-only).
+        audit.uniquenessConstraints = [["id"]]
+        return audit
     }
 
     private static func attribute(

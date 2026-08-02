@@ -636,3 +636,62 @@ decisions are recorded above using the ADR template.
   is still wrapped so a store conflict surfaces as a typed `.conflict`.
 - Core Data stays confined to `AlarmInfrastructure` (no domain leak). The audit
   and outbox repositories are WG-015/016.
+
+### WG-015 (2026-08-02): Append-only audit repository (Core Data)
+
+- **`CoreDataAuditRepository`** (`Sources/AlarmInfrastructure/`, actor) implements
+  WG-012's `AuditRepository` over an `AuditRecord` entity (id `String` unique,
+  denormalized `alarmID` `String` for history-by-alarm, `timestamp` `Date`, JSON
+  `payload`; schema bumped to **v3**, an additive lightweight migration).
+- **Append-only is insert-only + idempotent on the event id.** `append` fetches by
+  id first and no-ops if present — it never fetch-then-*updates*, so a recorded
+  event is immutable via the port (#48). The port itself exposes no update/delete
+  (WG-012). Under a concurrent same-id race the store-level `id` uniqueness
+  constraint + `NSMergePolicy.error` reject the loser, which `append` absorbs as an
+  idempotent no-op (`isConflict` → `context.rollback()`); a test asserts 8 racing
+  same-id appends yield exactly one row with no thrown error, and 8 distinct ids
+  all persist. **Caller precondition:** an `AuditEventID` identifies one event's
+  content (ids come from the injected generator); a reused id with different content
+  would be silently dropped, not detected.
+- **Ordering** for both queries is `(timestamp ASC, id ASC)` — chronological with a
+  deterministic tiebreak so equal-instant events return in a stable order across
+  queries (verified: Core Data string sort matches Swift `String <` for UUIDs, and
+  `Date` round-trips through `deferredToDate` identically to the sort column).
+- **Reads are resilient, not strict (review MAJOR, 2 reviewers):** a single
+  undecodable `payload` row (future schema, bit-rot, or a fail-closed unknown enum
+  in `AuditActor`/`CommandSource`) is **skipped**, not rethrown, so one poison row
+  cannot blind the whole user history / diagnostic query (#49). The corrupt row
+  **stays in the store** — append-only is preserved; it is only dropped from the
+  view. *Encoding on `append` stays strict* (a corrupt write fails loudly).
+  Surfacing a count of skipped rows is deferred (needs diagnostics infra; never log
+  the raw payload, #41). **Follow-up:** `CoreDataAlarmRepository` (WG-014) has the
+  same throwing-`compactMap` pattern; fixing it is out of WG-015 scope (no
+  cross-task refactor) and is flagged for a follow-up task.
+- **"Sensitive fields excluded" — what actually holds (review, all 3):** #41's
+  *enumerated* categories (health samples, precise location, calendar titles,
+  journal text, LLM prompts) are excluded **by construction** — no such field
+  exists anywhere in the `AuditEvent`/`AlarmCommand`/`Alarm` graph, and state deltas
+  are stored as hashes (`old/newStateHash`). **But** `.create`/`.update` embed the
+  full `Alarm`, so its free-text **`label` is stored verbatim** in the append-only
+  trail. This is **accepted for MVP** (on-device, `FileProtectionType.complete`,
+  never transmitted). The three in-code comments that had claimed "only hashed state
+  / no fields" were corrected to say this, and the prior sensitive-exclusion test
+  (a strawman using `.snooze`, which embeds no `Alarm`) was replaced with one that
+  appends a `.create` whose `label` is `"take insulin 20u"` and asserts the
+  enumerated markers are absent while honestly asserting the label *is* present.
+- **Handoff to WG-027 (privacy):** a **label-redaction boundary** for the audit
+  (and outbox, which embeds the same command — `OutboxEntry.command`) belongs at the
+  command processor, since a redacted label in the audit must not lose the real
+  label the outbox needs to schedule AlarmKit. Same task should constrain
+  `userVisibleReason` to a coarse, vetted vocabulary (mirror the outbox's
+  `markFailed(reason:)` contract). Erasing a sensitive label already captured in the
+  append-only trail also interacts with #42/#43 (deletion/export) — track there.
+- **Append-only is a port guarantee, not a store/tamper-evident one:** the app is a
+  single module, so any code can open the container directly. Store-level
+  tamper-evidence (hash-chained events) is a future ADR, not this task.
+- **Handoff to WG-017:** the `schemaVersion`→`versionIdentifiers` bump is
+  documentation/telemetry only — Core Data triggers inference from structural
+  version *hashes*, not the identifier string; don't rely on it as the migration
+  trigger. Cross-instance audit persistence (second controller on the same on-disk
+  store) is deferrable to the migration harness (in-memory `/dev/null` can't show
+  it).
