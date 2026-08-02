@@ -574,3 +574,40 @@ decisions are recorded above using the ADR template.
   ADR (**ADR-009**, still pending) — additive later, not a breaking change; the
   outbox transition *mechanics* (retry, dedup enforcement, reconciliation) are
   **WG-016**. Implementations of all four ports are WG-013–016.
+
+### WG-013 (2026-08-02): Configure persistence (Core Data)
+
+- **`PersistenceController`** (`Sources/AlarmInfrastructure/`) stands up the Core
+  Data stack per **ADR-002**: a **programmatic, versioned** `NSManagedObjectModel`
+  (`versionIdentifiers`, `schemaVersion = "1"`), `NSPersistentContainer`,
+  configurable in-memory (`/dev/null` SQLite — tests) vs on-disk
+  (`FileProtectionType.complete`). **History tracking is on for both stores** so
+  in-memory tests share production's reconciliation substrate (#10). Core Data is
+  entirely confined to `AlarmInfrastructure` — no leak into the domain.
+- **`@unchecked Sendable` is narrow and justified** — placed on the container
+  owner (not the repository, per ADR-002's gate): `NSPersistentContainer` is
+  Apple-documented safe to share across threads for context vending, and the
+  thread-confined contexts are always used via `perform`. Repositories keep their
+  own state actor-isolated.
+- **Single settings-blob proof** that in-memory and Core Data repos **share one
+  contract**: `CoreDataSettingsRepository` + `InMemorySettingsRepository` both
+  conform to WG-012's `SettingsRepository` and pass one generic contract test.
+- **`ios-architect` review (SDK-verified) caught a real Blocker** — concurrent
+  `save()` created duplicate rows (the actor doesn't serialize across
+  `await perform`) and reads went stale. Fixed with a `singletonKey` uniqueness
+  constraint + `mergeByPropertyObjectTrump` (last-writer-wins) merge policy;
+  a concurrent-save test now asserts exactly one row. Also removed a no-op
+  `viewContext.automaticallyMergesChangesFromParent` and enabled in-memory history
+  tracking.
+- **Handoffs recorded for the repos built on this stack:**
+  - **WG-014** wants the *opposite* merge policy — reject-on-conflict for
+    `Alarm.revision` optimistic concurrency (the default `NSErrorMergePolicy`
+    throws `133020`); settings' last-writer-wins is deliberately different.
+  - **A `viewContext` reader observing background writes** needs the
+    `NSPersistentStoreRemoteChangeNotification` wiring (deferred until a reader
+    exists — UI/WG-018+); background contexts are siblings of `viewContext`, not
+    children.
+  - **WG-017** should spike the *heavyweight* migration stage (ADR-002 gate 1)
+    early: a programmatic source+destination model + mapping model is more finicky
+    than the `.xcdatamodeld` tooling Core Data expects; lightweight (added-entity)
+    migration is verified to work.
