@@ -611,3 +611,28 @@ decisions are recorded above using the ADR template.
     early: a programmatic source+destination model + mapping model is more finicky
     than the `.xcdatamodeld` tooling Core Data expects; lightweight (added-entity)
     migration is verified to work.
+
+### WG-014 (2026-08-02): Alarm repository (Core Data)
+
+- **`CoreDataAlarmRepository`** (`Sources/AlarmInfrastructure/`, actor) implements
+  WG-012's `AlarmRepository` over an `AlarmRecord` entity (id `String` unique,
+  `revision` Int64, JSON `payload`; schema bumped to **v2**). It uses the
+  **`NSMergePolicy.error`** (reject-on-conflict) policy — the deliberate opposite
+  of the settings repo's last-writer-wins, per the WG-013 handoff.
+- **Optimistic concurrency is belt-and-suspenders** (SDK-verified by the review):
+  an **app-level guard** (`incoming.revision > stored` else typed
+  `AlarmRepositoryError.staleRevision`) gives a clean error on the sequential
+  path, and the **store-level** error merge policy + `id` uniqueness constraint
+  reject the fetch-fetch-save-save race the guard can't see (mapped to
+  `.conflict` via `NSManagedObjectMergeError`/`NSManagedObjectConstraintMergeError`).
+  A 8-way concurrent test asserts **exactly one winner** and that **every loser
+  throws a typed error** (no raw-`NSError` leak, no silent overwrite — #10).
+- **Errors are typed:** `AlarmRepositoryError` (`.staleRevision(stored:incoming:)`,
+  `.conflict(AlarmID)`, `.storageUnavailable`); the protocol stays untyped
+  `throws`, so "typed" is delivered by the concrete type (codebase convention).
+- **Handoff to WG-027:** `deleteAlarm` is **not revision-guarded** (the port takes
+  no expected revision), so a stale delete could remove a newer alarm — routing
+  deletes through the command processor's revision discipline is WG-027. Its save
+  is still wrapped so a store conflict surfaces as a typed `.conflict`.
+- Core Data stays confined to `AlarmInfrastructure` (no domain leak). The audit
+  and outbox repositories are WG-015/016.

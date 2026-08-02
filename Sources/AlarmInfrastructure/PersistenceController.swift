@@ -21,7 +21,8 @@ enum PersistenceError: Error, Equatable {
 final class PersistenceController: @unchecked Sendable {
 
     /// The current Core Data schema version (grows as entities are added).
-    static let schemaVersion = "1"
+    /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
+    static let schemaVersion = "2"
 
     let container: NSPersistentContainer
 
@@ -62,28 +63,48 @@ final class PersistenceController: @unchecked Sendable {
     /// The programmatic managed-object model. Uses generic `NSManagedObject` with
     /// KVC access, so no code-generated subclasses are needed.
     static func makeModel() -> NSManagedObjectModel {
+        let model = NSManagedObjectModel()
+        model.entities = [makeSettingsEntity(), makeAlarmEntity()]
+        model.versionIdentifiers = [schemaVersion]
+        return model
+    }
+
+    private static func makeSettingsEntity() -> NSEntityDescription {
         let settings = NSEntityDescription()
         settings.name = "SettingsRecord"
         settings.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
-
-        let singletonKey = NSAttributeDescription()
-        singletonKey.name = "singletonKey"
-        singletonKey.attributeType = .integer16AttributeType
-        singletonKey.isOptional = false
-
-        let payload = NSAttributeDescription()
-        payload.name = "payload"
-        payload.attributeType = .binaryDataAttributeType
-        payload.isOptional = false
-
-        settings.properties = [singletonKey, payload]
+        settings.properties = [
+            attribute("singletonKey", .integer16AttributeType),
+            attribute("payload", .binaryDataAttributeType),
+        ]
         // Exactly one settings row: concurrent inserts of the same key collapse
         // under the repository's merge policy rather than duplicating (WG-013 B1).
         settings.uniquenessConstraints = [["singletonKey"]]
+        return settings
+    }
 
-        let model = NSManagedObjectModel()
-        model.entities = [settings]
-        model.versionIdentifiers = [schemaVersion]
-        return model
+    private static func makeAlarmEntity() -> NSEntityDescription {
+        let alarm = NSEntityDescription()
+        alarm.name = "AlarmRecord"
+        alarm.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        alarm.properties = [
+            attribute("id", .stringAttributeType),
+            attribute("revision", .integer64AttributeType),
+            attribute("payload", .binaryDataAttributeType),
+        ]
+        // One row per alarm id; a concurrent insert of the same id is rejected by
+        // the alarm repository's error merge policy (WG-014 optimistic concurrency).
+        alarm.uniquenessConstraints = [["id"]]
+        return alarm
+    }
+
+    private static func attribute(
+        _ name: String, _ type: NSAttributeType
+    ) -> NSAttributeDescription {
+        let description = NSAttributeDescription()
+        description.name = name
+        description.attributeType = type
+        description.isOptional = false
+        return description
     }
 }
