@@ -482,3 +482,40 @@ decisions are recorded above using the ADR template.
   - `AlarmCommand`'s synthesized `Codable` tolerates extra payload keys (can't
     change the case identity); note for WG-016 if outbox rows ever cross a trust
     boundary.
+
+### WG-020 (2026-08-02): Pure next-occurrence calculator
+
+- **`AlarmSchedulingEngine`** (`Sources/AlarmDomain/`) is a pure, `Sendable`,
+  stateless function of `(ScheduleRule, now: Date, timeZone: TimeZone) -> Date?`:
+  no `Date()`, no ambient state. It computes the earliest occurrence **strictly
+  after `now`** (`> now`); one-time returns `nil` if past; weekly is the earliest
+  match across the weekday set. Foundation `Calendar` does the date math.
+- **Injected zone, by design:** the engine interprets the rule's wall-clock in the
+  **injected** `timeZone` and ignores `ScheduleRule.anchorTimeZone`. Selecting
+  which zone to inject per `TravelBehavior` (device zone for follow-local, anchor
+  zone for fixed) is **WG-021** — which must be the single choke point, since the
+  engine cannot detect a caller passing the wrong zone for a fixed-zone critical
+  alarm.
+- **DST defaults chosen to never skip (alarm-safety review, SDK-verified):**
+  weekly uses `matchingPolicy: .nextTime`, which resolves a nonexistent
+  spring-forward wall-clock **forward** (02:30 → 03:00) rather than skipping a
+  week (`.strict` would silently skip — a #10/#14 violation). Characterization
+  tests pin this so a future policy change is caught. The **explicit** policy is
+  WG-022.
+- **Known DST edges handed to WG-022/WG-026/WG-029 (verified against the SDK):**
+  - **Fall-back enumeration duplicate:** `nextOccurrence` itself returns a single
+    earliest match (the earlier, EDT instant), so WG-020 does not duplicate. But
+    any *enumeration* that feeds the prior result forward (WG-026 scheduling /
+    WG-029 reconciliation) will get the repeated 01:30 EST instant next and fire
+    **twice on the fall-back day** — those tasks must dedupe across the repeated
+    hour (#14/#15).
+  - **One-time vs weekly gap divergence:** the same nonexistent 02:30 resolves to
+    **03:30 one-time** (`date(from:)`) but **03:00 weekly** (`nextDate(.nextTime)`)
+    — a 30-min divergence WG-022 should converge deliberately. Both fire; neither
+    skips.
+  - **Fencepost:** `> now` (an occurrence exactly at `now` returns nil/next) is the
+    safe "next" contract, but **WG-029 must treat "no future occurrence" as "leave
+    the currently-firing alarm alone," never cancel** (AlarmKit is the ring
+    authority, #1).
+- **Scope:** WG-020 is the base calc only — zone selection (WG-021), explicit DST
+  policy (WG-022), and date line / unusual offsets (WG-023) are separate tasks.

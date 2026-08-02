@@ -10,9 +10,11 @@ excluded:
   - WakeGuard.xcodeproj
 
 disabled_rules:
-  # swift-format owns trailing commas (it adds them in multiline collections),
-  # so the two tools don't disagree.
+  # swift-format owns whitespace/brace/comma placement, so the two tools never
+  # disagree: it adds trailing commas in multiline collections and puts an
+  # opening brace on its own line when a declaration's signature wraps.
   - trailing_comma
+  - opening_brace
 
 opt_in_rules:
   - force_unwrapping          # CLAUDE.md: no force unwraps in production paths
