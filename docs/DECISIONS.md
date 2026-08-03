@@ -803,3 +803,54 @@ decisions are recorded above using the ADR template.
   `@Environment(\.appEnvironment)` (constructor injection for non-View consumers).
   The container currently exposes no `PersistenceController` directly (repos are the
   interface); add it only if reconciliation (WG-029) needs it.
+
+### WG-024 (2026-08-03): AlarmKit adapter port and fake
+
+- **`AlarmManagerAdapter`** (`Sources/AlarmDomain/`, Foundation-only) is the
+  domain-owned port to the system alarm authority — the concrete adapter is the
+  **only** component that calls AlarmKit (#1), invoked only by the command processor
+  (#2). Methods: `authorizationState` (non-throwing read) + `requestAuthorization`;
+  `schedule`; `cancel`; `snooze(alarmID:until:)`; `scheduledAlarms` (query). Neutral
+  types: `AlarmAuthorizationState`, `AlarmScheduleRequest`, `ScheduledAlarmSnapshot`,
+  `AlarmManagerError`. The real AlarmKit-backed adapter (imports AlarmKit) is WG-026;
+  tests/previews use the fake.
+- **`.uncertain` is the load-bearing safety primitive (#10):** mutating calls return
+  `Void`, so a caller cannot obtain a success token from an unknown outcome — the
+  only way to learn the truth is `scheduledAlarms()`. This *forces* reconciliation
+  and maps to the outbox's `.uncertain`. A **cancelled** task must also be treated as
+  `.uncertain` (documented; ARCHITECTURE §6).
+- **`FakeAlarmManagerAdapter`** (`Tests/TestSupport/`): tracks the system set
+  (schedule adds / cancel removes / snooze reschedules preserving criticality / no
+  fabrication on snooze-of-absent), records append-only **call logs** (distinct from
+  the idempotent system set), and lets tests set auth state, **seed** the system set
+  (divergence, WG-029), and **inject** a per-operation failure or `.uncertain`
+  (thrown without applying; the "applied-but-unconfirmed" orphan case is modeled by
+  `setScheduled` after the throw).
+- **Review (alarm-safety + ios-architect, both SDK-verified): no blocker.** Applied
+  in-scope: added `.restricted` auth state (WG-025 needs it), added **`isCritical` to
+  `ScheduledAlarmSnapshot`** so reconciliation can catch a critical→non-critical
+  drift (a silent suppression risk, not only presence/time), documented the
+  cancel-is-not-stop boundary and cancellation→uncertain, made snooze non-fabricating,
+  de-overclaimed the request doc, and added orphan-schedule / call-log / restricted
+  tests.
+- **Handoff to WG-025 (authorization flow):** builds the pre-prompt explanation,
+  denied/**restricted** recovery, and Settings deep link *around* the
+  `requestAuthorization` primitive; a thrown request = state unknown → preserve the
+  last safe alarm (never treat as an implicit denial that weakens a critical alarm).
+- **Handoff to WG-026 (real adapter):** must uphold `schedule` idempotency via a
+  **persisted `AlarmID` ↔ AlarmKit-id mapping** (losing it risks a duplicate alarm),
+  map `Alarm.sound`/recurrence without dropping intent, and map caught AlarmKit
+  errors to a **fixed coarse** `.failed(reason:)` (never `String(describing:)`, #41 —
+  add a redaction test). Whether `ScheduledAlarmSnapshot` needs an external id / a
+  challenge-`stop` primitive / a scheduled-vs-ringing flag depends on the AlarmKit
+  API surface WG-026 sees.
+- **Handoff to WG-029 (reconciliation):** discharges the WG-011 occurrence-identity
+  note (DECISIONS §WG-011: `(AlarmID, fireTime)` with no revision) — WG-029 must
+  reconcile a **stale occurrence** (queued before a reschedule) by revision, and must
+  never cancel a **currently-firing** alarm when repairing "extra" system alarms.
+- **Handoff to WG-073 (challenge → stop):** stopping a *ringing* alarm (only after a
+  valid challenge pass, #24) is a **separate primitive** to add to this port then —
+  `cancel` is for scheduled/future alarms only and must never target a firing one.
+- **Docs:** the `AlarmManagerAdapter` name is now realized in code; reconciling
+  ARCHITECTURE §4's service list to name it is a deferred doc cleanup (kept out of
+  this feature's scope).
