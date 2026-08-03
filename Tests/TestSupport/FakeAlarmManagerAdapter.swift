@@ -35,6 +35,7 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
         var scheduledRequests: [AlarmScheduleRequest] = []
         var cancelledAlarmIDs: [AlarmID] = []
         var snoozeCalls: [SnoozeCall] = []
+        var requestAuthorizationCallCount = 0
     }
 
     private let state: Synchronized<State>
@@ -72,6 +73,7 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
     var scheduledRequests: [AlarmScheduleRequest] { state.get().scheduledRequests }
     var cancelledAlarmIDs: [AlarmID] { state.get().cancelledAlarmIDs }
     var snoozeCalls: [SnoozeCall] { state.get().snoozeCalls }
+    var requestAuthorizationCallCount: Int { state.get().requestAuthorizationCallCount }
     var currentlyScheduled: [ScheduledAlarmSnapshot] {
         Self.sorted(state.get().scheduled)
     }
@@ -84,6 +86,7 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
 
     func requestAuthorization() async throws -> AlarmAuthorizationState {
         let result: Result<AlarmAuthorizationState, AlarmManagerError> = state.mutate { store in
+            store.requestAuthorizationCallCount += 1
             if let error = store.injected[.requestAuthorization] { return .failure(error) }
             return .success(store.authorization)
         }

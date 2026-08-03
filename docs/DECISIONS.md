@@ -854,3 +854,46 @@ decisions are recorded above using the ADR template.
 - **Docs:** the `AlarmManagerAdapter` name is now realized in code; reconciling
   ARCHITECTURE §4's service list to name it is a deferred doc cleanup (kept out of
   this feature's scope).
+
+### WG-025 (2026-08-03): AlarmKit authorization flow
+
+- **`AlarmAuthorizationCoordinator`** (`Sources/AlarmApplication/`, Foundation-only)
+  orchestrates authorization around the WG-024 adapter primitives: `currentStep()`
+  reads state without prompting; `requestAfterExplanation()` issues the one-time
+  system request; `openSettingsIfAppropriate()` deep-links to Settings. It maps
+  `AlarmAuthorizationState` → a closed `AlarmAuthorizationStep` (`explainThenRequest`
+  / `authorized` / `deniedOpenSettings` / `restrictedUseFallback` / `unknownKeepSafe`).
+  `SettingsOpener` is a port so the flow stays framework-free; the real UIKit opener
+  is supplied by the app shell.
+- **Read-only w.r.t. alarms (#10):** the coordinator invokes no mutating adapter
+  method (only `authorizationState`/`requestAuthorization`), so a denial/restriction/
+  interruption can never drop a scheduled alarm — the caller keeps its existing
+  alarms. It *holds* an adapter that can mutate, so this is enforced by
+  `testFlowNeverMutatesAlarms`, not capability confinement (single-target build).
+- **Recovery:** denied → Settings deep link (gated to denied only — a Settings link
+  can't lift a restriction); restricted → non-AlarmKit fallback; a thrown/interrupted
+  request → `.unknownKeepSafe`, **never** an assumed denial that would weaken a
+  critical alarm (#10). A still-`notDetermined` result after a request is likewise
+  kept-safe (no re-prompt loop; iOS prompts once, then routes to Settings).
+- **Review (alarm-safety + ios-architect, both SDK-verified): no blocker.** Applied:
+  corrected the "no mutating capability" doc (it's test-enforced), strengthened the
+  request contract, added the still-notDetermined test.
+- **MAJOR resolution — explanation-before-request ownership:** the flow routes
+  `.notDetermined → .explainThenRequest`, but it **cannot observe whether a screen was
+  actually shown** — so *displaying* the explanation and gating the request is the
+  **permission-UI task's** contract (a bare `requestAfterExplanation()` is possible in
+  the type system; a witness token was rejected as it breaks the step's `Equatable`
+  ergonomics and still can't prove display). No safety harm — a premature prompt drops
+  no alarm.
+- **Handoffs to the permission-center UI task (WG-036):** owns the explanation
+  screen + enforcing explanation-before-request, the **"critical alarm + denial"
+  urgency messaging** (the flow has no notion of what's scheduled), and consuming
+  `AlarmAuthorizationStep` (which fuses state+action — a screen wanting "denied" +
+  both "Open Settings" and "Use fallback" may want a separate view-state).
+- **Handoffs to WG-026 / app shell:** the concrete **UIKit-backed `SettingsOpener`**
+  (`UIApplication.openSettingsURLString`) imports UIKit, so it lives in the app shell
+  (decide: SwiftUI app target vs a UI-infra layer — not AppComposition if kept
+  UIKit-free). The coordinator + real adapter + real opener become `AppEnvironment`
+  members (one line each in `make(...)`) when the real adapter lands.
+- **Manual verification:** the real on-device authorization prompt is exercised only
+  with the real adapter (WG-026) + permission UI — deferred, not testable here.
