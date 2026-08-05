@@ -8,8 +8,13 @@ import Foundation
 /// remaining, permissions, and feature settings (ARCHITECTURE §8) — is WG-028. Tests
 /// use `FakeAlarmPolicyEngine`.
 protocol AlarmPolicyEngine: Sendable {
-    /// Whether `command`, issued from `source`, may be applied.
-    func authorize(_ command: AlarmCommand, from source: CommandSource) async -> PolicyDecision
+    /// Whether `command`, issued from `source`, may be applied. `userConfirmed` is
+    /// whether the user explicitly confirmed a destructive action — required to cancel,
+    /// delay, or weaken a critical (or imminent) alarm (#6). The engine, not the
+    /// caller, decides when confirmation is required.
+    func authorize(
+        _ command: AlarmCommand, from source: CommandSource, userConfirmed: Bool
+    ) async -> PolicyDecision
 }
 
 /// The policy engine's verdict on a command.

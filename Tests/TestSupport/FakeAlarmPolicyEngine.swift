@@ -25,7 +25,9 @@ final class FakeAlarmPolicyEngine: AlarmPolicyEngine {
     /// Every command the processor asked to authorize, in order.
     var seenCommands: [AlarmCommand] { state.get().seen }
 
-    func authorize(_ command: AlarmCommand, from source: CommandSource) async -> PolicyDecision {
+    func authorize(
+        _ command: AlarmCommand, from source: CommandSource, userConfirmed: Bool
+    ) async -> PolicyDecision {
         state.mutate { store in
             store.seen.append(command)
             return store.decision

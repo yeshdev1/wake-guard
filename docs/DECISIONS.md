@@ -1009,3 +1009,87 @@ decisions are recorded above using the ADR template.
   under a race is not strictly serialized). Full application of the occurrence-level
   commands is a WG-027 follow-on. There is no `AlarmCommand.delete` — deletes go through
   `.disable`; a hard delete, if added, routes here (WG-014 handoff, still open).
+
+### WG-028 (2026-08-05): Deterministic alarm policy engine
+
+- **`DefaultAlarmPolicyEngine`** (`AlarmApplication`, Foundation-only) implements the
+  WG-027 `AlarmPolicyEngine` port: it is the deterministic authorization authority —
+  **the policy engine, not the model, decides** (#3, #31). It evaluates all four factors
+  the acceptance criteria name: **criticality, actor (source), user confirmation, and
+  time-to-fire**, and every denial carries a **user-displayable, coarse** reason (never
+  raw sensitive text, #41).
+- **Rules.** Additive/system commands (`create` / `enable` / `markChallengePassed` /
+  `reconcile` / `recover`) are always authorized — they add or preserve protection.
+  **Destructive** commands (`disable` / `cancelOccurrence` / `rescheduleOccurrence` /
+  `snooze` / `update`) are gated: (a) a critical alarm from `.agentProposal` is
+  **rejected outright — even flagged confirmed** (#4: an AI can never suppress a critical
+  alarm; verified by test); (b) a critical alarm without confirmation is rejected (#6);
+  (c) a non-critical but **imminent** alarm (next fire within the window) without
+  confirmation is rejected. An `.update` of a **non-critical** alarm is authorized (only
+  weakening a *critical* alarm is gated — a downgrade-to-standard or a fire-far-away edit
+  is still gated because the *current* alarm loaded is critical). A genuinely absent
+  alarm (`nil`) → authorized (a no-op cancel).
+- **Fail closed on an unknown read (review BLOCKER, fixed).** `alarm(id:)` has three
+  outcomes: an alarm, `nil`, or a **thrown** `storageUnavailable`. A thrown error is
+  **not** "no alarm" — the engine cannot weigh criticality it could not read, so it
+  **rejects** (fails closed), never fails open. The initial `try?` collapsed the throw
+  into `nil` → `.authorized`, which a transient storage fault could have used to
+  authorize an unconfirmed critical suppression from the user *or* the AI. Now only a
+  definite `nil` authorizes.
+- **`isImminent` respects `isEnabled` (review MAJOR, fixed).** The scheduling engine
+  deliberately ignores `isEnabled` (the caller decides), so the policy engine gates a
+  **disabled** alarm out of imminence — else a disabled alarm inside the window would be
+  gated *and* falsely told "about to go off" (a false safety status). A critical disabled
+  alarm is still gated by the criticality branch, independent of imminence.
+- **Imminent window = 300 s**, a `static let` (the time-to-fire factor). Chosen as a
+  conservative "about to ring" threshold; kept a compile-time constant (not injected) for
+  MVP — promote to a defaulted `init` parameter if a per-alarm/per-user window is ever
+  needed. This safety constant's operational definition belongs to **ADR-007** (critical
+  alarm defaults, still unscheduled). The check is **inclusive** (`<=`) and one-sided —
+  it gates on the alarm's **next** occurrence, ignoring the specific `fireTime` an
+  occurrence-level command targets (MVP-conservative: it gates *more*, never less) and
+  not treating an actively-/just-firing alarm as imminent (a symmetric lower bound needs
+  a `previousOccurrence` primitive that does not exist yet). Both are intentional; WG-085/
+  WG-086 should know the next-occurrence semantics before adding occurrence UI.
+- **Confirmation is a trust boundary, by design.** The engine decides **when**
+  confirmation is required; the caller/UI proves **that** the user confirmed by passing
+  `userConfirmed`. The engine cannot verify a human acted, so the standing contract for
+  the not-yet-wired callers is: **only a synchronous, user-initiated confirmation UI may
+  pass `userConfirmed: true`; the agent path must never set it** (and a critical alarm is
+  rejected regardless of the flag). `AlarmCommandProcessor.process` defaults
+  `userConfirmed: false` — a caller that forgets it gets the safe (unconfirmed) path.
+- **Port change.** `authorize` gained `userConfirmed: Bool` (the WG-027 port had no
+  confirmation input, but #6 requires it). Threaded through the processor and the fake;
+  two conformers, one caller, all updated. Extending the existing port (vs a second port)
+  keeps one atomic authorization decision — a caller can't consult one gate and skip the
+  other.
+- **Deferred: pure engine (review MAJOR, design — deferred with rationale).** The engine
+  is **repo-backed** (it loads the target alarm), so it and the processor each read the
+  same alarm — a duplicate read, and (because the processor `actor` releases isolation at
+  each `await`) a narrow window where the policy could authorize against revision *N*
+  while the processor mutates *N+1*. The architect's alternative — a **pure** function
+  taking `(targetAlarm, now, deviceTimeZone)` with the processor loading once — would
+  remove all three. Deferred because: the one *sharp* edge (fail-open-on-read-error) is
+  fixed directly above; the residual (duplicate read, stale snapshot) is low-probability,
+  caught by the repo's optimistic-revision guard, and already owned by the **WG-027
+  serialization follow-up**; and re-refactoring the just-changed port + reworking the
+  safety-critical processor now would broaden WG-028's scope against the one-task rule.
+  Recorded here so the pure-engine option is not lost.
+- **Reviews (alarm-safety-reviewer + ios-architect, both read the real files).**
+  alarm-safety: **1 BLOCKER** (fail-open on read error — fixed) + **1 MAJOR** (`isImminent`
+  ignored `isEnabled` — fixed), both proven with throwaway probe tests; confirmed #6
+  completeness across all destructive commands, the AI downgrade-then-suppress path is
+  closed, source integrity, #3 routing, and deny-reason safety. ios-architect: **no
+  blocker**; layering/`Sendable`/lint clean, port ripple complete; the pure-engine MAJOR
+  deferred above; test-coverage MAJORs applied (see below).
+- **Tests added for the review findings:** storage-read-error fails closed for both a
+  user and an agent; a disabled alarm inside the window is authorized; an AI snooze of a
+  critical alarm is rejected (#6 "delayed"); cancelling an occurrence of a critical alarm
+  needs confirmation; the 300 s boundary is inclusive (300 s gated, 301 s authorized).
+- **Handoffs.** WG-044 (critical-alarm config UI) and WG-042/WG-085 (create/edit,
+  turn-off-today) are the first real callers — they must pass `userConfirmed` explicitly
+  from a user-initiated confirmation and never from the agent path. WG-171 (agent
+  permission settings) layers feature-gating on top. The engine is **not yet wired into
+  `AppEnvironment`** (only the alarm repo is composed today); #3 is a unit-level guarantee
+  until the UI/processor wiring lands. Feature-flag/kill-switch and permission inputs
+  (ARCHITECTURE §8) are not yet consulted — add when those callers exist.

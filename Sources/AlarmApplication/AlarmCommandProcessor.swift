@@ -73,11 +73,16 @@ actor AlarmCommandProcessor {
     }
 
     /// Authorize, then apply. Every command is authorized (#3) and audited (#46).
+    /// `userConfirmed` is passed to the policy engine, which requires it to cancel /
+    /// delay / weaken a critical or imminent alarm (#6).
     func process(
-        _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor
+        _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor,
+        userConfirmed: Bool = false
     ) async -> CommandOutcome {
         let context = CommandContext(command: command, actor: actor, source: source)
-        if case .rejected(let reason) = await policy.authorize(command, from: source) {
+        if case .rejected(let reason) = await policy.authorize(
+            command, from: source, userConfirmed: userConfirmed)
+        {
             await appendAudit(context, old: nil, new: nil, outcome: .rejected, reason: reason)
             return .rejected(reason: reason)
         }
