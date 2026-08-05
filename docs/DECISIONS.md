@@ -961,3 +961,51 @@ decisions are recorded above using the ADR template.
   presence check); and add `NSAlarmKitUsageDescription` + the AlarmKit capability to
   the project when the adapter is wired and first calls `AlarmManager` (today AlarmKit
   is only implicitly autolinked and no runtime call is made).
+
+### WG-027 (2026-08-03): Transactional alarm command processor
+
+- **`AlarmCommandProcessor`** (`AlarmApplication`, `actor`) is the **single command
+  boundary** and the only invoker of `AlarmManagerAdapter` (#2). Per command:
+  **authorize** (#3 — a `.rejected` mutates nothing) → **persist local alarm** (source
+  of truth first, #10) → **audit** the mutation (#46) → sync to AlarmKit with the
+  **outbox bracketing** the external call (enqueue → markInProgress → schedule/cancel →
+  markApplied / **markUncertain** / markFailed). `AlarmPolicyEngine` is a new
+  domain-owned authorization **port** (the real engine is WG-028); a fake authorizes in
+  tests.
+- **#10 crash-safety:** local-first means the alarm survives every failure — a
+  `.failed`/`.uncertain` external preserves the saved alarm, and an `.uncertain` leaves
+  the outbox entry for reconciliation (never assumed not-done). A cancelled adapter call
+  maps to `.uncertain` too. **Crash recovery of a stranded outbox entry / a
+  local-vs-system divergence is WG-029's job — WG-027 is only crash-safe once WG-029
+  lands.**
+- **Per-command scope:** create/update/enable/disable applied fully. Occurrence-level
+  commands (snooze / cancelOccurrence / rescheduleOccurrence) return **`.unsupported`**,
+  not a success-like `.noOp`, so a future caller can never mistake a dropped snooze for
+  success (review MAJOR). markChallengePassed / reconcile / recover return `.noOp`
+  (fail-safe; owned by WG-073 / WG-029).
+- **Review (alarm-safety + ios-architect, both SDK-verified): no blocker.** Applied:
+  the `.unsupported` split; re-read the stored outbox entry after the key-dedup'd
+  enqueue and mark *its* id (not a phantom fresh id), honoring the retry cap;
+  `CancellationError → .uncertain`; a distinct concurrent-edit reason vs a storage
+  failure on save; honest audit reasons (describe the *local* mutation, not the
+  external) and dropped a false "recovered at launch" claim.
+- **Deliberate design points:** the audit records the **local** mutation; the external
+  sync outcome lives in the **outbox** — a full user history joins the two (WG-048). The
+  state fingerprint is a Foundation-only **FNV-1a** hash (change-detection, not crypto
+  or tamper-evidence). Alarm-save and outbox-enqueue are **not co-committed** (separate
+  repo actors); reconciliation covers the gap — a two-phase commit with AlarmKit is
+  ruled out by ADR-002. Audit writes are best-effort (`try?`); an audit gap is **not
+  yet** repaired at launch (a state-vs-audit backfill is a follow-up).
+- **Revision discipline:** enable/disable — the processor loads, bumps `revision`, and
+  saves. update — the **caller** provides the bumped revision (optimistic concurrency);
+  the processor surfaces the repo's stale-revision rejection as a concurrent-edit reason.
+- **Handoffs:** WG-028 implements the real `AlarmPolicyEngine`. WG-029 re-drives
+  uncertain/pending outbox entries by reading AlarmKit ground truth (never by
+  re-`process`-ing the same command — the key dedups it), re-arms recurring alarms
+  (schedule-ahead), and backfills audit/state gaps. WG-048 joins audit + outbox for the
+  external outcome in history. A dedicated **serialization** task must guarantee
+  no-interleave under concurrent commands (the actor releases isolation at each `await`;
+  the alarm repo's revision guard prevents a lost *local* update, but external ordering
+  under a race is not strictly serialized). Full application of the occurrence-level
+  commands is a WG-027 follow-on. There is no `AlarmCommand.delete` — deletes go through
+  `.disable`; a hard delete, if added, routes here (WG-014 handoff, still open).
