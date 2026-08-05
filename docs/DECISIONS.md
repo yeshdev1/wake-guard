@@ -897,3 +897,67 @@ decisions are recorded above using the ADR template.
   members (one line each in `make(...)`) when the real adapter lands.
 - **Manual verification:** the real on-device authorization prompt is exercised only
   with the real adapter (WG-026) + permission UI — deferred, not testable here.
+
+### WG-026 (2026-08-03): AlarmKit schedule mapping — per-occurrence, not native recurrence
+
+- **The load-bearing decision: per-occurrence `.fixed`, native `.relative` recurrence
+  REJECTED.** `AlarmKitScheduleMapper` (`AlarmInfrastructure`) maps every schedule to
+  `.fixed(instant)` at the next occurrence from the pure `AlarmSchedulingEngine`
+  (`schedule(for: ScheduleRule, after: now, in: timeZone)`). An initial attempt mapped
+  `.weekly` → AlarmKit **native `.relative(.weekly)`** recurrence; adversarial review
+  (alarm-safety + ios-architect) rated it **2 BLOCKERs** and it was reverted after
+  human sign-off: native recurrence (a) forks the committed per-occurrence model
+  (WG-024's per-`fireTime` port, WG-029's scalar-`fireTime` reconciliation), and (b)
+  cedes tz/DST resolution to AlarmKit (violating #13) and **cannot express a
+  fixed-zone weekly alarm** — AlarmKit `.relative` fires wall-clock in the *device's*
+  zone, so a `stayFixed` critical alarm would silently mis-fire while traveling (#16).
+  Per-occurrence keeps the pure engine authoritative (#13): the caller passes the zone
+  it resolves from `TravelBehavior` via `schedulingTimeZone` (WG-021), so fixed-zone
+  vs follow-device is the domain's explicit choice, and AlarmKit gets a resolved
+  instant. **Consequence:** the app must re-drive recurrence (schedule-ahead + launch/
+  foreground reconciliation) so a recurring alarm stays dependable without a BGTask
+  (#10) — that is a WG-027/WG-029 responsibility (see handoffs).
+- **External-id correlation is identity.** `AlarmKit.Alarm.ID` is a `UUID` the caller
+  supplies (`AlarmManager.schedule(id:configuration:)`), so `AlarmID.rawValue` *is* the
+  system id — no persisted mapping (resolves the WG-024 concern; verified from the iOS
+  26.5 SDK swiftinterface).
+- **Minimal live adapter** `SystemAlarmManagerAdapter` (the only caller of
+  `AlarmManager`, #1; compiles against the real SDK, not unit-testable): schedules a
+  `.fixed` alarm with a plain title + Stop-button presentation; **guards
+  `authorizationState == .authorized`** before scheduling so a denial is a typed
+  `.notAuthorized` that mutates nothing (#10); maps AlarmKit errors to **coarse**
+  `.failed(reason:)` (never `String(describing:)`, #41 — unit-tested via the internal
+  `map(_:)`) and `CancellationError` → `.uncertain` (#10).
+- **Criticality (review BLOCKER, resolved by documentation + a mandatory device
+  check):** the iOS 26 AlarmKit API exposes **no app-facing criticality knob**
+  (`AlarmConfiguration`/`AlarmAttributes`/`Alert` have none — verified from the SDK).
+  AlarmKit alarms are *system* alarms that ring through silent mode/Focus by default
+  (the #6–#8 baseline), so scheduling a critical alarm as a standard AlarmKit alarm is
+  **not** under-alerting — but this ring-through **must be verified on a device**
+  (WG-030), and until then no critical alarm is actually scheduled (the adapter is not
+  yet wired). The `.critical` *tier*'s distinct guarantee (explicit cancel-confirmation)
+  is enforced at the policy/command layer (WG-028/WG-027), not the adapter. AlarmKit
+  does not return criticality on read-back, so `ScheduledAlarmSnapshot.isCritical` can
+  not be populated by the real adapter — **WG-029 must compare against locally-tracked
+  intent**, not the read-back field.
+- **Documented minimal-adapter limitations (handoffs):**
+  - **Snooze loses the label:** `snooze(alarmID:until:)` reschedules with a generic
+    "Alarm" title (the port carries no title, and AlarmKit doesn't expose it on
+    read-back). **WG-027 should snooze by re-issuing `schedule(request)` with the
+    retained domain label**, not the adapter's bare `snooze`.
+  - **`scheduledAlarms` skips non-`.fixed`** system alarms (all WakeGuard alarms are
+    `.fixed`); a foreign/`.relative` alarm under our ids would be invisible — **WG-029
+    should treat a known local alarm with no matching `.fixed` system alarm as
+    divergence.**
+  - No `.unavailable` mapping yet (AlarmKit service errors class as `.failed`); refine
+    once the AlarmKit error taxonomy is confirmed on device.
+- **Handoff to WG-027:** compute occurrences via the engine (zone from
+  `schedulingTimeZone` only, #16); schedule several occurrences ahead + re-arm on
+  ring/launch so recurring alarms are dependable without a BGTask (#10); use
+  `schedule` (retained title) for labeled snooze.
+- **Handoff to WG-030 (real-device smoke):** verify a **critical alarm rings through
+  silent mode / Focus / DND**; schedule/cancel/authorization round-trips; AlarmKit's
+  `cancel(id:)` behavior for an unknown id (the adapter defensively no-ops via a
+  presence check); and add `NSAlarmKitUsageDescription` + the AlarmKit capability to
+  the project when the adapter is wired and first calls `AlarmManager` (today AlarmKit
+  is only implicitly autolinked and no runtime call is made).

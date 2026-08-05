@@ -6,6 +6,7 @@
 - [ ] No AI path can call AlarmKit directly.
 - [ ] No response to a pre-alarm prompt leaves the original alarm unchanged.
 - [ ] Critical alarm cancellation/delay requires explicit confirmation.
+- [ ] Critical alarm rings through silent mode, Focus, and Do Not Disturb on a real device (AlarmKit has no app-facing criticality knob — WG-026 assumes the system-alarm baseline; verify — WG-030).
 - [ ] Ten-second challenge pass is validated on real devices.
 - [ ] Shaking alone does not pass in the accepted test matrix.
 - [ ] Accessible non-walking fallback works.
