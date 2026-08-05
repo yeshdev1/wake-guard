@@ -8,7 +8,7 @@ SOURCES     := Sources Tests
 # Override on the CLI, e.g. make test DESTINATION='platform=iOS Simulator,name=iPhone 16,OS=26.5'
 DESTINATION ?= platform=iOS Simulator,name=iPhone 17,OS=26.5
 
-.PHONY: generate build test lint format format-check check-tracking ci clean
+.PHONY: generate build test test-fast lint format format-check check-tracking ci ci-fast clean
 
 generate:
 	xcodegen generate
@@ -27,6 +27,15 @@ test: generate
 		-destination '$(DESTINATION)' \
 		$(if $(RESULT_BUNDLE),-resultBundlePath '$(RESULT_BUNDLE)',)
 
+# Fast dev-loop test: incremental build, NO xcodegen regen, reuses DerivedData.
+# Narrow with ONLY=, e.g. make test-fast ONLY=WakeGuardTests/DefaultAlarmPolicyEngineTests
+# Run `make generate` yourself after ADDING or REMOVING source files (XcodeGen globs).
+test-fast:
+	xcodebuild test \
+		-project $(PROJECT) -scheme $(SCHEME) \
+		-destination '$(DESTINATION)' \
+		$(if $(ONLY),-only-testing:$(ONLY),)
+
 lint:
 	swiftlint lint --strict --config .swiftlint.yml
 
@@ -41,7 +50,14 @@ check-tracking:
 	python3 scripts/task_tracking.py --check
 
 # CI quality gate: tracking + formatting + lint, then build + test (warnings-as-errors).
+# This is the canonical pipeline gate (regenerates the project); keep it for CI.
 ci: check-tracking format-check lint test
+
+# Fast local dev-loop gate: identical checks to `ci` but NO xcodegen regen and a single
+# incremental build (run `make generate` first if files were added/removed). Use this
+# between tasks instead of a separate narrow run followed by a full `ci` — one green
+# `ci-fast` is the local gate, and it matches remote CI's checks.
+ci-fast: check-tracking format-check lint test-fast
 
 # clean also removes .build (SwiftPM output), for when ADR-003 package
 # extraction lands; harmless while the build is XcodeGen-only.
