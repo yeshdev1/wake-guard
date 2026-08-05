@@ -1180,3 +1180,39 @@ decisions are recorded above using the ADR template.
   **local save** as `.succeeded` (the alarm is durably persisted) while the failure lives
   in the **outbox**; the enabled-but-unscheduled alarm is re-armed by ground-truth
   reconciliation (WG-029), not an outbox retry.
+
+### WG-040 (2026-08-05): Design tokens and reusable components
+
+- **Tokens** (`Sources/DesignSystem`): semantic **Dynamic-Type** typography (scales with the
+  user's text size), a fixed **spacing / radius** scale (referenced instead of raw literals,
+  so there are no hard-coded layout assumptions), and **system-semantic colors**
+  (`.systemBackground` / `.primary` / status `.green` / `.red` / `.orange` / `.secondary`)
+  that adapt to **dark mode and Increase Contrast** automatically. No asset catalog — the
+  system colors carry adaptation for free.
+- **Status is never color-alone:** `AlarmStatusStyle` = (label, SF Symbol, tint); the label
+  and icon carry meaning, the tint only reinforces. **Presentation-only** — it maps from a
+  domain status at the view layer, so `DesignSystem` keeps no alarm-domain dependency (lint
+  also keeps it out of the composition root; it may import SwiftUI as a non-domain module).
+- **Components:** `StatusBadge`, `SurfaceCard`, `PrimaryButtonStyle`, `DestructiveButtonStyle`.
+- **No snapshot testing** (no third-party SDK): visual / dark-mode / Dynamic-Type checks are
+  `#Preview`s; unit tests pin the deterministic token + status-model invariants (spacing
+  ascending; every status carries text + icon; critical ≠ scheduled beyond color).
+- **Review (ux-accessibility-reviewer): 1 BLOCKER + 3 MAJOR, all fixed.**
+  - **BLOCKER:** `StatusBadge` drew the text **and icon** in the saturated tint — ~2–3:1,
+    **failed WCAG AA for every status**, and made the icon shape low-contrast (undercutting
+    the "do not rely on color alone" defense). Fixed: label + icon in `.primary` (auto
+    ≥4.5:1, adapts to dark / contrast); the tint is a 15%-opacity **background wash** only.
+  - **MAJOR:** primary vs destructive differed **by color alone** (both solid-filled). Fixed:
+    the destructive style carries a leading danger glyph (`xmark.octagon.fill`, distinct from
+    the critical-status triangle) — a grayscale / color-blind-robust signal.
+  - **MAJOR:** white-on-accent/red fills are only ~3.6–4.0:1. Fixed: the filled-control label
+    is **bold**, clearing the large-text (3:1) bar at every Dynamic Type size; re-verify on
+    device if the shipped accent is ever lightened (`RELEASE_CHECKLIST`).
+  - **MAJOR:** a `ButtonStyle` cannot own an `.accessibilityIdentifier` / hint. Documented the
+    **caller convention** — screens (WG-041+) set an identifier and, on destructive buttons,
+    an `.accessibilityHint`.
+- **Deferred — localization debt (documented, reviewer-endorsed):** `AlarmStatusStyle.label`
+  is a plain `String` (also the VoiceOver label), so the status vocabulary is English-only.
+  The app has **no string catalog yet** and `RootView` is likewise unlocalized — localization
+  is an **E11** concern. When the catalog lands, make these `LocalizedStringResource`; not
+  re-introduced piecemeal here, to avoid inconsistency with the rest of the app.

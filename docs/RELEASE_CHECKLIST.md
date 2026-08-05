@@ -62,6 +62,7 @@
 - [ ] 12/24-hour formats.
 - [ ] RTL.
 - [ ] Non-color status indicators.
+- [ ] Design-system filled controls (primary / destructive) meet contrast on device against the shipped accent and system red at the smallest Dynamic Type size; the destructive action is distinguishable from the primary **without** color (WG-040).
 - [ ] Touch targets.
 - [ ] Sleep-inertia usability.
 - [ ] Approved screenshot baseline.
