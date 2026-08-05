@@ -1,23 +1,5 @@
 import Foundation
 
-/// The result of processing an `AlarmCommand`.
-enum CommandOutcome: Sendable, Equatable {
-    case applied
-    case rejected(reason: String)
-    case failed(reason: String)
-    /// Local state was applied, but the external (AlarmKit) outcome is unknown — the
-    /// outbox entry is left `.uncertain` for reconciliation to resolve (#10).
-    case uncertain
-    /// A command the processor does not yet apply and whose non-application **fails
-    /// safe** (the alarm keeps its current scheduled state) — e.g. reconcile/recover.
-    case noOp
-    /// A command the processor does not yet apply and whose non-application would
-    /// **discard user intent** (snooze / skip / reschedule an occurrence). Returned
-    /// (not `.noOp`) so a caller can never mistake a dropped snooze for success and
-    /// must tell the user the alarm is unchanged.
-    case unsupported(reason: String)
-}
-
 /// Applies an authorized `AlarmCommand` transactionally to local state and AlarmKit
 /// through the outbox/reconciliation pattern (WG-027; ARCHITECTURE §6). It is the
 /// **single command-serialization boundary** and the only invoker of the
@@ -44,6 +26,7 @@ actor AlarmCommandProcessor {
     private let ids: any IdentifierGenerator
     private let deviceTimeZone: @Sendable () -> TimeZone
     private let engine = AlarmSchedulingEngine()
+    private let reconciler = AlarmReconciler()
 
     init(
         policy: any AlarmPolicyEngine,
@@ -276,5 +259,123 @@ actor AlarmCommandProcessor {
             }
         }
         return "The alarm could not be saved."
+    }
+}
+
+/// Launch/foreground reconciliation (WG-029). Kept in an extension so the core command
+/// path and the reconciliation path each stay within the type-body budget; both are
+/// actor-isolated and share the same single adapter-invoking boundary (#2).
+extension AlarmCommandProcessor {
+    /// Make the system authority match the persisted desired state. Reads ground truth
+    /// and the desired alarms, plans the safe repairs (missing / extra / divergent), and
+    /// applies each through the adapter as a `.systemReconciliation` action, auditing
+    /// every repair (#46, #50). The plan is idempotent, so re-running when nothing
+    /// diverged is a no-op.
+    ///
+    /// **Fails safe (#10):** if ground truth *or* the desired state cannot be read it
+    /// repairs nothing and returns `skipped` — it never repairs against an unknown system
+    /// (which could strand a divergence), and never treats a *failed* desired read as "no
+    /// alarms" (which would cancel every system alarm). A repair that hard-fails is
+    /// audited and counted; a repair whose outcome is *uncertain* (interrupted /
+    /// cancelled) is counted separately and re-checked on the next pass, never dropped.
+    func reconcile() async -> ReconciliationSummary {
+        guard let system = try? await alarmManager.scheduledAlarms() else {
+            return ReconciliationSummary(skipped: true)
+        }
+        guard let desired = try? await alarms.allAlarms() else {
+            return ReconciliationSummary(skipped: true)
+        }
+        let repairs = reconciler.plan(
+            desired: desired, system: system, now: clock.now, deviceTimeZone: deviceTimeZone())
+        var summary = ReconciliationSummary()
+        for repair in repairs {
+            await apply(repair, into: &summary)
+        }
+        return summary
+    }
+
+    /// Apply one repair and fold its outcome into `summary`. An *uncertain* outcome (the
+    /// adapter may or may not have applied it) is counted apart from a hard failure: the
+    /// local alarm is preserved and the next pass re-checks ground truth and retries (#10).
+    private func apply(
+        _ repair: ReconciliationRepair, into summary: inout ReconciliationSummary
+    ) async {
+        let outcome: RepairOutcome
+        let scheduled: Bool
+        switch repair {
+        case .schedule(let request):
+            outcome = await applyReconcileSchedule(request)
+            scheduled = true
+        case .cancel(let id):
+            outcome = await applyReconcileCancel(id)
+            scheduled = false
+        }
+        switch outcome {
+        case .applied:
+            if scheduled { summary.scheduled += 1 } else { summary.cancelled += 1 }
+        case .uncertain: summary.uncertain += 1
+        case .failed: summary.failed += 1
+        }
+    }
+
+    private func applyReconcileSchedule(_ request: AlarmScheduleRequest) async -> RepairOutcome {
+        let context = CommandContext(
+            command: .reconcile(request.alarmID), actor: .systemReconciliation,
+            source: .reconciliation)
+        do {
+            try await alarmManager.schedule(request)
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .succeeded,
+                reason: "Re-synced this alarm to your saved settings.")
+            return .applied
+        } catch AlarmManagerError.uncertain {
+            return await auditUncertainRepair(context)
+        } catch is CancellationError {
+            return await auditUncertainRepair(context)
+        } catch {
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .failed, reason: Self.reason(for: error))
+            return .failed
+        }
+    }
+
+    private func applyReconcileCancel(_ id: AlarmID) async -> RepairOutcome {
+        let context = CommandContext(
+            command: .reconcile(id), actor: .systemReconciliation, source: .reconciliation)
+        do {
+            try await alarmManager.cancel(alarmID: id)
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .succeeded,
+                reason: "Removed a system alarm that no longer matched your settings.")
+            return .applied
+        } catch AlarmManagerError.uncertain {
+            return await auditUncertainRepair(context)
+        } catch is CancellationError {
+            return await auditUncertainRepair(context)
+        } catch {
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .failed, reason: Self.reason(for: error))
+            return .failed
+        }
+    }
+
+    /// Record a repair whose external outcome is unknown (interrupted / cancelled).
+    /// Audited as `.failed` — the safe "treat as not-yet-applied" posture (#10) — with an
+    /// honest reason; the next reconciliation pass re-checks ground truth and retries. (A
+    /// dedicated `.uncertain` *audit* outcome is a future domain addition — WG-048.)
+    private func auditUncertainRepair(_ context: CommandContext) async -> RepairOutcome {
+        await appendAudit(
+            context, old: nil, new: nil, outcome: .failed,
+            reason: "The alarm sync outcome was unknown; it will be re-checked on the next sync.")
+        return .uncertain
+    }
+
+    /// The outcome of applying one reconciliation repair against the system authority.
+    private enum RepairOutcome: Sendable {
+        case applied
+        /// The adapter call was interrupted / cancelled and may or may not have applied —
+        /// the next pass re-checks ground truth (#10), so it is never a hard failure.
+        case uncertain
+        case failed
     }
 }

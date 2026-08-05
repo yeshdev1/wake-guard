@@ -10,7 +10,7 @@
 - [ ] Ten-second challenge pass is validated on real devices.
 - [ ] Shaking alone does not pass in the accepted test matrix.
 - [ ] Accessible non-walking fallback works.
-- [ ] Alarm state reconciles on launch/foreground.
+- [ ] Alarm state reconciles on launch/foreground: a **missing** system alarm is re-scheduled, an **extra** one is cancelled, and a **divergent** fire time is corrected, each producing a `systemReconciliation` audit entry (WG-029). Verify the real AlarmKit read-back reports **criticality** — else a critical alarm looks divergent every pass and is redundantly re-scheduled (WG-026/WG-029 seam). Confirm reconciliation never cancels a **currently ringing** alarm (future-only cancel, #24). Requires the launch/foreground trigger + processor composition (follow-on).
 - [ ] Every mutation appears in audit history.
 - [ ] Error UI states whether the alarm remains scheduled.
 

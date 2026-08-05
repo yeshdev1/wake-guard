@@ -1093,3 +1093,66 @@ decisions are recorded above using the ADR template.
   `AppEnvironment`** (only the alarm repo is composed today); #3 is a unit-level guarantee
   until the UI/processor wiring lands. Feature-flag/kill-switch and permission inputs
   (ARCHITECTURE §8) are not yet consulted — add when those callers exist.
+
+### WG-029 (2026-08-05): Launch/foreground reconciliation (ground-truth)
+
+- **Two pieces.** `AlarmReconciler` (`AlarmDomain`, **pure**, ARCHITECTURE §127):
+  `plan(desired:system:now:deviceTimeZone:) -> [ReconciliationRepair]` compares the
+  desired system state (each **enabled** alarm's next occurrence via
+  `AlarmSchedulingEngine`) with a `ScheduledAlarmSnapshot` of the system authority and
+  emits `.schedule` for a **missing** or **divergent** (fire time or `isCritical` drift)
+  alarm and `.cancel` for an **extra** one. `AlarmCommandProcessor.reconcile()`
+  (`AlarmApplication`) reads ground truth + desired, runs the planner, and applies each
+  repair as a `.systemReconciliation` / `.reconciliation` action, auditing every repair.
+- **Ground-truth, not outbox-replay.** WG-029 reconciles against **what AlarmKit actually
+  holds vs. desired**, which is authoritative regardless of outbox state and recovers the
+  *effect* of any stranded operation. It is **idempotent by construction**: once the
+  system matches desired, the plan is empty (no oscillation, no duplicate schedule).
+- **#2 preserved — reconcile lives in the processor.** Only `AlarmCommandProcessor`
+  invokes the adapter (#2), so the reconcile **driver** is a processor method (a same-file
+  `extension`, which keeps `alarmManager` `private`); the §127 "AlarmReconciler" is
+  realized as the **pure planner** (no adapter). A separate component that read
+  `scheduledAlarms()` itself would be a second adapter-invoker — rejected.
+- **Fail-safe (#10).** If ground truth **or** the desired read *throws*, reconcile repairs
+  nothing and returns `skipped` — it never repairs against an unknown system, and (the
+  catastrophic case) never treats a *failed* desired read as "no alarms" and cancels every
+  system alarm. The `try?`→`nil` (failed) vs `[]` (genuinely empty → cancel extras)
+  distinction is load-bearing and tested. A repair that **hard-fails** is audited +
+  counted; a repair whose outcome is **uncertain** (interrupted / cancelled — the adapter
+  may or may not have applied) is counted **apart** (`ReconciliationSummary.uncertain`),
+  not as a failure, and re-checked next pass — mirroring the command path's uncertain
+  handling (review MAJOR, fixed).
+- **No re-authorization.** Reconcile converges to **already-authorized local intent**
+  (system-matches-local); it is not a new user/agent mutation, so it does not re-enter
+  `AlarmPolicyEngine` (reconcile/enable/create are non-destructive there anyway). Cancel
+  is **future-only**, so reconcile can never stop a ringing alarm (#24). Audit records
+  **nil** old/new state hashes because a repair mutates **system**, not local, state (the
+  local alarm is unchanged) — an intentional #47 reading, not a miss.
+- **Reviews (alarm-safety + ios-architect): no blocker.** Applied: honest
+  uncertain/cancelled repair accounting (was mislabelled hard-`failed`); + a fixed-zone
+  planner test (#16 anchor-zone), a multi-repair sort-order test, and an
+  uncertain-during-reconcile test.
+- **Deliberately deferred (documented, reviewer-endorsed — all liveness/scope, not
+  safety):**
+  - **Outbox terminalization / undecodable-row quarantine** (the WG-016/WG-027 handoff):
+    ground-truth reconcile already restores the divergence, so non-terminal outbox entries
+    are harmless (idempotency-keyed) but accumulate — terminalizing/quarantining them is a
+    follow-on. **This supersedes the WG-027 handoff wording** ("WG-029 re-drives uncertain/
+    pending outbox entries"): WG-029 delivers *ground-truth* reconciliation; outbox
+    cleanup is separate.
+  - **The scene-phase trigger + `AppEnvironment` composition.** `reconcile()` is shipped +
+    tested but **nothing calls it yet** (the processor is not composed — consistent with
+    WG-028). The eventual launch + `.active` trigger must drive both the command worker and
+    reconcile through a **single** processor instance (§6 serialization).
+  - **`isCritical` read-back seam.** The planner's criticality-divergence check needs the
+    adapter read-back to report real `isCritical`; the WG-026 adapter cannot yet, so against
+    it every critical alarm looks divergent each pass → a redundant (same-time, harmless)
+    reschedule. Resolve when the real read-back supplies criticality (or track intended
+    criticality locally). On the release checklist.
+  - **`SkipReason` observability** (which read failed) — deferred until a privacy-safe
+    logging consumer exists (WG-019 / diagnostics).
+- **Structure note.** To stay under `type_body_length`/`file_length`, `reconcile()` is a
+  same-file extension, `CommandOutcome` moved to its own file, and `ReconciliationSummary`
+  to `AlarmDomain` beside `ReconciliationRepair`. `AlarmCommandProcessor` is now near both
+  limits — flagged for the **serialization / decomposition follow-up** the architect
+  recommended.
