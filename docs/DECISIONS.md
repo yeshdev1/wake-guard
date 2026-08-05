@@ -1156,3 +1156,27 @@ decisions are recorded above using the ADR template.
   to `AlarmDomain` beside `ReconciliationRepair`. `AlarmCommandProcessor` is now near both
   limits — flagged for the **serialization / decomposition follow-up** the architect
   recommended.
+
+### WG-030 (2026-08-05): Schedule/cancel/snooze integration tests (scope)
+
+- **Test-only.** WG-030 adds `AlarmSchedulingIntegrationTests` over the processor →
+  adapter → persistence path; **no production code changed** — every path already existed
+  (WG-026/027/029). It fills the gaps WG-027's tests left: the injected-failure matrix on
+  **cancel**, the remaining **schedule** errors (notAuthorized / unavailable), real
+  **cancellation races** on both operations, and the occurrence-command safe contract —
+  each asserting the safe persisted outcome (#10).
+- **Snooze is not implemented end-to-end.** Processor-level `.snooze` (and
+  cancelOccurrence / rescheduleOccurrence) remain **`.unsupported`** — the WG-027
+  occurrence-level deferral is **not** re-opened here (full snooze couples to the ring /
+  challenge flow, WG-073). "Snooze integration" is covered at the **adapter** level
+  (WG-024's fake tests) plus the processor's unsupported safe contract (authorized,
+  audited `noOp`, **no** adapter / outbox / local side effect).
+- **Cancellation races** are modelled with a real `Task.cancel()` and an adapter that
+  `Task.checkCancellation()`s at the external boundary — deterministic because `cancel()`
+  runs before the task can traverse the ~6 async persistence hops to reach the adapter.
+  The processor maps the resulting `CancellationError` to `.uncertain` and leaves the
+  outbox for reconciliation (#10), never assuming the op did not happen.
+- **Confirmed WG-027's local/external audit split:** a failed external schedule audits the
+  **local save** as `.succeeded` (the alarm is durably persisted) while the failure lives
+  in the **outbox**; the enabled-but-unscheduled alarm is re-armed by ground-truth
+  reconciliation (WG-029), not an outbox retry.
