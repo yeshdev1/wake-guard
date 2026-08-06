@@ -17,6 +17,9 @@ final class CreateAlarmViewModel {
         /// The form did not describe a saveable alarm (should be unreachable — the UI
         /// disables Save when `canSave` is false).
         case invalid
+        /// The policy requires explicit confirmation (editing a critical / imminent alarm, #6);
+        /// `reason` is the prompt. The view confirms and calls `save(confirmed: true)`.
+        case needsConfirmation(reason: String)
         case failed(reason: String)
     }
 
@@ -33,22 +36,37 @@ final class CreateAlarmViewModel {
     private let ids: any IdentifierGenerator
     private let deviceTimeZone: @Sendable () -> TimeZone
     private let engine = AlarmSchedulingEngine()
+    /// The alarm being edited, or `nil` when creating (WG-043).
+    private let editing: Alarm?
     /// A fixed id for the throwaway preview/validation alarm, so computing the preview never
     /// consumes a real identifier.
     private static let previewID = AlarmID(UUID())
 
+    var isEditing: Bool { editing != nil }
+
     init(
-        processor: any AlarmCommandProcessing, clock: any WallClock, ids: any IdentifierGenerator,
+        editing: Alarm? = nil, processor: any AlarmCommandProcessing, clock: any WallClock,
+        ids: any IdentifierGenerator,
         deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current }
     ) {
+        self.editing = editing
         self.processor = processor
         self.clock = clock
         self.ids = ids
         self.deviceTimeZone = deviceTimeZone
         let now = clock.now
-        self.time = now
-        self.date = now
-        self.weekdays = Set(Weekday.allCases)
+        if let editing {
+            let seed = Self.seed(from: editing.schedule, now: now, zone: deviceTimeZone())
+            self.label = editing.label
+            self.kind = seed.kind
+            self.time = seed.time
+            self.weekdays = seed.weekdays
+            self.date = seed.date
+        } else {
+            self.time = now
+            self.date = now
+            self.weekdays = Set(Weekday.allCases)
+        }
     }
 
     /// The next time this alarm would fire, for the live preview. This is also the
@@ -63,27 +81,40 @@ final class CreateAlarmViewModel {
 
     var canSave: Bool { nextOccurrence != nil }
 
-    func save() async -> SaveResult {
-        // Re-validate at submit time, not only when enabling the button: the chosen minute
-        // can lapse into the past between the preview and the Save tap, and a past-due alarm
-        // must never be saved (it could never ring). `nextOccurrence` uses the throwaway
-        // preview id, so an invalid save consumes no real identifier.
-        guard nextOccurrence != nil, let alarm = buildAlarm(id: AlarmID(ids.next())) else {
-            return .invalid
+    func save(confirmed: Bool = false) async -> SaveResult {
+        // Re-validate at submit time, not only when enabling the button: the chosen minute can
+        // lapse into the past between the preview and the Save tap, and a past-due alarm must
+        // never be saved (it could never ring).
+        guard nextOccurrence != nil else { return .invalid }
+        let command: AlarmCommand
+        if let editing {
+            guard let updated = buildAlarm(id: editing.id, basedOn: editing) else {
+                return .invalid
+            }
+            command = .update(updated)
+        } else {
+            // `nextOccurrence` uses the throwaway preview id, so an invalid create consumes none.
+            guard let created = buildAlarm(id: AlarmID(ids.next())) else { return .invalid }
+            command = .create(created)
         }
         isSaving = true
         defer { isSaving = false }
         switch await processor.process(
-            .create(alarm), from: .userInterface, by: .user, userConfirmed: false)
+            command, from: .userInterface, by: .user, userConfirmed: confirmed)
         {
         // The alarm is persisted locally on both outcomes; `.uncertain` is the deferred-sync
-        // case (the system schedule is placed later by reconciliation) — still a create.
+        // case (the system schedule is placed later by reconciliation) — still saved.
         case .applied, .uncertain:
             return .created
+        case .needsConfirmation(let reason):
+            // Editing a critical / imminent alarm needs explicit confirmation (#6); the view
+            // prompts and calls save(confirmed: true).
+            return .needsConfirmation(reason: reason)
         case .rejected(let reason), .failed(let reason):
+            // Not confirmable (fail-closed read error, etc.) — surface as a plain failure.
             return .failed(reason: reason)
         case .noOp, .unsupported:
-            return .failed(reason: "The alarm could not be created.")
+            return .failed(reason: "The alarm could not be saved.")
         }
     }
 
@@ -115,6 +146,49 @@ final class CreateAlarmViewModel {
                 let calendarDate = try? CalendarDate(year: year, month: month, day: day)
             else { return nil }
             return .oneTime(OneTimeSchedule(date: calendarDate, time: timeOfDay, timeZone: iana))
+        }
+    }
+
+    /// Build the edited alarm — same id, bumped revision, other fields preserved (only the
+    /// label + schedule are editable here; criticality is WG-044).
+    private func buildAlarm(id: AlarmID, basedOn existing: Alarm) -> Alarm? {
+        guard let schedule = buildSchedule() else { return nil }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try? Alarm(
+            id: existing.id, label: trimmed, isEnabled: existing.isEnabled, schedule: schedule,
+            travelBehavior: existing.travelBehavior, criticality: existing.criticality,
+            sound: existing.sound, snoozePolicy: existing.snoozePolicy,
+            challengePolicy: existing.challengePolicy, preAlarmPolicy: existing.preAlarmPolicy,
+            createdAt: existing.createdAt, updatedAt: clock.now, revision: existing.revision + 1)
+    }
+
+    /// The form fields decomposed from an existing schedule for editing.
+    private struct FormSeed {
+        let kind: ScheduleKind
+        let time: Date
+        let weekdays: Set<Weekday>
+        let date: Date
+    }
+
+    private static func seed(from schedule: ScheduleRule, now: Date, zone: TimeZone) -> FormSeed {
+        var calendar = Calendar.current
+        calendar.timeZone = zone
+        switch schedule {
+        case .weekly(let weekly):
+            let time = calendar.date(
+                bySettingHour: weekly.time.hour, minute: weekly.time.minute, second: 0, of: now)
+            return FormSeed(kind: .weekly, time: time ?? now, weekdays: weekly.days.days, date: now)
+        case .oneTime(let oneTime):
+            let time = calendar.date(
+                bySettingHour: oneTime.time.hour, minute: oneTime.time.minute, second: 0, of: now)
+            var parts = DateComponents()
+            parts.year = oneTime.date.year
+            parts.month = oneTime.date.month
+            parts.day = oneTime.date.day
+            parts.hour = 12
+            return FormSeed(
+                kind: .oneTime, time: time ?? now, weekdays: Set(Weekday.allCases),
+                date: calendar.date(from: parts) ?? now)
         }
     }
 }

@@ -72,11 +72,13 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
                     + "Do it yourself if you’re sure.")
         }
         if critical, !userConfirmed {
-            return .rejected(
+            // Confirmable (#6): the user can re-submit with confirmation. Distinct from the
+            // #4 agent rejection above, which no confirmation can lift.
+            return .needsConfirmation(
                 reason: "This is a critical alarm. Confirm that you want to cancel or change it.")
         }
         if !critical, isImminent(alarm), !userConfirmed {
-            return .rejected(
+            return .needsConfirmation(
                 reason: "This alarm is about to go off. Confirm that you want to cancel or "
                     + "change it.")
         }
@@ -85,7 +87,7 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
 
     private func isDestructive(_ command: AlarmCommand) -> Bool {
         switch command {
-        case .disable, .cancelOccurrence, .rescheduleOccurrence, .snooze, .update:
+        case .disable, .delete, .cancelOccurrence, .rescheduleOccurrence, .snooze, .update:
             return true
         case .create, .enable, .markChallengePassed, .reconcile, .recover:
             return false

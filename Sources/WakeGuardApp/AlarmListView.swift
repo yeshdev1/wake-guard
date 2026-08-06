@@ -38,6 +38,7 @@ private struct AlarmListScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AlarmListViewModel
     @State private var showingCreate = false
+    @State private var editingAlarm: Alarm?
     private let processor: any AlarmCommandProcessing
     private let clock: any WallClock
     private let ids: any IdentifierGenerator
@@ -47,7 +48,8 @@ private struct AlarmListScreen: View {
         alarms: any AlarmRepository, clock: any WallClock,
         processor: any AlarmCommandProcessing, ids: any IdentifierGenerator, schedulesInSystem: Bool
     ) {
-        _model = State(wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock))
+        _model = State(
+            wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock, processor: processor))
         self.processor = processor
         self.clock = clock
         self.ids = ids
@@ -81,6 +83,40 @@ private struct AlarmListScreen: View {
             .safeAreaInset(edge: .bottom) {
                 if !schedulesInSystem { SchedulingDisabledBanner() }
             }
+            .sheet(
+                item: $editingAlarm,
+                onDismiss: { Task { await model.load() } },
+                content: {
+                    CreateAlarmView(editing: $0, processor: processor, clock: clock, ids: ids)
+                }
+            )
+            .alert(
+                "Confirm change", isPresented: confirmationPresented,
+                presenting: model.pendingConfirmation
+            ) { _ in
+                Button("Cancel", role: .cancel) { Task { await model.cancelPendingConfirmation() } }
+                Button("Confirm", role: .destructive) { Task { await model.confirmPending() } }
+            } message: {
+                Text($0.reason)
+            }
+            .alert("Couldn’t complete", isPresented: actionErrorPresented) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.actionError ?? "")
+            }
+    }
+
+    private var confirmationPresented: Binding<Bool> {
+        Binding(
+            get: { model.pendingConfirmation != nil },
+            // A dismissal that doesn't go through our buttons (e.g. an interruption) must
+            // restore true state — symmetric with the error alert below — so the withheld
+            // command never lingers pending and re-presents.
+            set: { if !$0 { Task { await model.cancelPendingConfirmation() } } })
+    }
+
+    private var actionErrorPresented: Binding<Bool> {
+        Binding(get: { model.actionError != nil }, set: { if !$0 { model.dismissActionError() } })
     }
 
     @ViewBuilder private var stateContent: some View {
@@ -95,7 +131,9 @@ private struct AlarmListScreen: View {
                 message: "Alarms you create will appear here.", identifier: "alarmListEmpty",
                 actionTitle: "Add alarm", action: { showingCreate = true })
         case .loaded(let content):
-            AlarmListLoadedView(content: content)
+            AlarmListLoadedView(
+                content: content, model: model,
+                onEdit: { editingAlarm = model.alarm(for: $0) })
         case .failed(let reason):
             AlarmListMessageView(
                 systemImage: "exclamationmark.triangle", title: "Couldn’t load alarms",
@@ -104,49 +142,12 @@ private struct AlarmListScreen: View {
     }
 }
 
-/// A non-blocking banner shown while reconciliation runs (WG-029) — the alarm list stays
-/// visible beneath it, so the user always sees their known alarms.
-private struct ReconcilingBanner: View {
-    var body: some View {
-        HStack(spacing: DesignSystem.Spacing.sm) {
-            ProgressView().controlSize(.small)
-            Text("Checking your alarms…").font(DesignSystem.Typography.secondary)
-            Spacer()
-        }
-        .padding(DesignSystem.Spacing.sm)
-        .frame(maxWidth: .infinity)
-        .background(DesignSystem.Colors.surface)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Checking your alarms")
-        .accessibilityIdentifier("reconcilingBanner")
-    }
-}
-
-/// A persistent disclosure shown while system scheduling is not yet wired (the WG-042
-/// interim `DeferredAlarmManagerAdapter`): alarms are saved but will not ring until the
-/// AlarmKit integration lands, so a saved alarm is never silently implied to ring (CLAUDE.md
-/// "state explicitly whether the alarm is safe"). Icon + text — not conveyed by color alone.
-private struct SchedulingDisabledBanner: View {
-    var body: some View {
-        HStack(spacing: DesignSystem.Spacing.sm) {
-            Image(systemName: "bell.slash").accessibilityHidden(true)
-            Text("Alarms are saved but won’t ring yet on this device.")
-                .font(DesignSystem.Typography.caption)
-            Spacer()
-        }
-        .padding(DesignSystem.Spacing.sm)
-        .frame(maxWidth: .infinity)
-        .background(DesignSystem.Colors.statusAttention.opacity(0.15))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Alarms are saved but won’t ring yet on this device.")
-        .accessibilityIdentifier("schedulingDisabledBanner")
-    }
-}
-
 /// The loaded list: a prominent next-alarm summary section, then every alarm. `List`
 /// sections give VoiceOver a logical reading order (summary before the full list).
 private struct AlarmListLoadedView: View {
     let content: AlarmListContent
+    let model: AlarmListViewModel
+    let onEdit: (AlarmID) -> Void
 
     var body: some View {
         List {
@@ -154,7 +155,9 @@ private struct AlarmListLoadedView: View {
                 NextAlarmSummary(item: content.nextAlarm)
             }
             Section("All alarms") {
-                ForEach(content.items) { AlarmRow(item: $0) }
+                ForEach(content.items) { item in
+                    AlarmRow(item: item, model: model, onEdit: onEdit)
+                }
             }
         }
         .accessibilityIdentifier("alarmList")
@@ -202,22 +205,58 @@ private struct NextAlarmSummary: View {
 /// VoiceOver phrase. Reflows to vertical at large text sizes so nothing truncates.
 private struct AlarmRow: View {
     let item: AlarmListItem
+    let model: AlarmListViewModel
+    let onEdit: (AlarmID) -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack {
-                labelStack
-                Spacer(minLength: DesignSystem.Spacing.sm)
-                StatusBadge(style: item.status)
+        HStack {
+            Button {
+                onEdit(item.id)
+            } label: {
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        labelStack
+                        Spacer(minLength: DesignSystem.Spacing.sm)
+                        StatusBadge(style: item.status)
+                    }
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+                        labelStack
+                        StatusBadge(style: item.status)
+                    }
+                }
+                .contentShape(Rectangle())
             }
-            VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-                labelStack
-                StatusBadge(style: item.status)
-            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.accessibilityLabel)
+            .accessibilityHint("Edit alarm")
+            .accessibilityIdentifier("alarmRow")
+
+            Toggle("Enabled", isOn: enabledBinding)
+                .labelsHidden()
+                // The switch trait speaks the on/off value; name the alarm and the
+                // consequence so VoiceOver isn't a bare "<label>, switch" with no purpose.
+                .accessibilityLabel("\(item.label) alarm")
+                .accessibilityHint(item.isEnabled ? "Turns this alarm off" : "Turns this alarm on")
+                .accessibilityIdentifier("alarmToggle")
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(item.accessibilityLabel)
-        .accessibilityIdentifier("alarmRow")
+        // `allowsFullSwipe: false`: delete is a deliberate two-step (swipe to reveal, then
+        // tap), never a single reflexive full-swipe — so a critical alarm is never destroyed
+        // by accident, and its confirmation prompt is always reached by an intentional tap.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                Task { await model.delete(item.id) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .accessibilityIdentifier("deleteAlarm")
+        }
+    }
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { item.isEnabled },
+            set: { enabled in Task { await model.setEnabled(enabled, for: item.id) } })
     }
 
     @ViewBuilder private var labelStack: some View {
@@ -226,47 +265,6 @@ private struct AlarmRow: View {
             Text(item.nextRingText).font(DesignSystem.Typography.secondary)
                 .foregroundStyle(DesignSystem.Colors.secondaryText)
         }
-    }
-}
-
-/// A centered message state (loading / empty / error / unavailable). One combined
-/// accessibility element with a stable identifier for UI tests.
-private struct AlarmListMessageView: View {
-    var progress = false
-    var systemImage: String?
-    let title: String
-    let message: String
-    let identifier: String
-    var actionTitle: String?
-    var action: (() -> Void)?
-
-    var body: some View {
-        VStack(spacing: DesignSystem.Spacing.lg) {
-            VStack(spacing: DesignSystem.Spacing.md) {
-                if progress {
-                    ProgressView()
-                } else if let systemImage {
-                    Image(systemName: systemImage).font(.largeTitle)
-                        .foregroundStyle(DesignSystem.Colors.secondaryText).accessibilityHidden(
-                            true)
-                }
-                Text(title).font(DesignSystem.Typography.sectionTitle)
-                if !message.isEmpty {
-                    Text(message).font(DesignSystem.Typography.secondary)
-                        .foregroundStyle(DesignSystem.Colors.secondaryText)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier(identifier)
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(PrimaryButtonStyle())
-                    .accessibilityIdentifier("\(identifier)Action")
-            }
-        }
-        .padding(DesignSystem.Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -298,24 +296,43 @@ extension AlarmListContent {
     }()
 }
 
+extension AlarmListViewModel {
+    /// A preview model over the in-memory graph (no disk, no real AlarmKit).
+    fileprivate static var preview: AlarmListViewModel {
+        let environment = AppEnvironment.preview
+        return AlarmListViewModel(
+            alarms: environment.alarmRepository, clock: environment.clock,
+            processor: environment.alarmCommandProcessor)
+    }
+}
+
 #Preview("Loaded — light") {
-    NavigationStack { AlarmListLoadedView(content: .preview).navigationTitle("Alarms") }
+    NavigationStack {
+        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
+            "Alarms")
+    }
 }
 
 #Preview("Loaded — dark") {
-    NavigationStack { AlarmListLoadedView(content: .preview).navigationTitle("Alarms") }
-        .preferredColorScheme(.dark)
+    NavigationStack {
+        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
+            "Alarms")
+    }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Loaded — accessibility XL") {
-    NavigationStack { AlarmListLoadedView(content: .preview).navigationTitle("Alarms") }
-        .environment(\.dynamicTypeSize, .accessibility5)
+    NavigationStack {
+        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
+            "Alarms")
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
 }
 
 #Preview("Reconciling banner") {
     VStack(spacing: 0) {
         ReconcilingBanner()
-        AlarmListLoadedView(content: .preview)
+        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in })
     }
 }
 

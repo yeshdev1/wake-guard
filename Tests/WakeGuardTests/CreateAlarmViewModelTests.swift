@@ -171,33 +171,3 @@ final class CreateAlarmViewModelTests: XCTestCase {
         XCTAssertEqual(alarm.label, "", "a blank label is stored empty (the list shows a default)")
     }
 }
-
-/// A configurable `AlarmCommandProcessing` for tests: records every submitted command and
-/// returns a set outcome, so a screen's mutation path is exercised without the real actor.
-final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
-    private struct State: Sendable {
-        var outcome: CommandOutcome
-        var seen: [AlarmCommand] = []
-    }
-    private let state: Synchronized<State>
-
-    init(outcome: CommandOutcome = .uncertain) {
-        state = Synchronized(State(outcome: outcome))
-    }
-
-    var seen: [AlarmCommand] { state.get().seen }
-
-    func setOutcome(_ outcome: CommandOutcome) {
-        state.mutate { $0.outcome = outcome }
-    }
-
-    func process(
-        _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor,
-        userConfirmed: Bool
-    ) async -> CommandOutcome {
-        state.mutate { store in
-            store.seen.append(command)
-            return store.outcome
-        }
-    }
-}

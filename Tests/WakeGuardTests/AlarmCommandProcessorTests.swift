@@ -228,6 +228,52 @@ final class AlarmCommandProcessorTests: XCTestCase {
         XCTAssertEqual(outcome, .uncertain)
     }
 
+    func testDeleteRemovesLocalAndCancelsSystem() async throws {
+        let fixture = try makeFixture()
+        let alarm = try makeAlarm()
+        _ = await fixture.processor.process(.create(alarm), from: .userInterface, by: .user)
+
+        let outcome = await fixture.processor.process(
+            .delete(alarm.id), from: .userInterface, by: .user)
+
+        XCTAssertEqual(outcome, .applied)
+        let stored = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertNil(stored, "the local alarm is deleted (source of truth first, #10)")
+        XCTAssertEqual(
+            fixture.adapter.cancelledAlarmIDs, [alarm.id], "the system alarm is cancelled")
+        let events = try await fixture.audit.events(forAlarm: alarm.id)
+        XCTAssertEqual(events.last?.outcome, .succeeded)
+        XCTAssertNil(events.last?.newStateHash, "a delete has no new state")
+    }
+
+    /// A definite system-cancel failure must NOT downgrade the delete: the local record
+    /// (source of truth, #10) is already gone, so the alarm is deleted and the outcome stays
+    /// `.applied`. The stranded system alarm is the safe direction (a spurious ring, never a
+    /// missed one) and is reaped by reconciliation (WG-029) — criterion 3, a coherent safe
+    /// state on failure (no vanished-row-plus-scary-error incoherence).
+    func testDeleteWithFailedSystemCancelStillReportsDeleted() async throws {
+        let fixture = try makeFixture()
+        let alarm = try makeAlarm()
+        _ = await fixture.processor.process(.create(alarm), from: .userInterface, by: .user)
+        fixture.adapter.inject(.failed(reason: "busy"), on: .cancel)
+
+        let outcome = await fixture.processor.process(
+            .delete(alarm.id), from: .userInterface, by: .user)
+
+        XCTAssertEqual(outcome, .applied, "a failed system cancel doesn't undo a done local delete")
+        let stored = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertNil(stored, "the local alarm is gone regardless of the system cancel result")
+        let events = try await fixture.audit.events(forAlarm: alarm.id)
+        XCTAssertEqual(events.last?.outcome, .succeeded, "the delete is audited as succeeded")
+    }
+
+    func testDeletingUnknownAlarmIsNoOp() async throws {
+        let fixture = try makeFixture()
+        let outcome = await fixture.processor.process(
+            .delete(AlarmID(alarmIDs.next())), from: .userInterface, by: .user)
+        XCTAssertEqual(outcome, .noOp, "deleting a non-existent alarm is a safe no-op")
+    }
+
     /// Throws `CancellationError` on `schedule` — a non-`AlarmManagerError` throw, to
     /// exercise the processor's defensive cancellation-to-uncertain mapping.
     private struct CancellingAdapter: AlarmManagerAdapter {

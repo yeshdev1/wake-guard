@@ -21,6 +21,14 @@ protocol AlarmPolicyEngine: Sendable {
 enum PolicyDecision: Sendable, Equatable {
     case authorized
     /// Rejected — `reason` is a coarse, user-safe string (never raw sensitive text,
-    /// #41). A rejected command must not mutate any state.
+    /// #41). A rejected command must not mutate any state. A rejection is **not**
+    /// confirmable: re-submitting with `userConfirmed: true` will not authorize it
+    /// (it is a fail-closed read error, or an automated proposal barred by #4).
     case rejected(reason: String)
+    /// The command is a destructive change to a critical or imminent alarm that the
+    /// user must explicitly confirm (#6). Unlike `.rejected`, re-submitting the same
+    /// command with `userConfirmed: true` **will** be authorized. `reason` is the
+    /// user-facing prompt. Kept distinct so a caller never offers "confirm & retry"
+    /// for a non-confirmable rejection, nor mistakes a fail-closed error for a prompt.
+    case needsConfirmation(reason: String)
 }

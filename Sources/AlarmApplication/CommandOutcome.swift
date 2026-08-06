@@ -4,6 +4,12 @@ import Foundation
 enum CommandOutcome: Sendable, Equatable {
     case applied
     case rejected(reason: String)
+    /// The policy requires explicit user confirmation before this destructive change to a
+    /// critical / imminent alarm applies (#6). Distinct from `.rejected`: re-submitting the
+    /// same command with `userConfirmed: true` *will* be authorized. A `.rejected` (fail-closed
+    /// read error, or an automated proposal against a critical alarm) is NOT confirmable, so a
+    /// caller must never offer a "confirm and retry" for it. `reason` is the user-facing prompt.
+    case needsConfirmation(reason: String)
     case failed(reason: String)
     /// Local state was applied, but the external (AlarmKit) outcome is unknown — the
     /// outbox entry is left `.uncertain` for reconciliation to resolve (#10).

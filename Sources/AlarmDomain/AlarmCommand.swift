@@ -14,6 +14,9 @@ enum AlarmCommand: Codable, Sendable, Equatable, Hashable {
     case update(Alarm)
     case enable(AlarmID)
     case disable(AlarmID)
+    /// Permanently remove the alarm (a hard delete): drop local state and cancel the system
+    /// alarm. Distinct from `disable`, which keeps the alarm but turns it off.
+    case delete(AlarmID)
     case cancelOccurrence(AlarmID, fireTime: Date)
     case rescheduleOccurrence(AlarmID, fireTime: Date, to: Date)
     case snooze(AlarmID)
@@ -26,7 +29,7 @@ enum AlarmCommand: Codable, Sendable, Equatable, Hashable {
         switch self {
         case .create(let alarm), .update(let alarm):
             alarm.id
-        case .enable(let id), .disable(let id), .snooze(let id),
+        case .enable(let id), .disable(let id), .delete(let id), .snooze(let id),
             .markChallengePassed(let id), .reconcile(let id), .recover(let id):
             id
         case .cancelOccurrence(let id, _), .rescheduleOccurrence(let id, _, _):

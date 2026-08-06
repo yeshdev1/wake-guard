@@ -8,11 +8,15 @@ struct CreateAlarmView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: CreateAlarmViewModel
     @State private var errorMessage: String?
+    @State private var confirmationReason: String?
 
-    init(processor: any AlarmCommandProcessing, clock: any WallClock, ids: any IdentifierGenerator)
-    {
+    init(
+        editing: Alarm? = nil, processor: any AlarmCommandProcessing, clock: any WallClock,
+        ids: any IdentifierGenerator
+    ) {
         _model = State(
-            wrappedValue: CreateAlarmViewModel(processor: processor, clock: clock, ids: ids))
+            wrappedValue: CreateAlarmViewModel(
+                editing: editing, processor: processor, clock: clock, ids: ids))
     }
 
     var body: some View {
@@ -46,7 +50,7 @@ struct CreateAlarmView: View {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }
             }
-            .navigationTitle("New Alarm")
+            .navigationTitle(model.isEditing ? "Edit Alarm" : "New Alarm")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -61,20 +65,28 @@ struct CreateAlarmView: View {
                         .accessibilityIdentifier("saveAlarmButton")
                 }
             }
-            .alert("Couldn’t create alarm", isPresented: errorPresented) {
+            .alert("Couldn’t save alarm", isPresented: errorPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
             }
+            .alert("Confirm change", isPresented: confirmationPresented) {
+                Button("Cancel", role: .cancel) {}
+                Button("Confirm", role: .destructive) { Task { await save(confirmed: true) } }
+            } message: {
+                Text(confirmationReason ?? "")
+            }
         }
     }
 
-    private func save() async {
-        switch await model.save() {
+    private func save(confirmed: Bool = false) async {
+        switch await model.save(confirmed: confirmed) {
         case .created:
             dismiss()
         case .invalid:
             errorMessage = "This alarm can’t ring yet — choose a future time and at least one day."
+        case .needsConfirmation(let reason):
+            confirmationReason = reason
         case .failed(let reason):
             errorMessage = reason
         }
@@ -82,6 +94,10 @@ struct CreateAlarmView: View {
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+
+    private var confirmationPresented: Binding<Bool> {
+        Binding(get: { confirmationReason != nil }, set: { if !$0 { confirmationReason = nil } })
     }
 }
 

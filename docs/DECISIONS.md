@@ -1294,3 +1294,61 @@ decisions are recorded above using the ADR template.
   *was* created. The AlarmKit-integration task (WG-025 UI / WG-030) must fix the
   outcome→message mapping (distinguish a local-persist failure from a post-persist sync
   failure, or verify via the repo) before the real adapter ships.
+
+### WG-043 (2026-08-07): Edit / enable / disable / delete flows
+
+- **The flows.** Row actions (tap-to-edit, an enable/disable `Toggle`, swipe-to-delete) and the
+  edit form all route through `AlarmCommandProcessing` (#2/#3/#46) — no screen touches
+  persistence or the adapter. Enable/disable emit `.enable`/`.disable`; delete emits a new
+  `.delete`; edit reuses the create form to emit `.update`.
+- **`.delete` command + ordering (the key safety decision).** Added `.delete(AlarmID)` (domain +
+  policy `isDestructive` + processor `applyDelete`). Delete is **local-first, then a best-effort
+  system cancel**: once the local record (source of truth, #10) is gone the delete is *done*, so a
+  failed/uncertain system cancel does **not** downgrade the result — `applyDelete` returns
+  `.applied`. Rationale: a stranded system alarm is the *safe* direction for a wake app (a spurious
+  ring, never a missed alarm) and is reaped by WG-029 reconciliation's extra→cancel scan. The
+  reverse order (cancel-then-delete) is **rejected**: a cancel that succeeds before a failed local
+  delete would silently stop a still-listed alarm from ringing — the dangerous direction. The
+  earlier `applyDelete` comment claimed a stranded alarm "can never ring after a delete"; that
+  overstated an unwired reconcile trigger and was corrected to describe the real mechanism.
+- **First-class `.needsConfirmation` outcome.** `PolicyDecision` and `CommandOutcome` gained
+  `.needsConfirmation(reason:)`, returned only from the critical/imminent-unconfirmed branches
+  (#6). This disambiguates a **confirmable** gate (re-submitting with `userConfirmed: true` *will*
+  authorize) from a **non-confirmable** `.rejected` (a fail-closed read error, or an AI proposal
+  barred by #4). Previously both were `.rejected`, so a transient read error during a destructive
+  action surfaced as a nonsensical "Confirm change" dialog whose Confirm re-submitted into the same
+  rejection. The processor now authorizes via an **exhaustive switch**, so a `.rejected` or
+  `.needsConfirmation` can never fall through and mutate state.
+- **Confirmation UX.** Submit unconfirmed → `.needsConfirmation` → the view prompts with the
+  reason → re-submit confirmed. The list **reloads on the pending path** so an optimistic toggle
+  snaps back to true state under the alert; the confirm alert's presentation binding **restores
+  true state on any non-button dismissal** (symmetric with the error alert); delete uses
+  **`allowsFullSwipe: false`** so a critical alarm is never destroyed by a reflexive full-swipe and
+  its confirmation is always reached by a deliberate tap. The enable/disable toggle names the alarm
+  and the on/off consequence for VoiceOver (the switch trait already speaks the value — not
+  color-alone).
+- **Edit = generalized create.** `CreateAlarmView`/`CreateAlarmViewModel` now edit: same id,
+  `revision + 1` (optimistic concurrency), preserved `criticality`/travel/sound/policies (only
+  label + schedule are editable here — criticality is WG-044), future-ness re-validated at save.
+- **File-length relief.** Extracted `AlarmCommandProcessor+Reasons.swift` (the pure state-hash +
+  failure-reason formatters — no adapter/persistence surface, so no #2 impact) and
+  `AlarmListComponents.swift` (the shared banner/message views) to keep both files under the
+  400-line limit.
+- **Reviews (alarm-safety + ios-architect + ux-accessibility): no blocker shipped.** Applied the
+  delete-outcome coherence + honest comment (safety B1/M1), the `.needsConfirmation` split (arch
+  M1), no-full-swipe (UX B1), pending-path reload (UX M2), confirm-binding restore (UX m4), and
+  toggle a11y (UX M1); +2 tests (non-confirmable rejection ≠ prompt; failed-system-cancel delete).
+- **Deferred (with rationale).**
+  - **Full `AlarmCommandProcessor` decomposition.** The formatter extraction relieved this task,
+    but the outbox-bracketing helpers should move to a collaborator before the *next* command case
+    lands (recurring `file_length` / `type_body_length` pressure, first flagged WG-029).
+  - **Telegraph critical status in the edit form** (a read-only badge) → **WG-044**, which owns
+    critical-config UI; the save-time confirmation already gates a critical edit.
+  - **Row-action in-flight serialization.** A rapid double-toggle is convergent and safe (the
+    processor's `.noOp`/revision guard + latest-load-wins); the pending-path reload fixes the
+    visible symptom. A full in-flight guard is a minor follow-up.
+  - **Delete outbox key** reuses the `"cancel"` kind; it fails safe (reconciliation reaps a
+    skipped cancel), a distinct `"delete"` key is a minor follow-up.
+  - **Imminent non-critical *edit* not gated.** A documented WG-028 choice (only *critical* edits
+    gate; imminent still gates disable/delete). Unchanged — not a #6 violation.
+  - **Past one-time edit** shows a generic "can't ring yet" on save; noted on the manual checklist.

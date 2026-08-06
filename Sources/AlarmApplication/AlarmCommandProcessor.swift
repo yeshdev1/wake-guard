@@ -1,21 +1,13 @@
 import Foundation
 
-/// Applies an authorized `AlarmCommand` transactionally to local state and AlarmKit
-/// through the outbox/reconciliation pattern (WG-027; ARCHITECTURE §6). It is the
-/// **single command-serialization boundary** and the only invoker of the
-/// `AlarmManagerAdapter` (#2). An `actor` for isolation; strict no-interleave
-/// serialization under concurrent commands is a follow-up (a dedicated serialization
-/// task — the actor releases isolation at each `await`, so overlapping commands can
-/// interleave; the alarm repo's optimistic-revision guard still prevents a lost
-/// update).
-///
-/// Per command: authorize (#3) — a rejection mutates nothing; then persist local state
-/// first (the source of truth, #10), audit the mutation (#46), and sync to AlarmKit
-/// with the outbox bracketing the external call so a crash or uncertain outcome is
-/// recoverable (#10). Alarms are scheduled per-occurrence `.fixed` (WG-026); re-arming
-/// the next occurrence and recovering a stranded outbox entry are reconciliation's job
-/// (WG-029). The audit records the *local* mutation; the external sync outcome lives
-/// in the outbox (a full history joins the two — WG-048).
+/// Applies an authorized `AlarmCommand` transactionally to local state and AlarmKit via the
+/// outbox/reconciliation pattern (WG-027; ARCHITECTURE §6) — the **single command boundary**
+/// and the only invoker of `AlarmManagerAdapter` (#2). Per command: authorize (#3, a rejection
+/// mutates nothing) → persist local first (source of truth, #10) → audit (#46) → sync to
+/// AlarmKit, the outbox bracketing the external call so a crash/uncertain outcome is recoverable
+/// (#10; re-arming + stranded-entry recovery are reconciliation's, WG-029). Strict no-interleave
+/// serialization is a follow-up (the actor yields at each `await`; the revision guard prevents a
+/// lost update). The audit records the *local* mutation; the external outcome lives in the outbox.
 actor AlarmCommandProcessor {
     private let policy: any AlarmPolicyEngine
     private let alarms: any AlarmRepository
@@ -63,11 +55,19 @@ actor AlarmCommandProcessor {
         userConfirmed: Bool = false
     ) async -> CommandOutcome {
         let context = CommandContext(command: command, actor: actor, source: source)
-        if case .rejected(let reason) = await policy.authorize(
-            command, from: source, userConfirmed: userConfirmed)
-        {
+        // Authorize first. A `.rejected` or `.needsConfirmation` must NOT fall through to
+        // apply — the exhaustive switch guarantees a gated command can never mutate state.
+        switch await policy.authorize(command, from: source, userConfirmed: userConfirmed) {
+        case .authorized:
+            break
+        case .rejected(let reason):
             await appendAudit(context, old: nil, new: nil, outcome: .rejected, reason: reason)
             return .rejected(reason: reason)
+        case .needsConfirmation(let reason):
+            // The policy withheld a destructive change pending confirmation (#6). Audit the
+            // gate (no mutation) and surface it distinctly so the UI can prompt and re-submit.
+            await appendAudit(context, old: nil, new: nil, outcome: .rejected, reason: reason)
+            return .needsConfirmation(reason: reason)
         }
         switch command {
         case .create(let alarm):
@@ -79,6 +79,8 @@ actor AlarmCommandProcessor {
             return await applyEnable(context, enabled: true)
         case .disable:
             return await applyEnable(context, enabled: false)
+        case .delete:
+            return await applyDelete(context)
         case .snooze, .cancelOccurrence, .rescheduleOccurrence:
             // Occurrence-level commands (WG-027 follow-on). Not applying them would
             // silently discard user intent, so surface `.unsupported`, never `.noOp`.
@@ -110,6 +112,36 @@ actor AlarmCommandProcessor {
         alarm.revision += 1
         alarm.updatedAt = clock.now
         return await applyMutation(context, mutated: alarm, prior: prior)
+    }
+
+    /// Delete the alarm: drop local state first (the source of truth, #10), audit it, then make
+    /// a best-effort system cancel through the outbox. Once the local delete succeeds the delete
+    /// is **done** from the user's view, so the system cancel's result is not propagated as the
+    /// delete's outcome — a failed/uncertain cancel leaves at most an "extra" system alarm, which
+    /// is the safe direction for a wake app (a spurious ring, never a missed alarm) and which the
+    /// WG-029 reconciliation pass reaps once its launch/foreground trigger is composed. Reversing
+    /// the order (cancel-then-delete) is rejected: a cancel that succeeds before a failed local
+    /// delete would silently stop a still-listed alarm from ringing — the dangerous direction.
+    private func applyDelete(_ context: CommandContext) async -> CommandOutcome {
+        let id = context.command.alarmID
+        guard let alarm = try? await alarms.alarm(id: id) else { return .noOp }  // already gone
+        do {
+            try await alarms.deleteAlarm(id: id)
+        } catch {
+            let reason = Self.saveFailureReason(for: error)
+            await appendAudit(
+                context, old: Self.hash(alarm), new: nil, outcome: .failed, reason: reason)
+            return .failed(reason: reason)
+        }
+        await appendAudit(
+            context, old: Self.hash(alarm), new: nil, outcome: .succeeded, reason: "Alarm deleted.")
+        // Enqueue + attempt the system cancel, but do not let its outcome downgrade the delete:
+        // the local record (source of truth) is already gone, so the alarm is deleted regardless.
+        let key = outboxKey(id, alarm.revision, "cancel", nil)
+        _ = await runExternal(key, context.command) {
+            try await self.alarmManager.cancel(alarmID: id)
+        }
+        return .applied
     }
 
     /// Persist the mutated alarm (source of truth first, #10), audit it (#46), then
@@ -227,39 +259,6 @@ actor AlarmCommandProcessor {
         try? await audit.append(event)
     }
 
-    /// A stable, non-reversible state fingerprint (FNV-1a over the encoded alarm) — a
-    /// hash, never the raw state, so the audit records that state changed without
-    /// storing it (#41; #46 old/new state). Used only for intra-trail change detection
-    /// (old vs new of the same era), not as a cross-version-stable digest.
-    private static func hash(_ alarm: Alarm) -> String {
-        guard let data = try? JSONEncoder().encode(alarm) else { return "unencodable" }
-        var value: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in data {
-            value = (value ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
-        }
-        return String(format: "%016llx", value)
-    }
-
-    private static func reason(for error: Error) -> String {
-        if let error = error as? AlarmManagerError, case .notAuthorized = error {
-            return "Not authorized to schedule alarms."
-        }
-        return "The alarm could not be updated in the system."
-    }
-
-    /// Distinguish a concurrent-edit conflict (the caller should reload and retry) from
-    /// a genuine storage failure.
-    private static func saveFailureReason(for error: Error) -> String {
-        if let error = error as? AlarmRepositoryError {
-            switch error {
-            case .staleRevision, .conflict:
-                return "This alarm was changed elsewhere; reload and retry."
-            case .storageUnavailable:
-                return "The alarm could not be saved."
-            }
-        }
-        return "The alarm could not be saved."
-    }
 }
 
 /// Launch/foreground reconciliation (WG-029). Kept in an extension so the core command

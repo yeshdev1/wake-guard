@@ -127,6 +127,11 @@ happened), **Evidence** (screenshot / recording / log reference), **Notes**.
 - **Expected:** the message tells the user what happened **and** whether the alarm is still safe/scheduled; no sensitive raw data is shown (#41).
 - **Result:** ☐ Pass ☐ Fail ☐ Blocked · **Observed:** ______ · **Evidence:** ______ · **Notes:** ______
 
+### SMK-15 — Edit / enable-disable / delete from the list, with destructive confirmation (WG-043)
+- **Steps:** 1. Toggle an alarm off then on (enable/disable). 2. Tap a row to edit its time/label and Save. 3. Swipe a row and tap Delete — verify a **full swipe does not delete in one gesture**. 4. Repeat delete / disable / edit on a **critical** alarm and read the confirmation prompt; cancel it, then confirm it. 5. With VoiceOver on, focus a row's toggle, the delete action, and the confirm/cancel buttons.
+- **Expected:** each action routes through the command processor and updates the list; a **critical** alarm's delete/disable/edit shows a confirmation prompt, and **cancelling leaves the alarm unchanged** (#6, no-response = no change); no one-gesture full-swipe delete; VoiceOver announces the alarm name + the on/off consequence and the destructive action (not color-alone); an error states whether the alarm is still scheduled (#41 coarse). Alarms stay **saved-but-not-ringing** until the AlarmKit adapter lands (disclosure banner visible). Known: editing a **past** one-time alarm may report "can't ring yet" on Save — pick a future time.
+- **Result:** ☐ Pass ☐ Fail ☐ Blocked · **Observed:** ______ · **Evidence:** ______ · **Notes:** ______
+
 ---
 
 ## Sign-off

@@ -56,7 +56,7 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
 
         let unconfirmed = await engine.authorize(
             .disable(alarm.id), from: .userInterface, userConfirmed: false)
-        guard case .rejected(let reason) = unconfirmed else {
+        guard case .needsConfirmation(let reason) = unconfirmed else {
             return XCTFail("cancelling a critical alarm must require confirmation (#6)")
         }
         XCTAssertFalse(reason.isEmpty, "the deny reason must be user-displayable")
@@ -85,7 +85,7 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
 
         let unconfirmed = await engine.authorize(
             .disable(alarm.id), from: .userInterface, userConfirmed: false)
-        guard case .rejected = unconfirmed else {
+        guard case .needsConfirmation = unconfirmed else {
             return XCTFail("an imminent alarm cancel must require confirmation")
         }
         let confirmed = await engine.authorize(
@@ -115,7 +115,7 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         try await alarms.save(critical)
         let updateCritical = await engine.authorize(
             .update(critical), from: .userInterface, userConfirmed: false)
-        guard case .rejected = updateCritical else {
+        guard case .needsConfirmation = updateCritical else {
             return XCTFail("changing a critical alarm must require confirmation")
         }
     }
@@ -190,7 +190,7 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         let unconfirmed = await engine.authorize(
             .cancelOccurrence(alarm.id, fireTime: fireTime), from: .userInterface,
             userConfirmed: false)
-        guard case .rejected = unconfirmed else {
+        guard case .needsConfirmation = unconfirmed else {
             return XCTFail("cancelling an occurrence of a critical alarm needs confirmation (#6)")
         }
         let confirmed = await engine.authorize(
@@ -207,7 +207,7 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         try await atEdgeAlarms.save(edgeAlarm)
         let edge = await atEdge.authorize(
             .disable(edgeAlarm.id), from: .userInterface, userConfirmed: false)
-        guard case .rejected = edge else {
+        guard case .needsConfirmation = edge else {
             return XCTFail("exactly 300s to fire is within the inclusive imminent window")
         }
 
@@ -217,6 +217,31 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         let outside = await beyond.authorize(
             .disable(beyondAlarm.id), from: .userInterface, userConfirmed: false)
         XCTAssertEqual(outside, .authorized, "301s to fire is outside the 300s window")
+    }
+
+    func testDeletingCriticalAlarmRequiresConfirmation() async throws {
+        let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let alarm = try makeAlarm(criticality: .critical)
+        try await alarms.save(alarm)
+
+        let unconfirmed = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: false)
+        guard case .needsConfirmation = unconfirmed else {
+            return XCTFail("deleting a critical alarm needs confirmation (#6)")
+        }
+        let confirmed = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: true)
+        XCTAssertEqual(confirmed, .authorized)
+    }
+
+    func testDeletingStandardNonImminentAlarmIsAuthorized() async throws {
+        let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let alarm = try makeAlarm(criticality: .standard)  // fires 07:00; now 06:00 → not imminent
+        try await alarms.save(alarm)
+
+        let decision = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: false)
+        XCTAssertEqual(decision, .authorized, "a routine delete doesn't require confirmation")
     }
 }
 

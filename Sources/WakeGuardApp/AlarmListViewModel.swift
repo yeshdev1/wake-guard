@@ -49,20 +49,39 @@ final class AlarmListViewModel {
     /// trigger is wired with the reconcile follow-on; `setReconciling(_:)` is the seam.
     private(set) var isReconciling = false
 
+    /// A row action awaiting confirmation because the policy engine required it — a critical
+    /// or imminent destructive change (#6). The view shows `reason`; on confirm it re-submits.
+    private(set) var pendingConfirmation: PendingConfirmation?
+    /// A failed action's user-safe reason; the alarm is left unchanged (a clear safe state).
+    private(set) var actionError: String?
+
+    struct PendingConfirmation: Equatable, Sendable {
+        let command: AlarmCommand
+        let reason: String
+    }
+
     private let alarms: any AlarmRepository
     private let clock: any WallClock
+    /// The mutation boundary (WG-043). `nil` in read-only contexts (WG-041 tests / previews);
+    /// the app always injects it, so row actions submit every change through the processor
+    /// (never persistence or the adapter directly, #2/#3).
+    private let processor: (any AlarmCommandProcessing)?
     private let deviceTimeZone: @Sendable () -> TimeZone
     private let engine = AlarmSchedulingEngine()
     /// Guards overlapping loads: only the latest-started load commits its result, so a slow
     /// earlier load can never clobber a fresher one (e.g. a foreground reload).
     private var loadGeneration = 0
+    /// The loaded alarms by id, so the edit flow can hand the full `Alarm` to the form.
+    private var alarmsByID: [AlarmID: Alarm] = [:]
 
     init(
         alarms: any AlarmRepository, clock: any WallClock,
+        processor: (any AlarmCommandProcessing)? = nil,
         deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current }
     ) {
         self.alarms = alarms
         self.clock = clock
+        self.processor = processor
         self.deviceTimeZone = deviceTimeZone
     }
 
@@ -90,7 +109,58 @@ final class AlarmListViewModel {
             return
         }
         guard generation == loadGeneration else { return }  // superseded by a newer load
+        alarmsByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
         state = all.isEmpty ? .empty : .loaded(content(from: all))
+    }
+
+    // MARK: - Row actions (every mutation routes through the command processor, #2/#3/#46)
+
+    /// The full alarm behind a row, for the edit form.
+    func alarm(for id: AlarmID) -> Alarm? { alarmsByID[id] }
+
+    /// Enable or disable an alarm. Disabling a critical / imminent one needs confirmation (#6).
+    func setEnabled(_ enabled: Bool, for id: AlarmID) async {
+        await submit(enabled ? .enable(id) : .disable(id))
+    }
+
+    /// Delete an alarm. Deleting a critical / imminent one needs confirmation (#6).
+    func delete(_ id: AlarmID) async {
+        await submit(.delete(id))
+    }
+
+    /// Re-submit the pending action with the user's explicit confirmation (#6).
+    func confirmPending() async {
+        guard let pending = pendingConfirmation else { return }
+        pendingConfirmation = nil
+        await submit(pending.command, confirmed: true)
+    }
+
+    func cancelPendingConfirmation() async {
+        pendingConfirmation = nil
+        await load()  // restore the true state (e.g. an optimistic toggle that didn't apply)
+    }
+
+    func dismissActionError() { actionError = nil }
+
+    private func submit(_ command: AlarmCommand, confirmed: Bool = false) async {
+        guard let processor else { return }
+        switch await processor.process(
+            command, from: .userInterface, by: .user, userConfirmed: confirmed)
+        {
+        case .needsConfirmation(let reason):
+            // The policy withheld a destructive change to a critical / imminent alarm (#6) —
+            // ask the user. Reload first so an optimistic control (e.g. a toggle the user just
+            // flipped) snaps back to the alarm's true, still-unchanged state under the prompt.
+            await load()
+            pendingConfirmation = PendingConfirmation(command: command, reason: reason)
+        case .applied, .uncertain, .noOp:
+            await load()
+        case .rejected(let reason), .failed(let reason), .unsupported(let reason):
+            // Not confirmable (a fail-closed error, an unsupported command): the alarm is
+            // unchanged; show the reason and reflect its true state (#10). Never a prompt.
+            actionError = reason
+            await load()
+        }
     }
 
     private func content(from alarms: [Alarm]) -> AlarmListContent {
