@@ -36,17 +36,26 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         return (engine, alarms)
     }
 
-    func testAdditiveCommandsAreAuthorizedEvenForCriticalFromAgent() async throws {
+    func testAgentAdditiveCommandsAuthorizedButCannotAssignCriticality() async throws {
         let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
-        let alarm = try makeAlarm(criticality: .critical)
-        try await alarms.save(alarm)
+        let critical = try makeAlarm(criticality: .critical)
+        let standard = try makeAlarm(criticality: .standard)
+        try await alarms.save(critical)
 
-        let create = await engine.authorize(
-            .create(alarm), from: .agentProposal, userConfirmed: false)
-        XCTAssertEqual(create, .authorized)
+        // WG-044 #31: a model creating a *critical* alarm is assigning criticality — barred.
+        let createCritical = await engine.authorize(
+            .create(critical), from: .agentProposal, userConfirmed: false)
+        guard case .rejected = createCritical else {
+            return XCTFail("a model must not create a critical alarm (#31)")
+        }
+        // Additive commands that assign no criticality stay authorized from a model: adding a
+        // standard alarm, and enabling an existing one.
+        let createStandard = await engine.authorize(
+            .create(standard), from: .agentProposal, userConfirmed: false)
+        XCTAssertEqual(createStandard, .authorized)
         let enable = await engine.authorize(
-            .enable(alarm.id), from: .agentProposal, userConfirmed: false)
-        XCTAssertEqual(enable, .authorized)
+            .enable(critical.id), from: .agentProposal, userConfirmed: false)
+        XCTAssertEqual(enable, .authorized, "enabling an existing alarm assigns no criticality")
     }
 
     func testCancellingCriticalAlarmRequiresConfirmation() async throws {
@@ -242,6 +251,65 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
         let decision = await engine.authorize(
             .delete(alarm.id), from: .userInterface, userConfirmed: false)
         XCTAssertEqual(decision, .authorized, "a routine delete doesn't require confirmation")
+    }
+
+    // MARK: - WG-044: criticality assignment (#31)
+
+    func testUserMayCreateCriticalAlarm() async throws {
+        let (engine, _) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let critical = try makeAlarm(criticality: .critical)
+        let decision = await engine.authorize(
+            .create(critical), from: .userInterface, userConfirmed: false)
+        XCTAssertEqual(decision, .authorized, "a user may assign criticality when creating (#31)")
+    }
+
+    func testModelCannotRaiseCriticalityOnUpdate() async throws {
+        let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let standard = try makeAlarm(criticality: .standard)
+        try await alarms.save(standard)
+        let raised = try Alarm(
+            id: standard.id, label: standard.label, schedule: standard.schedule,
+            criticality: .critical, createdAt: standard.createdAt, updatedAt: standard.updatedAt,
+            revision: standard.revision + 1)
+
+        let decision = await engine.authorize(
+            .update(raised), from: .agentProposal, userConfirmed: false)
+        guard case .rejected = decision else {
+            return XCTFail("a model must not raise an alarm to critical (#31)")
+        }
+    }
+
+    func testUserWeakeningCriticalAlarmNeedsConfirmation() async throws {
+        let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let critical = try makeAlarm(criticality: .critical)
+        try await alarms.save(critical)
+        let weakened = try Alarm(  // same id, lowered to standard
+            id: critical.id, label: critical.label, schedule: critical.schedule,
+            criticality: .standard, createdAt: critical.createdAt, updatedAt: critical.updatedAt,
+            revision: critical.revision + 1)
+
+        let unconfirmed = await engine.authorize(
+            .update(weakened), from: .userInterface, userConfirmed: false)
+        guard case .needsConfirmation = unconfirmed else {
+            return XCTFail("weakening a critical alarm to standard needs confirmation (#6)")
+        }
+        let confirmed = await engine.authorize(
+            .update(weakened), from: .userInterface, userConfirmed: true)
+        XCTAssertEqual(confirmed, .authorized)
+    }
+
+    /// Pins the load-bearing ordering in `authorize`: the #31 criticality guard must run
+    /// BEFORE the additive fast-path. `.create` is additive (not destructive), so if the guard
+    /// were moved below the `isDestructive` early-return, an agent creating a critical alarm
+    /// would regress to `.authorized`. This asserts the guard wins.
+    func testCriticalityGuardPrecedesAdditiveFastPath() async throws {
+        let (engine, _) = try makeEngine(now: try iso("2026-08-17T06:00:00Z"))
+        let critical = try makeAlarm(criticality: .critical)  // additive command, critical payload
+        let decision = await engine.authorize(
+            .create(critical), from: .agentProposal, userConfirmed: false)
+        guard case .rejected = decision else {
+            return XCTFail("the #31 guard must precede the additive fast-path")
+        }
     }
 }
 

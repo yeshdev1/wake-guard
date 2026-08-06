@@ -47,6 +47,21 @@ struct CreateAlarmView: View {
                     }
                 }
                 Section {
+                    Toggle("Critical alarm", isOn: $model.isCritical)
+                        .accessibilityIdentifier("criticalAlarmToggle")
+                        .accessibilityHint(
+                            "Designed to ring through silent, Focus, and Do Not Disturb. Turning "
+                                + "it off or changing it later needs confirmation.")
+                } footer: {
+                    // "Designed to" (not "rings"): the ring-through-silent guarantee is AlarmKit
+                    // baseline that activates once scheduling is wired (WG-025/031) — the interim
+                    // adapter doesn't ring yet. The confirm-to-change clause is true today.
+                    Text(
+                        "A critical alarm is designed to ring even when your phone is on silent, "
+                            + "in Focus, or Do Not Disturb. It can’t be turned off or changed "
+                            + "without confirming.")
+                }
+                Section {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }
             }

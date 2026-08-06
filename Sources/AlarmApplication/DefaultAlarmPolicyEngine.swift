@@ -35,6 +35,12 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
     func authorize(
         _ command: AlarmCommand, from source: CommandSource, userConfirmed: Bool
     ) async -> PolicyDecision {
+        // #31: only the user (via the UI) assigns criticality — never a model. An automated
+        // proposal that would create a critical alarm, or change an alarm's criticality, is
+        // rejected outright; unlike #6 this is not confirmable (a model can't confirm, #4).
+        if source == .agentProposal, let reason = await modelCriticalityChange(command) {
+            return .rejected(reason: reason)
+        }
         guard isDestructive(command) else {
             return .authorized  // additive / system commands add or preserve protection.
         }
@@ -59,6 +65,24 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
             return .authorized
         }
         return decision(for: alarm, source: source, userConfirmed: userConfirmed)
+    }
+
+    /// #31: the criticality change a model may not make. Returns a deny reason if `command`
+    /// (from a model) would create a critical alarm or alter an alarm's criticality; `nil` if
+    /// it leaves criticality untouched. Only ever consulted for an `.agentProposal` source.
+    private func modelCriticalityChange(_ command: AlarmCommand) async -> String? {
+        let reason =
+            "An automated suggestion can’t change whether an alarm is critical. "
+            + "Only you can, in the alarm’s settings."
+        switch command {
+        case .create(let alarm):
+            return alarm.criticality == .critical ? reason : nil
+        case .update(let alarm):
+            let current = (try? await alarms.alarm(id: alarm.id))?.criticality ?? .standard
+            return alarm.criticality != current ? reason : nil
+        default:
+            return nil  // enable/disable/delete/snooze/… don't carry a new criticality.
+        }
     }
 
     private func decision(

@@ -29,6 +29,10 @@ final class CreateAlarmViewModel {
     var time: Date
     var weekdays: Set<Weekday>
     var date: Date
+    /// Whether this is a critical alarm (rings through silent / Focus / DND, #9). The user
+    /// sets it here (#31 — the model never assigns criticality); weakening an existing
+    /// critical alarm is gated by the policy engine's confirmation (#6), handled in `save()`.
+    var isCritical = false
     private(set) var isSaving = false
 
     private let processor: any AlarmCommandProcessing
@@ -62,6 +66,7 @@ final class CreateAlarmViewModel {
             self.time = seed.time
             self.weekdays = seed.weekdays
             self.date = seed.date
+            self.isCritical = editing.criticality == .critical
         } else {
             self.time = now
             self.date = now
@@ -123,7 +128,8 @@ final class CreateAlarmViewModel {
         let now = clock.now
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return try? Alarm(
-            id: id, label: trimmed, schedule: schedule, createdAt: now, updatedAt: now)
+            id: id, label: trimmed, schedule: schedule,
+            criticality: isCritical ? .critical : .standard, createdAt: now, updatedAt: now)
     }
 
     private func buildSchedule() -> ScheduleRule? {
@@ -149,14 +155,17 @@ final class CreateAlarmViewModel {
         }
     }
 
-    /// Build the edited alarm — same id, bumped revision, other fields preserved (only the
-    /// label + schedule are editable here; criticality is WG-044).
+    /// Build the edited alarm — same id, bumped revision, other fields preserved. Label,
+    /// schedule, and criticality are editable (WG-044); the remaining policies are preserved.
+    /// Weakening `criticality` (critical → standard) is gated by the policy engine (#6) when
+    /// `save()` submits the `.update`.
     private func buildAlarm(id: AlarmID, basedOn existing: Alarm) -> Alarm? {
         guard let schedule = buildSchedule() else { return nil }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return try? Alarm(
             id: existing.id, label: trimmed, isEnabled: existing.isEnabled, schedule: schedule,
-            travelBehavior: existing.travelBehavior, criticality: existing.criticality,
+            travelBehavior: existing.travelBehavior,
+            criticality: isCritical ? .critical : .standard,
             sound: existing.sound, snoozePolicy: existing.snoozePolicy,
             challengePolicy: existing.challengePolicy, preAlarmPolicy: existing.preAlarmPolicy,
             createdAt: existing.createdAt, updatedAt: clock.now, revision: existing.revision + 1)

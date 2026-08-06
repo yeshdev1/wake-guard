@@ -1352,3 +1352,44 @@ decisions are recorded above using the ADR template.
   - **Imminent non-critical *edit* not gated.** A documented WG-028 choice (only *critical* edits
     gate; imminent still gates disable/delete). Unchanged — not a #6 violation.
   - **Past one-time edit** shows a generic "can't ring yet" on save; noted on the manual checklist.
+
+### WG-044 (2026-08-07): Critical alarm configuration
+
+- **The toggle.** A "Critical alarm" toggle in the create/edit form (`CreateAlarmViewModel.isCritical`,
+  seeded from the edited alarm, threaded into both build paths). Editing now takes criticality from
+  the toggle (closing the WG-043 UX-M3 gap — an alarm's critical status is telegraphed and editable).
+  A plain-language footer explains what critical means (#9).
+- **#31 — a model may not assign criticality (the key decision).** A new policy guard
+  (`DefaultAlarmPolicyEngine.modelCriticalityChange`) rejects any `.agentProposal` command that
+  creates a critical alarm or changes an alarm's criticality. It is placed **before** the additive
+  fast-path: a `.create` is additive (`isDestructive` is false), so the guard must precede the
+  `isDestructive` early-return or an agent `.create(critical)` would be authorized. The rejection is
+  **not confirmable** (a model can't confirm, cf. #4). It **fails safe**: an unreadable or absent
+  `.update` target reads as `.standard`, so any incoming non-standard criticality differs and is
+  rejected (the fallback only ever makes the guard fire more readily). A regression test pins the
+  guard-before-fast-path ordering.
+- **Changed a WG-028 assertion — a tightening, not a weakening.** `testAdditiveCommandsAreAuthorized`
+  `EvenForCriticalFromAgent` asserted an agent may create a critical alarm (`.authorized`). WG-044
+  flips that to `.rejected` (#31), a strengthening. The genuinely-additive assertions (an agent may
+  add a *standard* alarm, and enable an existing one) are preserved. Per CLAUDE.md this is recorded
+  here because it changes an established policy expectation — it does not weaken a safety invariant.
+- **Confirmation asymmetry.** Weakening a critical alarm (critical → standard) requires confirmation:
+  the WG-028/043 `.update` gate reads the alarm's **stored** criticality, still critical at authorize
+  time, so the toggle can't launder a critical alarm past #6. Strengthening (standard → critical) and
+  a user creating a critical alarm are additive → authorized without a prompt. A **user** may assign
+  criticality; a **model** may not.
+- **Reviews (alarm-safety + ux-accessibility): no blocker.** alarm-safety verified #31 is complete
+  (every criticality-carrying command covered — only `.create`/`.update` carry an `Alarm`; the guard
+  precedes the fast-path; the read fails safe) and the change is a net strengthening. Applied:
+  softened the "rings even when silent/Focus/DND" copy to "**is designed to** ring …" — an accuracy
+  fix, since the interim `DeferredAlarmManagerAdapter` doesn't ring yet and AlarmKit's ring-through
+  behavior must be device-verified (WG-026/031); plus the guard-ordering regression test.
+- **Deferred (with rationale).**
+  - **Gate the "designed to ring" copy on `schedulesAlarmsInSystem`** so the create sheet mirrors the
+    list's "won't ring yet" banner — the list already discloses it globally; a small follow-up.
+  - **A stronger VoiceOver binding of the footer to the toggle** — the section-footer pattern is
+    iOS-idiomatic, and the consequence is also spoken at the Save confirmation (the decisive moment),
+    so the safety impact is bounded. The `.accessibilityHint` supplements the visible footer.
+  - **Localization** of the toggle label / footer / reasons (E11).
+  - **No agent→`process` path is wired yet** — the #31 guard is defense-in-depth ahead of the AI
+    epoch (E08/E09); today it is exercised only by tests, which is the intended hardening.

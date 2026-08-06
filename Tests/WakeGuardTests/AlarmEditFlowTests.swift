@@ -180,4 +180,22 @@ final class AlarmEditFlowTests: XCTestCase {
         XCTAssertEqual(vm.kind, .weekly)
         XCTAssertEqual(vm.weekdays, Set(Weekday.allCases))
     }
+
+    // MARK: - WG-044: editing criticality
+
+    func testEditSeedsCriticalToggleAndCanWeakenIt() async throws {
+        let alarm = try makeAlarm(criticality: .critical)
+        let processor = FakeAlarmCommandProcessor(outcome: .applied)
+        let vm = try makeEditVM(alarm, processor)
+        XCTAssertTrue(vm.isCritical, "editing a critical alarm pre-fills the toggle on")
+
+        vm.isCritical = false  // weaken; the policy gates this in production, the VM just submits
+        _ = await vm.save()
+
+        guard case .update(let updated) = try XCTUnwrap(processor.seen.first) else {
+            return XCTFail("edit must submit an .update")
+        }
+        XCTAssertEqual(
+            updated.criticality, .standard, "the toggle lowers the submitted criticality")
+    }
 }

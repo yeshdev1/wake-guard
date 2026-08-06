@@ -170,4 +170,32 @@ final class CreateAlarmViewModelTests: XCTestCase {
         }
         XCTAssertEqual(alarm.label, "", "a blank label is stored empty (the list shows a default)")
     }
+
+    // MARK: - WG-044: criticality
+
+    func testNewAlarmDefaultsToStandard() async throws {
+        let processor = FakeAlarmCommandProcessor(outcome: .applied)
+        let vm = try makeVM(processor)
+        XCTAssertFalse(vm.isCritical, "a new alarm is standard unless the user opts in")
+
+        _ = await vm.save()
+
+        guard case .create(let alarm) = try XCTUnwrap(processor.seen.first) else {
+            return XCTFail("expected a create")
+        }
+        XCTAssertEqual(alarm.criticality, .standard)
+    }
+
+    func testCriticalToggleSubmitsCriticalAlarm() async throws {
+        let processor = FakeAlarmCommandProcessor(outcome: .applied)
+        let vm = try makeVM(processor)
+        vm.isCritical = true
+
+        _ = await vm.save()
+
+        guard case .create(let alarm) = try XCTUnwrap(processor.seen.first) else {
+            return XCTFail("expected a create")
+        }
+        XCTAssertEqual(alarm.criticality, .critical, "the toggle makes the built alarm critical")
+    }
 }
