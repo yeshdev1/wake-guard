@@ -62,6 +62,9 @@ struct CreateAlarmView: View {
                             + "without confirming.")
                 }
                 ChallengeSection(challenge: $model.challenge)
+                TravelSection(
+                    travel: $model.travel, zoneID: model.anchorZoneID,
+                    timeText: model.time.formatted(date: .omitted, time: .shortened))
                 Section {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }
@@ -251,6 +254,45 @@ private struct ChallengeSection: View {
             ? "You’ll need to carry your phone and walk to turn the alarm off. If you can’t walk "
                 + "or carry your phone, use the alternative above — it’s always available."
             : "Turn the alarm off with a tap. Add a walk challenge to make waking more deliberate."
+    }
+}
+
+/// The travel-behavior configuration (WG-046). Picks how the alarm's time zone behaves when the
+/// device travels, shows the anchor IANA zone accessibly, and previews the destination behavior.
+/// No option shifts a schedule silently (#16); the copy never implies location tracking.
+private struct TravelSection: View {
+    @Binding var travel: TravelOption
+    let zoneID: String
+    let timeText: String
+
+    var body: some View {
+        Section {
+            Picker("When traveling", selection: $travel) {
+                ForEach(TravelOption.allCases, id: \.self) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .accessibilityIdentifier("travelBehaviorPicker")
+
+            LabeledContent("Anchored to", value: readableZone)
+                .accessibilityLabel("Anchored to time zone")
+                .accessibilityValue(spokenZone)
+                .accessibilityIdentifier("travelAnchorZone")
+        } header: {
+            Text("When you travel")
+        } footer: {
+            Text(travel.destinationDescription(timeText: timeText, zone: readableZone))
+        }
+    }
+
+    /// The IANA identifier made human-readable (underscores → spaces), e.g. "America/New York".
+    private var readableZone: String {
+        zoneID.replacingOccurrences(of: "_", with: " ")
+    }
+
+    /// A VoiceOver-friendly reading of the identifier, e.g. "America, New York".
+    private var spokenZone: String {
+        readableZone.replacingOccurrences(of: "/", with: ", ")
     }
 }
 

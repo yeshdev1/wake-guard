@@ -36,6 +36,9 @@ final class CreateAlarmViewModel {
     /// The wake-challenge configuration (WG-045): whether a walk challenge is required, its
     /// bounded duration/steps, and the accessible alternative.
     var challenge = ChallengeDraft()
+    /// The travel behavior (WG-046): how the alarm's time zone follows or resists device
+    /// travel. The zone it is anchored to is `anchorZoneID`.
+    var travel: TravelOption = .followLocal
     private(set) var isSaving = false
 
     private let processor: any AlarmCommandProcessing
@@ -71,6 +74,7 @@ final class CreateAlarmViewModel {
             self.date = seed.date
             self.isCritical = editing.criticality == .critical
             self.challenge = ChallengeDraft(from: editing.challengePolicy)
+            self.travel = TravelOption(from: editing.travelBehavior)
         } else {
             self.time = now
             self.date = now
@@ -89,6 +93,13 @@ final class CreateAlarmViewModel {
     }
 
     var canSave: Bool { nextOccurrence != nil }
+
+    /// The IANA identifier the alarm is anchored to — an edited alarm keeps its **stored** anchor
+    /// (never silently re-anchored to the current device zone, #16); a new alarm anchors to the
+    /// device zone. For the travel preview and the accessible zone display (WG-046).
+    var anchorZoneID: String {
+        editing?.schedule.anchorTimeZone.identifier ?? deviceTimeZone().identifier
+    }
 
     func save(confirmed: Bool = false) async -> SaveResult {
         // Re-validate at submit time, not only when enabling the button: the chosen minute can
@@ -132,17 +143,26 @@ final class CreateAlarmViewModel {
         let now = clock.now
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return try? Alarm(
-            id: id, label: trimmed, schedule: schedule,
+            id: id, label: trimmed, schedule: schedule, travelBehavior: travel.behavior,
             criticality: isCritical ? .critical : .standard, challengePolicy: challenge.build(),
             createdAt: now, updatedAt: now)
     }
 
     private func buildSchedule() -> ScheduleRule? {
-        let zone = deviceTimeZone()
-        // The device zone is always a real IANA zone; a fixed-offset ("GMT…") one is rejected.
-        guard let iana = try? IANATimeZone(identifier: zone.identifier) else { return nil }
+        // Preserve an edited alarm's stored anchor zone — never silently re-anchor it to the
+        // current device zone (#16, e.g. a "keep home-zone" alarm edited while travelling). A
+        // new alarm anchors to the device zone. The picker time is always decomposed in the
+        // device zone (the zone the seed composed it in), so the displayed number round-trips.
+        let iana: IANATimeZone
+        if let existing = editing?.schedule.anchorTimeZone {
+            iana = existing
+        } else if let deviceIANA = try? IANATimeZone(identifier: deviceTimeZone().identifier) {
+            iana = deviceIANA  // the device zone is always a real IANA zone; "GMT…" is rejected
+        } else {
+            return nil
+        }
         var calendar = Calendar.current
-        calendar.timeZone = zone
+        calendar.timeZone = deviceTimeZone()
         let timeParts = calendar.dateComponents([.hour, .minute], from: time)
         guard let hour = timeParts.hour, let minute = timeParts.minute,
             let timeOfDay = try? TimeOfDay(hour: hour, minute: minute)
@@ -160,16 +180,16 @@ final class CreateAlarmViewModel {
         }
     }
 
-    /// Build the edited alarm — same id, bumped revision, other fields preserved. Label,
-    /// schedule, and criticality are editable (WG-044); the remaining policies are preserved.
-    /// Weakening `criticality` (critical → standard) is gated by the policy engine (#6) when
-    /// `save()` submits the `.update`.
+    /// Build the edited alarm — same id, bumped revision. Label, schedule, criticality (WG-044),
+    /// the wake challenge (WG-045), and the travel behavior (WG-046) are editable; the remaining
+    /// policies (sound, snooze, pre-alarm) are preserved. Weakening `criticality` (critical →
+    /// standard) is gated by the policy engine (#6) when `save()` submits the `.update`.
     private func buildAlarm(id: AlarmID, basedOn existing: Alarm) -> Alarm? {
         guard let schedule = buildSchedule() else { return nil }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return try? Alarm(
             id: existing.id, label: trimmed, isEnabled: existing.isEnabled, schedule: schedule,
-            travelBehavior: existing.travelBehavior,
+            travelBehavior: travel.behavior,
             criticality: isCritical ? .critical : .standard,
             sound: existing.sound, snoozePolicy: existing.snoozePolicy,
             challengePolicy: challenge.build(), preAlarmPolicy: existing.preAlarmPolicy,

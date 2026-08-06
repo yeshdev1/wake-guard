@@ -1435,3 +1435,42 @@ decisions are recorded above using the ADR template.
   - **The phone-carry disclosure text is not unit-tested** (it's View text; the repo has no
     ViewInspector/UI-test target) — covered by the manual checklist.
   - **Localization** of the section labels / footer (E11).
+
+### WG-046 (2026-08-07): Travel-policy configuration UI
+
+- **The config surface.** A "When you travel" section in the create/edit form: the three MVP
+  options (Follow local time / Keep home-zone time / Ask when I travel), an accessible display of
+  the anchor IANA zone, and a per-option preview of destination behavior. `TravelOption` maps
+  to/from the domain `TravelBehavior`; `.regionRule` (WG-021, not user-creatable in the MVP) maps
+  to Ask, preserving its rule-based, never-silently-shift spirit.
+- **No option shifts a schedule silently (#16); no location/GPS.** Follow-local and keep-zone are
+  explicit fixed policies; ask prompts before shifting. Nothing here reads location — the anchor is
+  the device's **IANA identifier** (a coarse on-device signal), never GPS/position. privacy-security
+  confirmed: no Core Location, IANA not offsets (#11), data-minimized, no logging.
+- **Anchor preservation on edit (the safety fix — the review's one MAJOR).** Before WG-046 the edit
+  path rebuilt the schedule from the *current device zone*, silently re-anchoring an edited alarm —
+  a pre-existing WG-044 behavior, invisible until WG-046 surfaced the anchor. Now `buildSchedule`
+  **preserves the edited alarm's stored anchor zone** (never re-anchoring to the device zone) and
+  `anchorZoneID` displays that stored anchor, so editing a "keep home-zone" New York alarm while
+  travelling in Tokyo keeps it anchored to New York (#16). The picker time is still decomposed in
+  the device zone (the zone the seed composed it in), so the displayed number round-trips; the
+  stored `IANATimeZone` is reused directly, avoiding the `TimeZone("UTC").identifier == "GMT"`
+  normalization that would reject a UTC anchor. A regression test edits a NY alarm in Tokyo and
+  asserts the saved anchor stays NY.
+- **Copy honesty.** `.ask` is stated as the alarm's *policy* ("will ask before shifting if your
+  time zone changes") — the travel *detection* is E06, not built yet — and `.followLocal` says "in
+  whatever time zone your device is in" (not "wherever you are") so nothing implies location
+  tracking. A guardrail test forbids "GPS"/"location"/"track" in any option's copy and pins the #16
+  "never moves the alarm on its own" assurance.
+- **Reviews (ux-accessibility + privacy-security): no blocker.** Applied: anchor preservation (ux
+  M1), copy softening (privacy MINOR-1/2), and the two regression/guardrail tests.
+- **Deferred (with rationale).**
+  - **A friendlier localized zone name** (e.g. "Eastern Time") — the acceptance is "IANA zone
+    displayed accessibly," and the readable IANA identifier ("America/New York" visually, "America,
+    New York" for VoiceOver) meets it; a localized name would *hide* the IANA zone.
+  - **The destination preview is a `Section` footer** — iOS-idiomatic; VoiceOver reaches it as the
+    section's last element (parity with WG-044/045).
+  - **Editing a fixed-zone alarm's *time* while in another zone** shows the raw wall-clock number
+    interpreted in the anchor zone — an inherent wall-clock-across-zones nuance (WG-022 territory),
+    not re-opened here; the anchor itself is preserved (above).
+  - **Localization** of the option titles / labels / preview (E11).
