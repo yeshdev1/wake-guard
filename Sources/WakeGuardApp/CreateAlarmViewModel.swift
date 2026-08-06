@@ -33,6 +33,9 @@ final class CreateAlarmViewModel {
     /// sets it here (#31 — the model never assigns criticality); weakening an existing
     /// critical alarm is gated by the policy engine's confirmation (#6), handled in `save()`.
     var isCritical = false
+    /// The wake-challenge configuration (WG-045): whether a walk challenge is required, its
+    /// bounded duration/steps, and the accessible alternative.
+    var challenge = ChallengeDraft()
     private(set) var isSaving = false
 
     private let processor: any AlarmCommandProcessing
@@ -67,6 +70,7 @@ final class CreateAlarmViewModel {
             self.weekdays = seed.weekdays
             self.date = seed.date
             self.isCritical = editing.criticality == .critical
+            self.challenge = ChallengeDraft(from: editing.challengePolicy)
         } else {
             self.time = now
             self.date = now
@@ -129,7 +133,8 @@ final class CreateAlarmViewModel {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return try? Alarm(
             id: id, label: trimmed, schedule: schedule,
-            criticality: isCritical ? .critical : .standard, createdAt: now, updatedAt: now)
+            criticality: isCritical ? .critical : .standard, challengePolicy: challenge.build(),
+            createdAt: now, updatedAt: now)
     }
 
     private func buildSchedule() -> ScheduleRule? {
@@ -167,7 +172,7 @@ final class CreateAlarmViewModel {
             travelBehavior: existing.travelBehavior,
             criticality: isCritical ? .critical : .standard,
             sound: existing.sound, snoozePolicy: existing.snoozePolicy,
-            challengePolicy: existing.challengePolicy, preAlarmPolicy: existing.preAlarmPolicy,
+            challengePolicy: challenge.build(), preAlarmPolicy: existing.preAlarmPolicy,
             createdAt: existing.createdAt, updatedAt: clock.now, revision: existing.revision + 1)
     }
 

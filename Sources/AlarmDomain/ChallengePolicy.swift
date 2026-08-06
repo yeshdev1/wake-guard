@@ -89,6 +89,32 @@ struct WalkChallenge: Codable, Sendable, Equatable, Hashable {
     }
 }
 
+extension WalkChallenge {
+    /// Cadence cap (steps/second): brisk walking is ~2 steps/s; sustained motion above this
+    /// reads as shaking / running, not walking. Refined by calibration in WG-075.
+    static let defaultMaximumCadence: Double = 4.0
+    /// Pause budget and anti-cheat sensitivity — validated defaults refined by the motion
+    /// pipeline (WG-072/075). Deliberately **not** user-configurable, so the config UI can
+    /// never weaken the anti-cheat below these bounds.
+    static let defaultAllowedPauses = 2
+    static let defaultAntiCheatThreshold: Double = 0.5
+
+    /// The standard ten-second walk challenge. `targetDuration`, `minimumSteps`, and the
+    /// `accessibleFallback` are the user-facing facets (WG-045); the cadence cap / pause budget
+    /// / anti-cheat threshold use the validated defaults above and are not exposed. Throws only
+    /// if `targetDuration`/`minimumSteps` fall outside the domain bounds — callers clamp first.
+    static func standard(
+        targetDuration: TimeInterval = 10,
+        minimumSteps: Int = 12,
+        accessibleFallback: AccessibleChallenge = .tapSequence
+    ) throws -> WalkChallenge {
+        try WalkChallenge(
+            targetDuration: targetDuration, minimumSteps: minimumSteps,
+            maximumCadence: defaultMaximumCadence, allowedPauses: defaultAllowedPauses,
+            antiCheatThreshold: defaultAntiCheatThreshold, accessibleFallback: accessibleFallback)
+    }
+}
+
 /// A non-motion alternative to the walk challenge (detail in WG-072).
 enum AccessibleChallenge: Codable, Sendable, Equatable, Hashable {
     case tapSequence

@@ -1393,3 +1393,45 @@ decisions are recorded above using the ADR template.
   - **Localization** of the toggle label / footer / reasons (E11).
   - **No agent→`process` path is wired yet** — the #31 guard is defense-in-depth ahead of the AI
     epoch (E08/E09); today it is exercised only by tests, which is the intended hardening.
+
+### WG-045 (2026-08-07): Wake-challenge configuration UI
+
+- **The config surface.** A "Wake challenge" section in the create/edit form: None / Walk; when
+  Walk, bounded steppers for duration and minimum steps, an accessible-alternative picker (tap
+  sequence / press and hold), and a footer that discloses the phone-carry requirement (#25).
+  `ChallengeDraft` (a value type on the `@Observable` view model, so the form binds to
+  `challenge.*`) holds the facets and builds a validated `ChallengePolicy`; it is seeded from the
+  edited alarm so editing shows and re-saves the current challenge.
+- **Only the safe facets are exposed.** Duration, minimum steps, and the accessible alternative are
+  user-facing. The anti-cheat internals (cadence cap, pause budget, anti-cheat threshold) live in a
+  new domain `WalkChallenge.standard` factory with validated defaults and are **not** surfaced — the
+  UI can never weaken the anti-cheat. Keeping them in the domain (not the view layer) is deliberate.
+- **Accessible alternative always available (SCOPE §2.3 / #22).** A `.walk` challenge carries an
+  `accessibleFallback` by domain construction; `ChallengeDraft.accessibleFallback` is non-optional
+  and defaulted, so a required challenge can never lack an alternative for a user who can't walk or
+  carry the phone.
+- **Thresholds within validated bounds + the cadence coupling (the key safety fix).** Steppers bind
+  to `durationRange` (5–60 s) and a duration-derived steps range, and `build()` clamps defensively.
+  Crucially, duration and minimum steps are **coupled**: the required cadence (steps ÷ duration) is
+  held in a plausible-walk band — at most `plausibleWalkCadence` (2.0 steps/s), kept safely **below**
+  the anti-cheat `maximumCadence` (4.0), so a legitimate walk can always pass (no unsatisfiable
+  challenge / lockout — a **false-fail**); and at least `minWalkCadence` (0.5), so a long window
+  can't be trivialized by incidental motion (a **false-pass**). motion-red-team found the decoupled
+  corners (5 s + 50 steps = 10/s, unsatisfiable and above the anti-cheat cap; 60 s + 5 steps =
+  0.08/s, trivial); the coupling closes both, proven by a grid-sweep test over the whole reachable
+  configuration space.
+- **Reviews (ux-accessibility + motion-red-team): no blocker.** Applied: the cadence coupling (the
+  material motion fix), and stable VoiceOver label + value on the steppers (matching the weekday-chip
+  precedent) so an increment announces just the changed value.
+- **Deferred (with rationale).**
+  - **A domain-level satisfiability invariant** (`minimumSteps / targetDuration ≤ maximumCadence` in
+    `WalkChallenge.init`) would defend every construction path, but risks rippling into WG-010's
+    tests and the exact relationship (with real motion units) is WG-072/075's to define. The
+    config-layer band is stricter than mere satisfiability and closes the user-facing gap now; the
+    domain invariant is a recommended follow-up.
+  - **The footer disclosure is a `Section` footer** — iOS-idiomatic; VoiceOver reaches it as the
+    section's last element (same trade-off recorded for WG-044's critical footer).
+  - **`antiCheatThreshold = 0.5` is an inert placeholder** until WG-072/075 define its units.
+  - **The phone-carry disclosure text is not unit-tested** (it's View text; the repo has no
+    ViewInspector/UI-test target) — covered by the manual checklist.
+  - **Localization** of the section labels / footer (E11).

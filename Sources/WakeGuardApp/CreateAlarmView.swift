@@ -61,6 +61,7 @@ struct CreateAlarmView: View {
                             + "in Focus, or Do Not Disturb. It can’t be turned off or changed "
                             + "without confirming.")
                 }
+                ChallengeSection(challenge: $model.challenge)
                 Section {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }
@@ -195,6 +196,61 @@ private struct NextOccurrenceRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
         .accessibilityIdentifier("nextOccurrencePreview")
+    }
+}
+
+/// The wake-challenge configuration (WG-045). Choose no challenge or a walk challenge; when
+/// walking, the duration and minimum steps are bounded steppers (so thresholds stay within
+/// the domain's validated bounds), the accessible alternative is always offered, and the
+/// footer discloses the phone-carry requirement.
+private struct ChallengeSection: View {
+    @Binding var challenge: ChallengeDraft
+
+    var body: some View {
+        Section {
+            Picker("Wake challenge", selection: $challenge.kind) {
+                Text("None").tag(ChallengeDraft.Kind.none)
+                Text("Walk").tag(ChallengeDraft.Kind.walk)
+            }
+            .accessibilityIdentifier("challengeKindPicker")
+
+            if challenge.kind == .walk {
+                Stepper(
+                    "Walk for \(challenge.durationSeconds) seconds",
+                    value: $challenge.durationSeconds, in: ChallengeDraft.durationRange, step: 5
+                )
+                .accessibilityIdentifier("challengeDurationStepper")
+                .accessibilityLabel("Walk duration")
+                .accessibilityValue("\(challenge.durationSeconds) seconds")
+                // Keep the required cadence (steps ÷ duration) in the plausible-walk band when
+                // the duration changes, so the step count can't strand or trivialize the walk.
+                .onChange(of: challenge.durationSeconds) { challenge.normalizeSteps() }
+                Stepper(
+                    "At least \(challenge.minimumSteps) steps",
+                    value: $challenge.minimumSteps,
+                    in: ChallengeDraft.stepsBounds(forDuration: challenge.durationSeconds)
+                )
+                .accessibilityIdentifier("challengeStepsStepper")
+                .accessibilityLabel("Minimum steps")
+                .accessibilityValue("\(challenge.minimumSteps) steps")
+                Picker("If you can’t walk", selection: $challenge.accessibleFallback) {
+                    Text("Tap a sequence").tag(AccessibleChallenge.tapSequence)
+                    Text("Press and hold").tag(AccessibleChallenge.pressAndHold)
+                }
+                .accessibilityIdentifier("accessibleFallbackPicker")
+            }
+        } header: {
+            Text("Wake challenge")
+        } footer: {
+            Text(footerText)
+        }
+    }
+
+    private var footerText: String {
+        challenge.kind == .walk
+            ? "You’ll need to carry your phone and walk to turn the alarm off. If you can’t walk "
+                + "or carry your phone, use the alternative above — it’s always available."
+            : "Turn the alarm off with a tap. Add a walk challenge to make waking more deliberate."
     }
 }
 
