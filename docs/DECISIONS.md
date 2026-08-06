@@ -1253,3 +1253,44 @@ decisions are recorded above using the ADR template.
   **localization** (strings are literals, consistent with the WG-040 debt — String Catalog
   in E11); extra **critical visual prominence** beyond the badge + a11y lead (revisit with
   the critical-config screen, WG-044).
+
+### WG-042 (2026-08-06): Create-alarm flow + command-processor composition
+
+- **The flow.** `CreateAlarmView` + `CreateAlarmViewModel` build a validated `Alarm` from the
+  form (name, schedule kind [weekly / one-time], time, weekday chips / date), preview the next
+  occurrence live, and submit `.create` — creation goes **only** through the command processor,
+  never persistence or the adapter directly.
+- **Mutation boundary.** A new `AlarmCommandProcessing` protocol (conformed by
+  `AlarmCommandProcessor`) is what the UI depends on, so a screen can't reach the adapter or
+  persistence and can be tested with a fake. `AppEnvironment` now composes the processor (+
+  `DefaultAlarmPolicyEngine`) over the repos and exposes it — so a create is authorized (#3),
+  audited (#46), and routed through the single adapter boundary (#2).
+- **Validation = "can it ring?"** `canSave = (nextOccurrence != nil)`, and `save()`
+  **re-checks it at submit time** — a one-time can lapse into the past between the preview and
+  the Save tap. So a past one-time, an empty weekday set, or an invalid date is unsaveable
+  (all yield no occurrence). DST ambiguous / nonexistent wall-clock times resolve forward via
+  the engine (non-crashing); explicit DST *policy* is WG-022.
+- **Deferred AlarmKit (the key decision).** The processor is composed with an interim
+  **`DeferredAlarmManagerAdapter` that makes NO AlarmKit calls** — the real
+  `SystemAlarmManagerAdapter` needs the authorization-prompt UI, `NSAlarmKitUsageDescription`,
+  and on-device verification, a cohesive later step (WG-025 UI / WG-030). Consequence: a
+  created alarm is **saved locally (#10) but does not ring yet**. This is disclosed by a
+  **persistent banner** (gated on `AppEnvironment.schedulesAlarmsInSystem == false`), so a
+  saved alarm is never silently implied to ring. Swapping in the real adapter + flipping the
+  flag is a one-line change.
+- **Criticality** defaults to `.standard`; the user-facing critical toggle is WG-044 (#31 —
+  the policy engine assigns criticality; nothing here lets the model do so, and no AI path
+  touches create).
+- **Reviews (alarm-safety + ios-architect + ux-accessibility): no blocker.** Applied: the
+  `save()` future-ness re-check (top safety finding — a lapsed one-time was previously
+  submittable as a dead alarm reported "created"); the disclosure banner; accessibility
+  (weekday chips reflow via `LazyVGrid` + `.isToggle` + a non-color selected cue + 44pt
+  targets; the live preview is `updatesFrequently`; a Save-disabled hint; a labelled name
+  field); adapter `snooze → .unavailable`; and 4 new tests (minute-boundary re-validation,
+  exact submitted schedule fields, today-earlier-time, empty-label).
+- **Deferred with ADR — the real-adapter outcome seam.** When `SystemAlarmManagerAdapter` is
+  composed, a *genuine* schedule failure returns `.failed` **with the alarm already persisted**
+  (local-first), which the create flow would surface as "couldn't create" for an alarm that
+  *was* created. The AlarmKit-integration task (WG-025 UI / WG-030) must fix the
+  outcome→message mapping (distinguish a local-persist failure from a post-persist sync
+  failure, or verify via the repo) before the real adapter ships.

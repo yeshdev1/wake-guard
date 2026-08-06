@@ -64,6 +64,7 @@
 - [ ] Non-color status indicators.
 - [ ] Design-system filled controls (primary / destructive) meet contrast on device against the shipped accent and system red at the smallest Dynamic Type size; the destructive action is distinguishable from the primary **without** color (WG-040).
 - [ ] Alarm list on device: the next-ring time stays accurate after an alarm fires (foreground reload) and after a time-zone change; rows and the summary reflow (no truncation) at the largest Dynamic Type; a critical alarm is prominent and VoiceOver announces its criticality first; a failed/unavailable load never reads as "no alarms" (WG-041).
+- [ ] Create-alarm on device: each MVP schedule type (weekly, one-time) creates and appears in the list; the next-occurrence preview updates live and honors 12/24-hour; an unsafe date (past one-time / no days / a minute that has lapsed) cannot be saved; a DST-boundary one-time (nonexistent / ambiguous wall-clock time) creates and resolves sensibly; the "won't ring yet" disclosure shows until the real AlarmKit adapter + authorization flow are wired — and once wired, a genuine schedule failure does **not** report "couldn't create" for an alarm that was saved (WG-042).
 - [ ] Touch targets.
 - [ ] Sleep-inertia usability.
 - [ ] Approved screenshot baseline.

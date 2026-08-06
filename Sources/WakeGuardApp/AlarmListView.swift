@@ -18,7 +18,10 @@ struct AlarmListView: View {
 
     @ViewBuilder private var content: some View {
         if let environment {
-            AlarmListScreen(alarms: environment.alarmRepository, clock: environment.clock)
+            AlarmListScreen(
+                alarms: environment.alarmRepository, clock: environment.clock,
+                processor: environment.alarmCommandProcessor, ids: environment.identifierGenerator,
+                schedulesInSystem: environment.schedulesAlarmsInSystem)
         } else {
             AlarmListMessageView(
                 systemImage: "externaldrive.badge.exclamationmark", title: "Alarms unavailable",
@@ -34,9 +37,21 @@ struct AlarmListView: View {
 private struct AlarmListScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AlarmListViewModel
+    @State private var showingCreate = false
+    private let processor: any AlarmCommandProcessing
+    private let clock: any WallClock
+    private let ids: any IdentifierGenerator
+    private let schedulesInSystem: Bool
 
-    init(alarms: any AlarmRepository, clock: any WallClock) {
+    init(
+        alarms: any AlarmRepository, clock: any WallClock,
+        processor: any AlarmCommandProcessing, ids: any IdentifierGenerator, schedulesInSystem: Bool
+    ) {
         _model = State(wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock))
+        self.processor = processor
+        self.clock = clock
+        self.ids = ids
+        self.schedulesInSystem = schedulesInSystem
     }
 
     var body: some View {
@@ -47,6 +62,24 @@ private struct AlarmListScreen: View {
             }
             .safeAreaInset(edge: .top) {
                 if model.isReconciling { ReconcilingBanner() }
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingCreate = true
+                    } label: {
+                        Label("Add alarm", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("addAlarmButton")
+                }
+            }
+            .sheet(
+                isPresented: $showingCreate,
+                onDismiss: { Task { await model.load() } },  // reload so a new alarm appears
+                content: { CreateAlarmView(processor: processor, clock: clock, ids: ids) }
+            )
+            .safeAreaInset(edge: .bottom) {
+                if !schedulesInSystem { SchedulingDisabledBanner() }
             }
     }
 
@@ -59,7 +92,8 @@ private struct AlarmListScreen: View {
         case .empty:
             AlarmListMessageView(
                 systemImage: "alarm", title: "No alarms yet",
-                message: "Alarms you create will appear here.", identifier: "alarmListEmpty")
+                message: "Alarms you create will appear here.", identifier: "alarmListEmpty",
+                actionTitle: "Add alarm", action: { showingCreate = true })
         case .loaded(let content):
             AlarmListLoadedView(content: content)
         case .failed(let reason):
@@ -85,6 +119,27 @@ private struct ReconcilingBanner: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Checking your alarms")
         .accessibilityIdentifier("reconcilingBanner")
+    }
+}
+
+/// A persistent disclosure shown while system scheduling is not yet wired (the WG-042
+/// interim `DeferredAlarmManagerAdapter`): alarms are saved but will not ring until the
+/// AlarmKit integration lands, so a saved alarm is never silently implied to ring (CLAUDE.md
+/// "state explicitly whether the alarm is safe"). Icon + text — not conveyed by color alone.
+private struct SchedulingDisabledBanner: View {
+    var body: some View {
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "bell.slash").accessibilityHidden(true)
+            Text("Alarms are saved but won’t ring yet on this device.")
+                .font(DesignSystem.Typography.caption)
+            Spacer()
+        }
+        .padding(DesignSystem.Spacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(DesignSystem.Colors.statusAttention.opacity(0.15))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Alarms are saved but won’t ring yet on this device.")
+        .accessibilityIdentifier("schedulingDisabledBanner")
     }
 }
 
@@ -182,26 +237,36 @@ private struct AlarmListMessageView: View {
     let title: String
     let message: String
     let identifier: String
+    var actionTitle: String?
+    var action: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: DesignSystem.Spacing.md) {
-            if progress {
-                ProgressView()
-            } else if let systemImage {
-                Image(systemName: systemImage).font(.largeTitle)
-                    .foregroundStyle(DesignSystem.Colors.secondaryText).accessibilityHidden(true)
+        VStack(spacing: DesignSystem.Spacing.lg) {
+            VStack(spacing: DesignSystem.Spacing.md) {
+                if progress {
+                    ProgressView()
+                } else if let systemImage {
+                    Image(systemName: systemImage).font(.largeTitle)
+                        .foregroundStyle(DesignSystem.Colors.secondaryText).accessibilityHidden(
+                            true)
+                }
+                Text(title).font(DesignSystem.Typography.sectionTitle)
+                if !message.isEmpty {
+                    Text(message).font(DesignSystem.Typography.secondary)
+                        .foregroundStyle(DesignSystem.Colors.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
             }
-            Text(title).font(DesignSystem.Typography.sectionTitle)
-            if !message.isEmpty {
-                Text(message).font(DesignSystem.Typography.secondary)
-                    .foregroundStyle(DesignSystem.Colors.secondaryText)
-                    .multilineTextAlignment(.center)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(identifier)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityIdentifier("\(identifier)Action")
             }
         }
         .padding(DesignSystem.Spacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(identifier)
     }
 }
 

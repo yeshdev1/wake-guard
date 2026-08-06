@@ -19,6 +19,17 @@ struct AppEnvironment: Sendable {
     let auditRepository: any AuditRepository
     let outboxRepository: any OutboxRepository
     let settingsRepository: any SettingsRepository
+    /// The single alarm-mutation boundary (WG-042): the create/edit/enable/disable flows
+    /// submit commands here, applied by `AlarmCommandProcessor` — authorized (#3), audited
+    /// (#46), and synced to the alarm authority. Screens never touch persistence or the
+    /// adapter directly.
+    let alarmCommandProcessor: any AlarmCommandProcessing
+    /// Whether created alarms are actually placed in the system authority yet. `false` while
+    /// the interim `DeferredAlarmManagerAdapter` is composed (WG-042) — alarms are saved and
+    /// shown but **do not ring** until the real `SystemAlarmManagerAdapter` + authorization UI
+    /// land (WG-025 UI / WG-030). The UI discloses this so a saved alarm is never silently
+    /// implied to ring.
+    let schedulesAlarmsInSystem: Bool
 
     /// The production graph: durable on-disk Core Data and the live wall clock and
     /// UUID generator. Throws if the persistent store cannot load (storage
@@ -55,18 +66,32 @@ struct AppEnvironment: Sendable {
         }
     }
 
-    /// Wires one persistence stack into all four repositories so they share a store.
+    /// Wires one persistence stack into all four repositories (so they share a store) and
+    /// composes the command processor over them — the policy engine (WG-028) + the interim
+    /// `DeferredAlarmManagerAdapter` (no AlarmKit yet; WG-042). Swapping in the real
+    /// `SystemAlarmManagerAdapter` is the AlarmKit-integration follow-on (WG-025 UI / WG-030).
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
         identifierGenerator: any IdentifierGenerator
     ) -> AppEnvironment {
-        AppEnvironment(
+        let alarms = CoreDataAlarmRepository(persistence)
+        let audit = CoreDataAuditRepository(persistence)
+        let outbox = CoreDataOutboxRepository(persistence)
+        let settings = CoreDataSettingsRepository(persistence)
+        let policy = DefaultAlarmPolicyEngine(alarms: alarms, clock: clock)
+        let processor = AlarmCommandProcessor(
+            policy: policy, alarms: alarms, audit: audit, outbox: outbox,
+            alarmManager: DeferredAlarmManagerAdapter(), clock: clock, ids: identifierGenerator)
+        return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
-            alarmRepository: CoreDataAlarmRepository(persistence),
-            auditRepository: CoreDataAuditRepository(persistence),
-            outboxRepository: CoreDataOutboxRepository(persistence),
-            settingsRepository: CoreDataSettingsRepository(persistence))
+            alarmRepository: alarms,
+            auditRepository: audit,
+            outboxRepository: outbox,
+            settingsRepository: settings,
+            alarmCommandProcessor: processor,
+            // The interim adapter does not touch AlarmKit yet, so nothing rings — disclosed.
+            schedulesAlarmsInSystem: false)
     }
 }
