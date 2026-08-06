@@ -1,25 +1,11 @@
 import SwiftUI
 
-/// Placeholder root view for the app shell (WG-003 scaffold).
-///
-/// Real alarm UI arrives in epoch E03. Kept intentionally free of logic so the
-/// composition root stays thin. It reads no dependencies yet; the composed
-/// `\.appEnvironment` is injected above it (WG-018) for the screens that will.
+/// The app's root view. Hosts the alarm list (WG-041), which reads its ports from the
+/// composed `\.appEnvironment` injected above it (WG-018) and renders an explicit safe
+/// state if the environment is missing.
 struct RootView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "alarm")
-                .font(.largeTitle)
-                .accessibilityHidden(true)
-            Text("WakeGuard")
-                .font(.title.bold())
-            Text("Project scaffold — alarm features arrive in later tasks.")
-                .font(.footnote)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-        }
-        .padding()
-        .accessibilityIdentifier("rootScaffold")
+        AlarmListView()
     }
 }
 

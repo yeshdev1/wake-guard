@@ -63,6 +63,7 @@
 - [ ] RTL.
 - [ ] Non-color status indicators.
 - [ ] Design-system filled controls (primary / destructive) meet contrast on device against the shipped accent and system red at the smallest Dynamic Type size; the destructive action is distinguishable from the primary **without** color (WG-040).
+- [ ] Alarm list on device: the next-ring time stays accurate after an alarm fires (foreground reload) and after a time-zone change; rows and the summary reflow (no truncation) at the largest Dynamic Type; a critical alarm is prominent and VoiceOver announces its criticality first; a failed/unavailable load never reads as "no alarms" (WG-041).
 - [ ] Touch targets.
 - [ ] Sleep-inertia usability.
 - [ ] Approved screenshot baseline.

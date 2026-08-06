@@ -1216,3 +1216,40 @@ decisions are recorded above using the ADR template.
   The app has **no string catalog yet** and `RootView` is likewise unlocalized — localization
   is an **E11** concern. When the catalog lands, make these `LocalizedStringResource`; not
   re-introduced piecemeal here, to avoid inconsistency with the rest of the app.
+
+### WG-041 (2026-08-05): Alarm list + next-alarm summary — the E03 screen template
+
+- **Pattern (every E03 screen copies this):** an `@MainActor @Observable` view model owned
+  by the view via `@State(wrappedValue:)`, handed its **ports** (`AlarmRepository`,
+  `WallClock`) + a device-zone closure by the view (which reads them from
+  `@Environment(\.appEnvironment)`). The VM is **read-only** — it never mutates an alarm or
+  calls the adapter (#2) — and computes the next occurrence via the **same**
+  `AlarmSchedulingEngine.nextOccurrence` the processor and reconciler use, so the displayed
+  time can't disagree with what fires. Screens live in `WakeGuardApp` for now.
+- **Safety-display contract:** a failed load is `.failed`, **never** `.empty` (#10 / WG-018)
+  — a storage failure is never rendered as "no alarms"; `.failed` and the nil-environment
+  safe state both say so explicitly (the nil-env branch is defensive — the shell normally
+  intercepts a composition failure with `CompositionErrorView`). Regression-tested.
+- **States:** loading / empty / loaded(summary + list) / failed. **Reconciliation is a
+  non-blocking banner** (an `isReconciling` flag), not a blanking state — the last-known
+  alarms stay visible while it verifies. The trigger is the WG-029 follow-on;
+  `setReconciling(_:)` is the seam (tested).
+- **Review (ux-accessibility + ios-architect): no blocker; 5 MAJOR applied.**
+  - **Stale next-ring:** a one-shot `.task` + a single `clock.now` snapshot could show a
+    past fire time after an alarm rings. Fixed: reload on appear **and on every foreground**
+    (`scenePhase → .active`), with a **latest-load-wins** generation guard so overlapping
+    reloads can't clobber a fresher result.
+  - **Next-ring text:** was an absolute datetime ("Nov 15, 2023 at 7:00 AM"); now a
+    **relative day + time** ("Today / Tomorrow / weekday, 7:00 AM", 12/24h-aware), matching
+    the previews.
+  - **VoiceOver:** dropped the duplicated "Off, Off" for disabled alarms; a **critical**
+    alarm now **leads** its announcement ("Critical alarm. …").
+  - **Dynamic Type:** rows + summary **reflow to vertical** (`ViewThatFits`) at large text
+    so the next-ring time never truncates; added an accessibility-XL preview.
+- **Deferred (documented):** the reconcile **trigger** (WG-029 wires `setReconciling`);
+  **time-zone-change** reload (foreground reload covers the common case; observe
+  `NSSystemTimeZoneDidChange` when travel UI lands); a dedicated **feature-UI folder** if
+  E03 crowds `WakeGuardApp` (ADR-003 permits it — revisit as screens multiply);
+  **localization** (strings are literals, consistent with the WG-040 debt — String Catalog
+  in E11); extra **critical visual prominence** beyond the badge + a11y lead (revisit with
+  the critical-config screen, WG-044).
