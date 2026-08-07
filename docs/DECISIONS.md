@@ -1619,3 +1619,51 @@ decisions are recorded above using the ADR template.
   launch hook.
 - **Deferred:** on-device screenshot-baseline approval and running the UI suite in remote CI
   (`RELEASE_CHECKLIST.md`); localization-variant screenshots (E11).
+
+### WG-060 (2026-08-07): Normalized motion source ports
+
+- **Four independent ports.** `PedometerSource` / `MotionActivitySource` / `DeviceMotionSource` /
+  `AltimeterSource` — each a distinct `Sendable` protocol (`availability() async` + a live
+  `samples()` `AsyncThrowingStream`), so the walk challenge and awake-inference depend on exactly
+  the sources they need and degrade gracefully. Distinct protocols (not a generic base) preserve the
+  compile-time "exactly the sources I need" independence. Foundation-only; the CoreMotion mapping is
+  `MotionInfrastructure` (WG-062+).
+- **Every sample carries timestamp + quality** via a `MotionSample` protocol (normalized,
+  framework-neutral value types).
+- **Explicit availability, never a silent nil.** `MotionSourceAvailability` distinguishes
+  `notPresent` / `notAuthorized` / `restricted` / `temporarilyUnavailable` (so WG-061 can tell
+  "Settings fixes it" from "it won't"), and a source that can't deliver **throws**
+  `MotionSourceError.unavailable` through its stream — a missing sensor reads as "no data →
+  fallback", never "no movement → false fail" (#21).
+- **Anti-cheat sufficiency (the review's key finding — frozen into the Codable contract now, since
+  adding fields later is a breaking change).**
+  - `PedometerSample.secondsSinceLastStep` — the inter-step-interval **series** across the stream
+    yields cadence *regularity/variance*; a steady rhythmic tap is implausibly regular and a real
+    gait varies, which a smoothed `cadenceStepsPerSecond` scalar cannot express (WG-069/070).
+  - `DeviceMotionSample.gravityAngleFromVerticalRadians` — a privacy-safe **scalar** (not the raw
+    axes) whose stability separates a phone carried by a walker from one shaken on a nightstand
+    (WG-065), so a shake can't win on magnitude alone.
+- **Stream contract (documented on the ports).** Each `samples()` begins a **new, non-replayable,
+  non-buffering** live stream; a thrown error is **terminal**, and a consumer treats it — and any
+  non-`MotionSourceError` throw — as fail-closed "keep the alarm, offer the fallback" (#24). Sample
+  timestamps are **not** guaranteed monotonic/fresh (consumers reject stale/out-of-order,
+  WG-063/067); `stepCount` is cumulative-within-episode (anti-replay is WG-070). `FakeMotionStream`
+  can inject a mid-attempt drop, so the false-FAIL trace is testable.
+- **Activity confidence.** For `MotionActivitySample` the inherited `quality` **is** the classifier
+  confidence (`CMMotionActivity.confidence`), so a barely-cleared `.walking` is distinguishable from
+  a high-confidence one (WG-064); `.unknown` is a live "unsure" value distinct from an undecodable
+  one (ambiguous ⇒ non-passing).
+- **Deferred with rationale.**
+  - **Sample-value validation** (reject negative counts / non-finite magnitudes) lives at the
+    `MotionInfrastructure` adapter boundary where untrusted CoreMotion data enters (WG-062), and
+    re-validates on decode once a *persisted* motion-history store exists (WG-081). No
+    persisted/untrusted-decode path exists today — a deliberate deviation from the
+    value-type-validates precedent (`ScheduleComponents`): boundary data is validated at the
+    boundary, keeping the carrier simple.
+  - **Historical bounded-window query** (awake-inference) is a **separate additive port**
+    (WG-062/081), not bolted onto the live ports.
+- **Reviews (ios-architect + motion-red-team): no blocker shipped.** motion-red-team's false-PASS
+  blocker (missing regularity signal) + the carried-vs-shaken and activity-confidence gaps are
+  addressed above; the mid-stream-drop fake + test + throw-is-terminal contract close the false-FAIL
+  trace. ios-architect's validation finding is the documented deferral; port independence, `async`
+  availability, and #27 fail-closed decode were confirmed correct.
