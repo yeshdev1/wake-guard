@@ -1,5 +1,8 @@
 # Release Checklist
 
+> Run these **incrementally** at epoch boundaries per `docs/UAT_CHECKPOINTS.md`, not all at
+> release — most items below belong to a specific checkpoint (CP-A…CP-I).
+
 ## Product and safety
 
 - [ ] Core alarm works without HealthKit, location, calendar, or AI.
