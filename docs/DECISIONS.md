@@ -1667,3 +1667,43 @@ decisions are recorded above using the ADR template.
   addressed above; the mid-stream-drop fake + test + throw-is-terminal contract close the false-FAIL
   trace. ios-architect's validation finding is the documented deferral; port independence, `async`
   availability, and #27 fail-closed decode were confirmed correct.
+
+### WG-061 (2026-08-07): Motion & Fitness permission flow
+
+- **The flow.** `MotionChallengeAuthorizationCoordinator` (pure, in `MotionDomain`) over a
+  domain-owned `MotionAuthorizing` port, returning a closed `MotionChallengeAuthorizationStep`. It
+  mirrors WG-025's AlarmKit auth flow: reads/requests the shared Motion & Fitness grant and decides
+  the next step; it touches no alarms, motion samples, or persistence — so a denial/interruption can
+  only *route*, never weaken or skip a challenge. Placed in `MotionDomain` (there is no
+  `MotionApplication` module; it's pure decision logic over a port — ios-architect confirmed).
+- **Requested in context.** `currentStep()` never prompts (reading state can't trigger the system
+  dialog); only `requestAfterExplanation()` calls `requestAuthorization`, and `.notDetermined` routes
+  through `.explainThenRequest` so the request follows the specific purpose copy. Whether the
+  explanation *screen* was shown is the permission-UI's contract — the flow can't observe it (same
+  accepted limitation as WG-025).
+- **Never trap (the safety core).** Every non-authorized outcome routes to the accessible
+  alternative: `denied` → offer-Settings + alternative; `restricted` → alternative (a Settings link
+  can't lift a policy control); interrupted/thrown → alternative (never an assumed denial);
+  still-`notDetermined`-after-request → alternative (no re-prompt loop). A user who declines Motion &
+  Fitness can always still turn their alarm off (#21, SCOPE §2.3).
+- **Authorization ≠ hardware present.** `.useWalkChallenge` means the app-wide grant allows motion; it
+  does **not** imply the pedometer hardware exists. The E04 challenge runtime must re-check the
+  per-source `availability()` (WG-060) and fall back to the accessible alternative on `.notPresent` /
+  `.temporarilyUnavailable` before committing the user to a walk — documented on the step;
+  enforcement is WG-063+.
+- **Specific purpose copy (#41).** `MotionChallengePurpose.explanation` names the exact use
+  (steps/movement for the wake walk), disclaims **location** *and* **saved workouts / health
+  records** (the app reads the activity/pedometer API but never HealthKit workout records), and
+  discloses the accessible alternative — no over-claim in either direction.
+- **Reviews (motion-red-team + ios-architect): no blocker.** Both confirmed the never-trap property,
+  the correct layering, concurrency cleanliness, and the fail-closed catch shape. Applied: the
+  `notPresent` doc note, the copy-honesty tightening, and the restricted / no-loop / unknown-decode
+  tests.
+- **Deferred (handoffs).**
+  - **Settings-opening is decide-only** here (the step signals "offer Settings"; the UI opens it) —
+    `SettingsOpener` lives in `AlarmApplication` and `MotionDomain` must not depend on it. When the
+    real opener lands, **hoist it to a shared cross-cutting location** so both auth flows reuse one
+    (permission-center handoff, cf. WG-025 / WG-036).
+  - **An explicit "try again" affordance** for an interrupted request — the status stays
+    not-determined, so re-invoking retries; the affordance itself is the permission UI's job.
+  - Localization of the purpose copy (E11).
