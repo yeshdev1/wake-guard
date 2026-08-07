@@ -2009,3 +2009,42 @@ decisions are recorded above using the ADR template.
   gate. **WG-073 (ring-stop) must gate alarm dismissal on `permitsAlarmDismissal` (a valid terminal
   `.passed`)** — never on a raw notification action or a stale Live-Activity button (#24) — flagged by
   alarm-safety as a downstream review item.
+
+### WG-069 (2026-08-07): Ten-second walking verification
+
+- **What it verifies.** `WalkVerifier.verify` (domain) checks whether any `MovementEpisode` (WG-067)
+  is a *validated sustained walk* against `WalkRequirements`, applying three conjunctive gates:
+  **duration** ≥ the ten-second floor (a short movement fails), **step count** ≥ a floor (a
+  device-only stationary pickup with no real steps fails), and **density** — mean inter-observation
+  gap ≤ the bar (a sparse injected/replayed episode fails). Pure, deterministic, Foundation-only.
+- **Configurable within safe bounds (one-directional clamp).** `WalkRequirements` clamps every
+  threshold so a challenge can be made *stricter* but **never weaker** than the safe floor: duration
+  ∈ [10, 120], steps ∈ [10, 200], mean-gap ∈ [0.2, 2.0]. A lenient / negative / zero / `NaN` /
+  `Infinity` / overflowing config is clamped or falls to the field's safe default (duration→10,
+  gap→2.0) — a mis-set or adversarial config **cannot** create a trivially-passable challenge. The
+  ten-second floor is guaranteed (alarm-safety verified across a hostile input matrix).
+- **#21 — a movement inference alone never fails.** `WalkVerification` has only `.passed` /
+  `.insufficient` (no `.failed`): the verifier can only *confirm a walk* or say *not yet*, and the
+  timeout (WG-068) is what turns "not yet" into a kept alarm. It reads no clock, calls no framework,
+  and cannot dismiss/suppress an alarm — it returns a verdict only. The accessible non-walking
+  fallback is orthogonal and untouched.
+- **Reviews (motion-red-team + alarm-safety-reviewer — both, safety-critical).** Alarm-safety: **no
+  false pass**, the ten-second floor cannot be weakened, determinism and the accessible alternative
+  confirmed (27 hostile probe tests). Applied the findings:
+  - **B1 (honesty blocker):** the first cut's comments called this "the anti-cheat culmination" and
+    claimed "a shake fails". That is **false** — CMPedometer counts shake accelerations as steps and
+    WG-067 treats every pedometer sample as movement, so a **sustained regular-cadence shake that
+    yields pedometer steps clears all three gates** (it isn't short, stepless, or sparse). Step
+    *regularity* is not measured here. Corrected the docs to say plainly that WG-069 gates the
+    *trivial* fakes and that the shake / replay defense — cadence regularity — is **WG-070's** job
+    (backlog: "rapid irregular motion without pedometer evidence fails"). **This threat is NOT closed
+    by WG-069.**
+  - **S3 (fail-closed):** `isValidWalk` now guards `duration.isFinite && >= 0` first, so a
+    corrupt/negative-duration episode fails independent of the producer's invariants.
+  - **S1/S2 (doc reconciliation):** noted that `stepCount` is WG-067's *advisory* count used here
+    only as an **inflation-proof lower bound** (can't be fabricated upward → a stepless pickup fails),
+    and that the mean-gap gate is a *coarse backstop* (WG-067's `pauseGap` already caps any single
+    within-episode gap; true regularity is WG-070).
+- **Handoffs.** **WG-070** owns the regular-cadence shake + replay defense (the headline anti-cheat).
+  The task that wires WG-069 into WG-068 must map `.insufficient` to "keep waiting / let the timeout
+  fire", **never** to a failure or a stop command (both reviewers flagged this integration contract).
