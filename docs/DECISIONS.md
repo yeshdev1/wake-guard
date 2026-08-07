@@ -2090,3 +2090,37 @@ decisions are recorded above using the ADR template.
   limitation test. **Handoffs:** WG-071/073 wire the verdict into the challenge (not consumed yet);
   **WG-075** owns the device calibration + the periodicity/regular-shake follow-up. The system "shaking
   alone cannot pass" guarantee (#20) rests on multi-signal corroboration (#19), not on this file alone.
+
+### WG-071 (2026-08-08): Challenge UI & progress feedback
+
+- **The in-progress challenge screen over WG-068.** `ChallengeView` presents `ChallengeViewModel`,
+  which drives the deterministic `WakeChallengeMachine`. The **view model is Foundation-only** (plain
+  display values + neutral haptic-cue intents) so all display/cue logic is unit-tested; the view owns
+  all SwiftUI/UIKit. The VM **reports**, it never dismisses — the alarm's active state comes straight
+  from the domain.
+- **Safety (both reviewers: HOLDS, no blocker).** `isAlarmActive = !phase.permitsAlarmDismissal`, so
+  the alarm reads **clearly active for every phase except `.passed`** (#21); the copy for
+  timedOut/failed/unavailable explicitly says "the alarm is still active", never implies it's handled.
+  The accessible non-walking alternative is offered for every non-passed phase (**never a dead-end**),
+  and its action closure is **non-defaulted** — a caller that forgets to wire it is a *compile error*,
+  not a silent dead-end button (alarm-safety hardening). The VM cannot force `.passed` (the machine's
+  guarantee) and the pass haptic is cosmetic.
+- **Sleep-inertia legibility + accessibility.** Big plain progress (a bar + a large "X of Y steps")
+  with an imperative headline ("Walk to turn off the alarm"). Meaning is **never color-alone** — a
+  distinct label + SF Symbol per phase, tint reinforcing only. **VoiceOver:** live announcements are
+  *posted on change* (a terse count on a step milestone, the full status on pass / not-pass) so a
+  groggy, not-looking user is actually told what happened — plus a clean label/value split
+  (`Walk progress` / `6 of 12 steps`) and `.updatesFrequently`. **Dynamic Type:** semantic fonts in a
+  `ScrollView` with the fallback button pinned via `safeAreaInset`, so nothing truncates and the
+  alternative is always reachable at the largest sizes. **Reduce Motion** gates the bar animation;
+  colors are system-semantic (dark mode / Increase Contrast).
+- **Haptics.** Neutral `ChallengeHapticCue` intents (VM, testable) → the view's feedback generators.
+  Progress haptics are **throttled to quarter milestones** (no fatigue / no competing with the alarm's
+  own feedback); `.passed`/`.notPassed` stay crisp and rare.
+- **Reviews (ux-accessibility-reviewer + alarm-safety-reviewer).** No blocker. Applied the UX
+  SHOULD-FIXes — VoiceOver *announce-on-change* (was a static label only), throttle per-step haptics,
+  drop the redundant percent (label/value split), and `ScrollView` + pinned fallback for large
+  Dynamic Type — and the alarm-safety hardening (non-defaulted alternative closure).
+- **Handoffs.** WG-072 wires `onUseAccessibleAlternative` to the accessible-alternative flow
+  (compile-enforced). The challenge *runtime* that feeds `apply(_:)` from live sensors is a later task.
+  On-device VoiceOver / haptics / Dynamic Type / Reduce Motion verification is on the checklist.
