@@ -1931,3 +1931,42 @@ decisions are recorded above using the ADR template.
   cross-checks, and a cap risks rejecting a legitimate multi-floor stairs climb. On-device threshold
   calibration is on the WG-066 checklist. Uses the derived `relativeAltitudeMeters`, not raw pressure
   (data minimization; the relative altitude is CMAltimeter's own conversion).
+
+### WG-067 (2026-08-07): Movement episode builder
+
+- **The E04 synthesis point.** `MovementEpisodeBuilder.build(merging:now:)` (domain) merges neutral
+  `MovementObservation`s from multiple sources onto one timeline and segments them into
+  `MovementEpisode`s. A `MovementObservation` (timestamp + `isMoving` + optional `cumulativeSteps` +
+  `source`) is what each source maps into: a live pedometer sample is movement (WG-063 only emits
+  while stepping, so a stop is an emission gap), and an activity sample is movement only when the
+  classifier is confidently on-foot (walking / running). Pure, deterministic; the challenge runtime
+  supplies the observations + `now`.
+- **This is where the deferred freshness gate lands.** Merge = flatten every stream + sort by
+  timestamp (Swift's stable sort resolves cross-source interleaving and equal timestamps). The single
+  filter drops any observation that is non-`isMoving`, non-finite, **stale** (older than
+  `now - staleHorizon`), or **future** (later than `now + maxFutureSkew`) — the future/stale rejection
+  WG-064 explicitly deferred to the builder, applied here independently of any one source's guard.
+- **Pauses, resets, bed-vs-walking.** A gap larger than `pauseGap` ends an episode, so continuous
+  walking forms one sustained episode while intermittent bed movement forms only short (or dropped)
+  ones — the tested canonical pair. Cumulative step totals are **reset-safe against inflation**:
+  `steps(in:)` *freezes* on a counter decrease rather than re-adding a fresh climb, so no interleaving
+  of resets can inflate it (review S1 — `[100,5,105,5,110]` yields 0, not 205). `stepCount` is
+  **advisory**, not an anti-cheat gate.
+- **Reviews (motion-red-team; privacy/architecture no surface).** Fixed the one **BLOCKER**:
+  - **B1:** a NaN `now` made the stale/future bounds NaN, and `Date`'s NaN-blind comparisons let
+    *every* observation pass — silently disarming the freshness gate this task owns. Now fails closed
+    (`guard now…isFinite`), same Date-NaN lesson as WG-062/063.
+  - **S1:** freeze-on-reset step accounting (above) + corrected the docstring that had overclaimed
+    "neither inflate nor deflate".
+  - **S2 (doc):** a sparse injected/replayed "episode" (one sample per pause-gap) is a real
+    downstream concern, but `observationCount` relative to `duration` already exposes the mean
+    inter-observation gap, so WG-069 can reject a fabricated sustained episode from the emitted fields
+    without re-deriving the timeline — documented on `MovementEpisode`.
+  - **N2 (doc):** warned that a future `from(altitude:)` / `from(deviceMotion:)` mapper must never set
+    `isMoving = true` from a lone altitude/pickup signal — that is supporting-only (WG-065/066); the
+    "lone altitude never passes" invariant holds by construction today (no such mapper exists).
+- **Handoffs.** WG-069 owns the cadence-variance anti-cheat and the *duration + density* gate — an
+  emitted episode is not by itself "movement-grade" (`minEpisodeObservations` is only a noise floor,
+  and a 2-observation episode can span up to `pauseGap`); WG-069 applies the ≥10 s and density
+  thresholds. On-device segmentation calibration (`pauseGap` / `staleHorizon`) is deferred to the
+  challenge.
