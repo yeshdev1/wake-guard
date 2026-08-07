@@ -1707,3 +1707,53 @@ decisions are recorded above using the ADR template.
   - **An explicit "try again" affordance** for an interrupted request — the status stays
     not-determined, so re-invoking retries; the affordance itself is the permission UI's job.
   - Localization of the purpose copy (E11).
+
+### WG-062 (2026-08-07): Historical pedometer adapter
+
+- **A separate bounded-window port.** `HistoricalPedometerSource` (domain, `MotionDomain`) is the
+  awake-inference read — a cumulative step query over a validated `PedometerQueryWindow` — kept
+  distinct from WG-060's live `PedometerSource` stream, as the WG-060 ADR planned. The real
+  `CMPedometer`-backed adapter is an `actor` in `MotionInfrastructure`; `MotionDomain` stays
+  Foundation-only (verified by `domain_no_apple_frameworks`).
+- **This is where WG-060's deferred validation lands.** Untrusted CoreMotion data is validated at the
+  adapter boundary: the **window** must be finite, ordered, not-future, and bounded (`maxSpan`, 24h);
+  the **sample** must have a finite timestamp *inside the queried window*, a non-negative step count,
+  and finite/non-negative distance/cadence/interval. A window can't read the future or an unbounded
+  range, and a corrupt reading never reaches wake logic (acceptance: "queries validate intervals and
+  timestamps"). The pure window/sample/availability/status logic is unit-tested in `MotionDomain`;
+  the `CMPedometer` call itself is device-only (real-device checklist / **UAT CP-C**).
+- **Concurrency (reviews confirmed sound).** The actor owns the non-Sendable `CMPedometer`; the
+  one-shot query bridges `queryPedometerData`'s completion via `withCheckedThrowingContinuation`. The
+  continuation is resumed **exactly once** on every path (the checked variant traps a hypothetical
+  double-callback rather than corrupting), and the completion closure touches only `Self`-static pure
+  functions + the local continuation — **no actor-isolated state**, so the CoreMotion callback thread
+  races nothing (ios-architect verified definitively).
+- **#41 — no raw samples, one coarse failure.** The raw `CMPedometer` error is discarded (`_`); every
+  boundary failure — nil data *and* a non-nil-but-corrupt reading — maps to the single coarse
+  `MotionSourceError.unavailable(.temporarilyUnavailable)` the port contract promises, so a consumer
+  never sees a foreign `MotionQueryError` and the validation reason string (which names sample
+  values) never escapes the adapter. An unavailable/denied source **throws**, never returns `[]` (a
+  silent empty would read downstream as "user was still" — #21/#24).
+- **Reviews (privacy-security + motion-red-team + ios-architect).** Privacy: **clean** (no
+  raw-sample/error logging, minimal retention, bounded window). Applied the valid findings:
+  - **B1 (blocker):** a NaN `now` slipped past `end <= now` (`Date` comparison is NaN-blind), so a
+    finiteness guard now runs first — closes a future-read hole nothing else caught.
+  - **S1:** the sample timestamp is now validated against the window it answered (a future-stamped
+    aggregate would be a false "just moved" signal).
+  - **Fail-open (motion + architect):** a validation throw used to propagate raw out of a port that
+    promises `MotionSourceError`; the adapter now remaps it to the coarse error (fail-closed +
+    tightens #41).
+  - **Cancellation (architect):** `Task.checkCancellation()` fails fast if the task is already
+    cancelled before the query starts.
+- **Deferred (with rationale).**
+  - **Quality stays `.high` for the historical aggregate.** `CMPedometer` history is authoritative
+    when it answers; coverage-vs-genuine-zero can't be distinguished from the API, so the
+    awake-inference consumer (E05) weights by recency/window span — it holds the window — rather than
+    this adapter guessing a lower confidence. Revisit if the consumer needs a coverage signal.
+  - **No absurd-but-finite plausibility caps** (e.g. a cadence ceiling). Rhythmic-tap vs gait is the
+    *live-stream regularity* discriminator's job (WG-063 / WG-069 / WG-070) using
+    `secondsSinceLastStep`; a scalar cap here would risk rejecting legitimate edge readings without
+    catching the real cheat.
+  - **The in-flight one-shot query is uninterruptible** — a historical `queryPedometerData` has no
+    `stop…` counterpart, so cancellation can only fail-fast *before* the call, not tear down a call
+    already in progress. Accepted; the caller's timeout still fails closed (alarm stays active).
