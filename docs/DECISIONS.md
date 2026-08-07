@@ -1546,3 +1546,49 @@ decisions are recorded above using the ADR template.
   - **The interpolated accessibility label is English word-order** ("who: what outcome, when") — the
     hardest string to localize later; folded into the E11 localization work.
   - **Localization** (E11); an AX5 screenshot reference (manual checklist).
+
+### WG-049 (2026-08-07): Deep links for alarm and proposal screens
+
+- **The link layer.** `DeepLinkParser` decodes a `URL` into a **navigational** `DeepLinkRoute`
+  (`.alarm(AlarmID)` / `.proposal(UUID)` / `.unknown`). A route carries only ids — **structurally
+  no `AlarmCommand`** — so following a link can only open a screen, never mutate an alarm (#7). The
+  parser is pure and **total**: any malformed / unknown-host / wrong-scheme / over-long link →
+  `.unknown`, with no force-unwrap. `DeepLinkModel` resolves a route by **reading** the alarm repo:
+  found → present the edit screen; stale/unknown id → "no longer exists"; a *thrown* read → "try
+  again" (distinguished, fail-safe); proposal → "not available" (no E09 screen invented);
+  nil-environment → "not ready." A monotonic request token makes a later link supersede an
+  in-flight one.
+- **Safety verified.** alarm-safety fuzzed ~30 hostile URLs (path-traversal, homoglyph host, extra
+  segments, opaque/empty-host, userinfo/port/query) — all resolve to the exact alarm or `.unknown`,
+  never a crash or coercion — and confirmed **empirically** that opening a link never invokes the
+  command processor (the stored revision is unchanged); a critical alarm's edit still routes through
+  the #6-gated processor on Save. **No blocker/major.**
+- **Forward guard for the AI/notification epochs (do not lose this).** The pre-alarm (E05) and
+  AlarmKit actions will deliver via this same URL layer; the design forces them through the
+  navigational parser, so a future "Turn off today" action can only open a confirmation screen — it
+  can never be wired to auto-cancel. **E05 must keep notification actions navigational-URL-only** (or,
+  if a `.notificationAction` command source is ever used, still route through `AlarmPolicyEngine`
+  with #6). This is the whole point of a route carrying no command.
+- **Deferred — on-device delivery + presentation integration (coupled; lands with the URL
+  emitters, E05 / WG-025-030).** Honest scope: the routing *logic* ships and is tested; on-device
+  *delivery* does not work yet.
+  - **Scheme registration.** `CFBundleURLTypes` can't be a scalar `INFOPLIST_KEY_`, so registering
+    `wakeguard://` requires switching the app target from `GENERATE_INFOPLIST_FILE: YES` to an
+    XcodeGen `info:` block — an Info.plist-generation change that can't be device-verified this
+    session. Nothing emits `wakeguard://` URLs yet, so an unregistered scheme is **fail-closed**
+    (no link fires — the safe direction). **Recipe for the follow-up:** add
+    `info: { path: Config/WakeGuard-Info.plist, properties: { UILaunchScreen: {},
+    UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: true },
+    CFBundleURLTypes: [ { CFBundleURLName: com.wakeguard.app, CFBundleTypeRole: Editor,
+    CFBundleURLSchemes: [wakeguard] } ] } }`, drop `GENERATE_INFOPLIST_FILE` + the two
+    `INFOPLIST_KEY_*Generation` lines, regenerate, and confirm the built plist has both the scene
+    manifest and the URL types.
+  - **Presentation collision.** RootView currently presents the deep-linked alarm's edit sheet,
+    which can collide with the alarm list's own create/edit sheets if a link arrives while one is
+    open (SwiftUI drops the second → the link no-ops; never a mutation, #7 holds). The follow-up
+    consolidates to a **single edit-sheet presenter** driven by both tap-to-edit and deep-link.
+  - Consequence: criterion 1 ("notification/AlarmKit actions route safely") is met **at the logic
+    level**; its **on-device verification is pending** the registration (`RELEASE_CHECKLIST.md`).
+- **Applied from review:** the rapid-link race (request token + reset-both-fields, tested). MINOR
+  parser leniency (`//` / trailing-slash still resolve to the exact target — safe) left as-is.
+- **Deferred (other):** localization of the error copy (E11).

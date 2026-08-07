@@ -2,10 +2,40 @@ import SwiftUI
 
 /// The app's root view. Hosts the alarm list (WG-041), which reads its ports from the
 /// composed `\.appEnvironment` injected above it (WG-018) and renders an explicit safe
-/// state if the environment is missing.
+/// state if the environment is missing. Handles incoming deep links (WG-049): a link only
+/// ever *opens a screen* (or shows a safe error) — it never mutates an alarm on its own.
 struct RootView: View {
+    @Environment(\.appEnvironment) private var environment
+    @State private var deepLink = DeepLinkModel()
+
     var body: some View {
+        @Bindable var deepLink = deepLink
         AlarmListView()
+            .onOpenURL { url in
+                let route = DeepLinkParser.route(for: url)
+                Task { await deepLink.open(route, using: environment) }
+            }
+            .sheet(item: $deepLink.alarmToEdit) { alarm in
+                if let environment {
+                    CreateAlarmView(
+                        editing: alarm, processor: environment.alarmCommandProcessor,
+                        clock: environment.clock, ids: environment.identifierGenerator)
+                }
+            }
+            .alert(
+                "Couldn’t open link", isPresented: deepLinkErrorPresented,
+                presenting: deepLink.errorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
+    }
+
+    private var deepLinkErrorPresented: Binding<Bool> {
+        Binding(
+            get: { deepLink.errorMessage != nil },
+            set: { if !$0 { deepLink.errorMessage = nil } })
     }
 }
 
