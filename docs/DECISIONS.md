@@ -1757,3 +1757,54 @@ decisions are recorded above using the ADR template.
   - **The in-flight one-shot query is uninterruptible** — a historical `queryPedometerData` has no
     `stop…` counterpart, so cancellation can only fail-fast *before* the call, not tear down a call
     already in progress. Accepted; the caller's timeout still fails closed (alarm stays active).
+
+### WG-063 (2026-08-07): Live pedometer adapter
+
+- **CoreMotion behind an injectable seam.** The live `PedometerSource` adapter
+  (`CoreMotionLivePedometerAdapter`, `MotionInfrastructure`) drives a `LivePedometerUpdates` port
+  (domain) instead of `CMPedometer` directly, so the streaming, dedup, and **cancellation**
+  composition is exercised off-device with a fake — only the `CMPedometerData` → `PedometerReading`
+  mapping (`CMPedometerLiveUpdates`) is device-only. This is the architecture rule ("wrap Core
+  Motion behind protocols") paying off: WG-063's three acceptance criteria (cancellation-safe,
+  duplicate/out-of-order handled, trace tests) become real automated tests, not device-only claims.
+- **The normalizer makes the non-monotonic stream ordered.** The port contract says its stream is
+  *not* monotonic/fresh and names WG-063 as the layer consumers rely on to reject stale/out-of-order
+  samples. `LivePedometerNormalizer` (pure, domain, value-semantics → trace-testable) drops a
+  reading that is implausibly future, non-advancing (duplicate / out-of-order), a cumulative-count
+  regression, or invalid (WG-060's deferred `validated`), advancing its watermark **only on a
+  successfully emitted sample**. A single corrupt live reading is *dropped, not fatal* — one glitch
+  can't end a walk challenge.
+- **Cancellation-safe (reviews confirmed).** `samples()` sets `continuation.onTermination` (→
+  `updates.stop()`) **before** starting updates, so `stop()` runs exactly once on cancel, normal
+  finish, and the error path, and CoreMotion updates never leak; the unavailable early-return starts
+  and stops nothing. A stream error `finish(throwing:)`s (never a plain empty completion a consumer
+  could misread as "walk finished, no steps") — fail-closed (#21/#24).
+- **Concurrency.** The `@Sendable` CoreMotion callback is synchronous, so it can't hop to an actor
+  without a detached `Task` that would reorder deliveries and break the watermark; instead the
+  normalizer lives in a `Mutex` (`import Synchronization`) — `accept` reads+advances the watermark
+  atomically under one lock, and the sample is yielded *outside* the lock. ios-architect verified: no
+  data race, monotonic even under hypothetical concurrent callbacks (and `CMPedometer` delivers
+  serially anyway), `stop()` exactly-once, actor genuinely unusable here.
+- **#41.** The raw `CMPedometer` error is discarded — a stream error surfaces only as the coarse
+  `MotionSourceError.unavailable(.temporarilyUnavailable)`; an invalid reading is dropped via `try?`
+  so the discarded `MotionQueryError` (whose reason could name values) never escapes. privacy-security
+  review: **clean**.
+- **Reviews (ios-architect + motion-red-team + privacy-security).** Applied the valid findings:
+  - **B1 (blocker):** a finite *far-future* timestamp passed (the `validated` future-check only runs
+    for a *windowed* historical query; the live path passes `window: nil`). It read as a false "just
+    moved" **and poisoned the watermark** — jumping `lastEmitted` to the future silently drops every
+    later real reading. Fixed with a `now + maxFutureSkew` guard in the normalizer (the adapter
+    already injects `now`), rejecting it before it can advance the watermark.
+  - **S1:** a monotonic-timestamp reading with a *decreasing* cumulative step count (a mid-episode
+    reset/glitch) would hand the consumer a negative progress delta; the normalizer now also drops a
+    step-count regression. (Anti-*replay* of duplicates stays WG-070.)
+  - **S2:** softened an over-claim — an all-drop stream emits nothing, but "→ fails closed" is the
+    *consumer's* timeout (WG-068/069) to guarantee, not this layer's; the comment now says so.
+  - **Hardening (ios-architect):** `CMPedometerLiveUpdates` confines start/stop to a serial
+    `DispatchQueue`, making its `@unchecked Sendable` a *structural* guarantee and ordering a rapid
+    start-then-cancel so `stopUpdates` can't precede its `startUpdates`.
+- **Deferred handoffs (documented).** `quality` is a uniform `.high` for live samples — the
+  shake-vs-walk discriminator is the inter-step *regularity* series (WG-069/070), not a per-sample
+  scalar. `secondsSinceLastStep` is **unavailable** from CMPedometer live data (only a smoothed
+  `currentCadence` exists), so it is nil from this path; WG-069/070 reconstruct cadence regularity
+  from timestamp deltas + cadence or `DeviceMotionSource`.
