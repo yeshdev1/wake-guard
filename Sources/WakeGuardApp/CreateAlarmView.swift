@@ -66,6 +66,14 @@ struct CreateAlarmView: View {
                     travel: $model.travel, zoneID: model.anchorZoneID,
                     timeText: model.time.formatted(date: .omitted, time: .shortened))
                 PreAlarmSection(preAlarm: $model.preAlarm, isCritical: model.isCritical)
+                if let alarmID = model.editingAlarmID {
+                    Section {
+                        NavigationLink("History") { AlarmHistoryView(alarmID: alarmID) }
+                            .accessibilityIdentifier("alarmHistoryLink")
+                    } footer: {
+                        Text("Who changed this alarm and when — including any automatic recovery.")
+                    }
+                }
                 Section {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }

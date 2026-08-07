@@ -55,6 +55,8 @@ final class CreateAlarmViewModel {
     private static let previewID = AlarmID(UUID())
 
     var isEditing: Bool { editing != nil }
+    /// The id of the alarm being edited, for the WG-048 history entry; nil when creating.
+    var editingAlarmID: AlarmID? { editing?.id }
 
     init(
         editing: Alarm? = nil, processor: any AlarmCommandProcessing, clock: any WallClock,

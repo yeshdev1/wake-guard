@@ -1510,3 +1510,39 @@ decisions are recorded above using the ADR template.
   - **The pre-alarm evaluation windows / awake-inference runtime** (ADR-008 / E05 —
     `PreAlarmEvaluator`); this task is config only.
   - **Localization** (E11), and an AX5 screenshot reference for the section (manual checklist).
+
+### WG-048 (2026-08-07): Alarm history / audit detail UI
+
+- **The screen.** A read-only per-alarm history: a `List` of the alarm's append-only audit trail
+  (newest first), each row showing who / what / when / outcome, tappable to a detail (What / Who /
+  When / From / Result). Entered from the edit form's "History" link (editing only).
+  `AlarmHistoryViewModel` maps each `AuditEvent` to a safe `AlarmHistoryItem`; the states mirror
+  WG-041 (loading / empty / failed / loaded), and a failed load reads distinctly from empty — a
+  storage error never shows as "no history."
+- **Sensitive internals never surface (#41).** The mapping carries only `userVisibleReason` (the
+  command processor's coarse, user-safe text) plus friendly actor / source / outcome / timestamp.
+  The state hashes and the correlation id are **structurally absent** from `AlarmHistoryItem`, so
+  they can't reach the UI; the raw `command` / `Alarm` / `label` are never rendered.
+  privacy-security verified end-to-end (including that `userVisibleReason`'s only producer emits
+  fixed coarse strings), and a regression test injects a hash + a correlation UUID and asserts
+  neither appears in any surfaced string.
+- **Recovery/reconciliation distinct (#50).** A **system-originated** action (reconciliation /
+  recovery / migration, by actor or source) gets a distinct icon + a "System" text tag + a "System
+  action." VoiceOver prefix (never color-alone), and the detail replaces the redundant "From" with
+  a "system action, not a change you made" note. This deliberately **broadens the domain's narrower
+  `AuditEvent.isRecovery`** (which is only `.recovery`) so that reconciliation entries are
+  distinguished from ordinary edits too — the acceptance pairs "recovery/reconciliation", and the
+  first cut only flagged `.recovery`.
+- **Read-only (#48).** The view reads only `auditRepository.events(forAlarm:)` and offers no
+  mutation of the append-only trail.
+- **Reviews (privacy-security + ux-accessibility): no blocker.** privacy-security returned **PASS
+  with no findings**. Applied ux: the system-distinction + detail restructure (M1); the outcome/tag
+  line **reflows at large Dynamic Type** (`ViewThatFits`) so the outcome — the non-color signal —
+  can't truncate (M2); `noOp` → "No change needed" (so a re-sync reason doesn't read as
+  contradictory); and a plainer "Automatic recovery" actor label.
+- **Deferred (with rationale).**
+  - **A top-level "all history" view and deep links** — this history is per-alarm, entered from the
+    edit form; deep-linking to alarm/proposal screens is WG-049.
+  - **The interpolated accessibility label is English word-order** ("who: what outcome, when") — the
+    hardest string to localize later; folded into the E11 localization work.
+  - **Localization** (E11); an AX5 screenshot reference (manual checklist).
