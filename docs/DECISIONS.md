@@ -1592,3 +1592,30 @@ decisions are recorded above using the ADR template.
 - **Applied from review:** the rapid-link race (request token + reset-both-fields, tested). MINOR
   parser leniency (`//` / trailing-slash still resolve to the exact target — safe) left as-is.
 - **Deferred (other):** localization of the error copy (E11).
+
+### WG-050 (2026-08-07): UI tests for core alarm flows
+
+- **The suite.** `WakeGuardUITests` (a new `bundle.ui-testing` target) drives the app through its
+  accessibility identifiers — six flows: launch/empty-list, create, edit-persists (round-trips a
+  critical change through persistence), delete, critical-delete-confirmation (#6), and travel-option
+  selection. Screenshots of key states (empty list, create form, critical alarm, the confirm alert,
+  travel options) are attached (`XCTAttachment`, `keepAlways`) for the release baseline.
+- **Isolation via a launch hook.** The app honors a `-uiTesting` launch argument → composes
+  `AppEnvironment.inMemory()` instead of `production()`, so each launch starts from a clean, empty,
+  in-memory store and a test run never reads or writes the user's real alarms. **Gated behind
+  `#if DEBUG`** so this test-only affordance is compiled out of release builds (a test hook must
+  never ship in a safety app; launch args can't be injected in a shipped app anyway).
+- **Kept out of the fast gate.** The UI target lives in its own scheme (`WakeGuardUITests` /
+  `make test-ui`), not the `WakeGuard` scheme's `test` set, so `ci-fast` stays a quick unit-only
+  gate. The UI suite (~90 s — it launches the app per test) is run on demand / in a fuller CI.
+- **XCUITest robustness patterns (recorded so future UI tests reuse them).** The alarm row combines
+  its children into one accessibility element (`.ignore` + a custom label), so it is matched by
+  identifier on **any** element type, not `buttons`. A SwiftUI `Toggle`'s plain `.tap()` does not
+  reliably flip the switch, so the helper verifies the value and falls back to a coordinate tap on
+  the control edge. The critical-create flow leaves the label blank so the keyboard never covers the
+  toggle. (Root cause of the flaky-looking first run: both were XCUITest interaction quirks, not app
+  bugs — the underlying flows are covered by unit tests too.)
+- **No reviewer** — low-risk test infrastructure; the only production change is the DEBUG-gated
+  launch hook.
+- **Deferred:** on-device screenshot-baseline approval and running the UI suite in remote CI
+  (`RELEASE_CHECKLIST.md`); localization-variant screenshots (E11).

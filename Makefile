@@ -4,11 +4,11 @@
 
 PROJECT     := WakeGuard.xcodeproj
 SCHEME      := WakeGuard
-SOURCES     := Sources Tests
+SOURCES     := Sources Tests UITests
 # Override on the CLI, e.g. make test DESTINATION='platform=iOS Simulator,name=iPhone 16,OS=26.5'
 DESTINATION ?= platform=iOS Simulator,name=iPhone 17,OS=26.5
 
-.PHONY: generate build test test-fast lint format format-check check-tracking ci ci-fast clean
+.PHONY: generate build test test-fast test-ui lint format format-check check-tracking ci ci-fast clean
 
 generate:
 	xcodegen generate
@@ -35,6 +35,14 @@ test-fast:
 		-project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION)' \
 		$(if $(ONLY),-only-testing:$(ONLY),)
+
+# WG-050: XCUITest flows (create/edit/delete/critical/travel) via the WakeGuardUITests scheme.
+# Slower than the unit suite (launches the app), so it is NOT part of ci-fast; run on demand.
+test-ui: generate
+	xcodebuild test \
+		-project $(PROJECT) -scheme WakeGuardUITests \
+		-destination '$(DESTINATION)' \
+		$(if $(RESULT_BUNDLE),-resultBundlePath '$(RESULT_BUNDLE)',)
 
 lint:
 	swiftlint lint --strict --config .swiftlint.yml

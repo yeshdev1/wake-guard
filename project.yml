@@ -52,6 +52,23 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  # WG-050: XCUITest bundle driving the app through its accessibility identifiers. Kept out of
+  # the WakeGuard scheme's `test` set so the fast unit gate (ci-fast) stays quick; run via the
+  # WakeGuardUITests scheme (`make test-ui`).
+  WakeGuardUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: WakeGuard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: WakeGuard
+
 schemes:
   WakeGuard:
     build:
@@ -61,3 +78,11 @@ schemes:
     test:
       targets:
         - WakeGuardTests
+  WakeGuardUITests:
+    build:
+      targets:
+        WakeGuard: all
+        WakeGuardUITests: [test]
+    test:
+      targets:
+        - WakeGuardUITests
