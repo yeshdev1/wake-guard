@@ -1808,3 +1808,53 @@ decisions are recorded above using the ADR template.
   scalar. `secondsSinceLastStep` is **unavailable** from CMPedometer live data (only a smoothed
   `currentCadence` exists), so it is nil from this path; WG-069/070 reconstruct cadence regularity
   from timestamp deltas + cadence or `DeviceMotionSource`.
+
+### WG-064 (2026-08-07): Motion activity adapter
+
+- **CoreMotion behind a seam, mapping in the domain.** The live `MotionActivitySource` adapter
+  (`CoreMotionActivityAdapter`, `MotionInfrastructure`) drives a `MotionActivityUpdates` port so the
+  streaming + cancellation composition is tested off-device; only the `CMMotionActivity` →
+  `MotionActivityReading` mapping is device-only. `CMMotionActivity` has no public initializer, so —
+  as with WG-063 — the seam yields a **framework-neutral reading** (the classifier flags + confidence
+  + start date) and the *testable* resolution to a single domain kind lives in `MotionDomain`.
+- **Conservative kind resolution (the safety core).** `resolvedKind`: an explicit `unknown`
+  dominates; otherwise exactly one flag yields that concrete kind; **0 or ≥2 flags → `.unknown`**. A
+  multi-flag transition (e.g. walking + automotive) is never reported as a confident single class.
+  This fails safe for the anti-cheat — the risk is a *false* "walking" letting a still user pass, so
+  ambiguity resolves to the non-passing `.unknown`; under-claiming a real walk only makes the
+  challenge harder (fails closed), never traps a legitimate walker on its own (a genuine steady walk
+  emits single-flag `.walking`, and WG-068/069 aggregate over a window). Confidence maps 1:1 to
+  `quality` (`@unknown default → .low`); the adapter **never gates on confidence** — a low-confidence
+  `.walking` reaches the consumer intact so WG-068/069 own the threshold. Timestamp is retained; a
+  non-finite one is dropped.
+- **Stateless → no lock; freshness is the consumer's job.** Unlike the pedometer stream, activity is
+  not cumulative — there is no watermark, so `samples()` holds no shared mutable state and needs no
+  `Mutex`. Consequently there is **no future/stale-timestamp guard here** (WG-063 needed one only to
+  stop a far-future stamp poisoning its watermark; there is no watermark to poison). The port
+  contract already assigns stale/out-of-order rejection to the consumer, and a stateless mapper
+  leaves the raw timestamp intact for WG-067 to window — adding a clock here would be lossy for no
+  benefit. **Handoff:** WG-067 (episode builder) MUST include a future/stale-timestamp rejection test
+  (the WG-063 B1 analog) — WG-064 correctly declines to be that guard.
+- **Degrade safely.** `forMotionActivity` mirrors `forPedometer` (both read the shared Motion &
+  Fitness grant): an unsupported device (no activity classifier) → `.notPresent`, unauthorized →
+  `.notAuthorized`/`.restricted`. The adapter **throws** on any non-`.available` state before starting
+  updates — a denied/absent classifier never yields an empty stream a consumer could misread as "no
+  activity = stationary/asleep" (#21/#24). Auth mapping reuses `CoreMotionHistoricalPedometerAdapter
+  .map` (both managers return the same `CMAuthorizationStatus`).
+- **Concurrency (ios-architect: sound).** The `CMMotionActivityUpdates` seam is `@unchecked Sendable`
+  with two queues: a serial `controlQueue` that orders `start`/`stop` (so they never race and a rapid
+  start-then-cancel can't stop before it starts — making the `@unchecked` structural), and the
+  `OperationQueue` CoreMotion delivers callbacks on. Concurrent delivery is harmless because the map
+  is stateless and `continuation.yield` is multi-producer-safe, so the delivery queue is left
+  default rather than forced serial. Cancellation is the WG-063 shape: `onTermination`→`stop()` set
+  before start, exactly-once, unavailable path starts/stops nothing.
+- **Reviews (motion-red-team + ios-architect; privacy not re-run).** Both **no blocker**. Privacy is
+  a strict subset of WG-063's clean result — no numeric samples, zero logging, only a coarse
+  classification + confidence — so it was not re-reviewed; no raw activity or CoreMotion state is
+  logged (#41). Applied the two convergent hardening findings as tests (no production change): a
+  low-confidence `.walking` survives the adapter un-dropped (locks the no-confidence-gating contract),
+  and a reading delivered *after* cancellation is a safe no-op (yield-after-finish is dropped).
+- **Deferred (documented).** Collapsing a multi-flag reading to `.unknown` discards *which* flags were
+  set (walking + running both lost); acceptable because the port kind is single-valued and the loss
+  is toward the safe `.unknown`. If a future "on-foot regardless of walk/run" inference needs it,
+  widen the reading exposure at WG-067 rather than making WG-064 emit a kind it isn't sure of.
