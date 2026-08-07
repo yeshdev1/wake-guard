@@ -1858,3 +1858,43 @@ decisions are recorded above using the ADR template.
   set (walking + running both lost); acceptable because the port kind is single-valued and the loss
   is toward the safe `.unknown`. If a future "on-foot regardless of walk/run" inference needs it,
   widen the reading exposure at WG-067 rather than making WG-064 emit a kind it isn't sure of.
+
+### WG-065 (2026-08-07): Device-carried & pickup evidence
+
+- **A pure classifier, not an adapter.** `DeviceMotionEvidenceAnalyzer.evaluate` (domain,
+  `MotionDomain`) infers a `DeviceMotionCharacter` — `stationary` / `pickup` / `irregularShaking` /
+  `insufficient` — from a bounded window of `DeviceMotionSample`. It makes no framework calls and
+  reads no clock; the CMDeviceMotion adapter (or the challenge runtime) supplies the window. This is
+  supporting evidence only — a movement inference alone never suppresses an alarm.
+- **Does not claim physical displacement (the honesty invariant).** CMDeviceMotion exposes
+  acceleration, rotation, and a gravity-orientation scalar but never position; integrating
+  acceleration into a distance is drift-dominated garbage. The analyzer only ever takes `.max()` of
+  magnitudes and a gravity-angle spread/net-change — it never sums a magnitude over time, and the
+  output type has **no distance/position field**. It classifies *how* the device moved, never *how
+  far* (red-team confirmed by source scan: no integration anywhere).
+- **Conservative, anti-cheat ordering.** Checked stationary → shaking → pickup → insufficient. A
+  `pickup` requires a clear *settled net reorientation* (gravity angle moved and stayed) **and**
+  non-violent acceleration; a shake is checked first, so an ambiguous/forceful motion can never be
+  credited as a carry. A forceful reorientation (violent grab) falls through to `insufficient`. Every
+  non-classifiable case — too few samples, non-finite magnitude, missing orientation, ambiguous —
+  returns `insufficient`; the function is total (never throws/traps) and fails a challenge on its own
+  never (the accessible fallback lives in the challenge layer, #21).
+- **Reviews (motion-red-team; privacy/architecture not run — no surface).** No blocker: the shake
+  ≠ pickup property and the displacement invariant both hold. Privacy/concurrency/persistence have no
+  surface here (a pure Foundation function, no I/O, no logging, no shared state), so those reviews
+  were not run. Applied the two SHOULD-FIX findings:
+  - **A2a:** `netAngleChange` used the raw first/last angle, so a single glitched endpoint sample
+    could manufacture a false `pickup`. It now uses a **head/tail median** (≥3 samples) that rejects
+    a lone outlier; the raw min/max range stays glitch-inclusive because a wide range only biases
+    toward the conservative shaking/insufficient, never a false pickup.
+  - **A1 (documented limitation, not a bug):** a slow deliberate hand-tilt (reorienting the phone
+    without getting up) is indistinguishable from a real pickup and is intentionally `.pickup`. The
+    `.pickup` doc now states this and that a consumer must treat it as weak carry evidence only —
+    **never as walking or displacement** — and a test pins the slow-tilt input to `.pickup`. The real
+    wake gate is WG-069's ten-second walking verification; WG-069's author must not read `pickup` as
+    a walk.
+- **Battery (device-measured).** "Battery cost is measured" can't be satisfied in CI. The design
+  keeps it cheap — the analyzer works on a **bounded window** (`minSamples`), so it needs only a
+  short burst of device-motion sampling, not continuous high-rate updates. The actual CMDeviceMotion
+  battery cost at the chosen rate/window **and** on-device calibration of the (deliberately cautious)
+  default thresholds are deferred to the WG-065 real-device checklist.

@@ -80,6 +80,7 @@
 - [ ] Historical pedometer on device (**UAT CP-C**): a bounded-window `CMPedometer` history query returns a validated step sample; a query whose data is missing/denied/no-hardware **throws** (never a silent empty that would read as "user was still") and the walk challenge falls back to the accessible alternative; the window can't read the future or an over-long range; and **no raw sample values or CoreMotion error text appear in any log** (#41) — a query failure surfaces only as the coarse "temporarily unavailable" state (WG-062).
 - [ ] Live pedometer on device (**UAT CP-C**): a real walk produces a live step stream that reaches the walk challenge; **cancelling the challenge (or leaving the screen) stops `CMPedometer` updates** — confirm no pedometer updates keep running in the background (battery + privacy); duplicate/out-of-order/glitched deliveries don't corrupt progress and a mid-walk counter reset doesn't produce negative progress; a denied/no-hardware source **throws** (never a silent empty that reads as "didn't walk") → accessible alternative; and **no raw sample values or CoreMotion error text appear in any log** (#41) (WG-063).
 - [ ] Motion activity on device (**UAT CP-C**): a real walk classifies as `walking` (single-flag) and reaches the challenge; a transition (e.g. walking+automotive) resolves to `unknown` rather than a false confident class; cancelling the challenge **stops `CMMotionActivityManager` updates** (no background leak); an **unsupported device** (no activity classifier) or a denied grant **throws** → accessible alternative (never an empty "no activity = stationary/asleep" stream); confidence is preserved and no raw activity state appears in logs (#41) (WG-064).
+- [ ] Device-motion evidence on device (**UAT CP-C**): on real motion the evidence classifies a **still** phone as stationary, a genuine **pickup/carry** as pickup, and a **shake-on-nightstand** as irregular-shaking (never as pickup); a **slow deliberate tilt** may read as pickup (a known limitation — the walk challenge, not this evidence, is the wake gate); **calibrate the `DeviceMotionEvidenceAnalyzer` thresholds** on real still/pickup/shake motion (the CI defaults are cautious placeholders); confirm the evidence never claims a distance/displacement (WG-065).
 - [ ] Touch targets.
 - [ ] Sleep-inertia usability.
 - [ ] Approved screenshot baseline.
@@ -92,6 +93,7 @@
 - [ ] Challenge start/pass latency.
 - [ ] Overnight idle battery.
 - [ ] Location/travel battery.
+- [ ] Device-motion (CMDeviceMotion) battery cost measured at the challenge's sampling rate/window — the device-carried/pickup evidence runs on a bounded window, so continuous high-rate sampling must not be required (WG-065).
 - [ ] No memory growth in soak test.
 - [ ] AI latency has deterministic fallback.
 
