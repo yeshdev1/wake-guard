@@ -1970,3 +1970,42 @@ decisions are recorded above using the ADR template.
   and a 2-observation episode can span up to `pauseGap`); WG-069 applies the ≥10 s and density
   thresholds. On-device segmentation calibration (`pauseGap` / `staleHorizon`) is deferred to the
   challenge.
+
+### WG-068 (2026-08-07): Wake challenge state machine
+
+- **A pure deterministic state machine.** `WakeChallengeMachine` (domain, Foundation-only) holds a
+  `WakeChallengePhase` (idle / starting / active / passed / failed / timedOut / unavailable) + a
+  `ChallengeProgress`, advanced by `apply(_ event)`. Only enumerated `(phase, event)` pairs
+  transition; **every other event is a no-op** returning `false` (state never corrupted) — "only
+  valid transitions are possible". It reads no clock and makes no framework calls (the caller injects
+  `.timeout` / `.observedProgress`), and it **cannot call AlarmKit or mutate persistence** — it only
+  *reports* a phase the alarm layer acts on.
+- **The safety core.** `permitsAlarmDismissal` is true for **`.passed` only**; every non-pass
+  terminal (failed / timedOut / unavailable) and every non-terminal phase keeps the alarm active
+  (#21, SCOPE §2.3). Terminals are stable — only a deliberate `.reset` (re-arm) leaves them, so a
+  late `.observedProgress` / `.sensorsReady` can never flip a timed-out/failed challenge to
+  passed/active. `.unavailable` is reachable from idle/starting/active so a dropped sensor always
+  routes to the accessible alternative, never traps.
+- **Inflation-proof progress (the redesign).** `ChallengeProgress` is `peak − baseline` over the
+  **cumulative** counts observed during the run — a pure function of the peak. This is monotonic and
+  **inflation-proof by construction**: a replayed/duplicate value can't raise the peak, and a counter
+  reset (a dip) can't add (a later climb only counts once it passes the prior peak). It matches the
+  motion stack's contract (`PedometerSample.stepCount` is cumulative, "robust to duplicate/replayed
+  samples so they cannot inflate it"). A pause clears baseline+peak (a safe zero reset); `required`
+  is clamped ≥ 1 so a degenerate target can't auto-pass.
+- **Reviews (alarm-safety-reviewer + motion-red-team — both, safety-critical).** Both confirmed the
+  only-`.passed`-dismisses invariant, terminal stability, and determinism. Both independently found
+  the same two defects in the first cut, now fixed:
+  - **BLOCKER:** the original additive `advance(by: delta)` computed `completed + delta` — a checked
+    add that **traps on overflow** for a near-`Int.max` delta, crashing the challenge on the
+    dismissal path (can't run the safe fallback; violates "no traps in production"). The peak−baseline
+    form uses `subtractingReportingOverflow` and **saturates at `required`**, never traps.
+  - **SHOULD-FIX:** `observedProgress(Int)` was a *trusting raw delta*, making replay/inflation
+    representable (N replays each add). Changed to `observedProgress(cumulative:)` + peak tracking, so
+    double-counting is unrepresentable regardless of how WG-069 feeds it. Added adversarial tests
+    (replay, reset-spam, `Int.max` saturation).
+- **Handoffs.** WG-069 feeds `.observedProgress(cumulative:)` from *verified* movement episodes
+  (WG-067) and drives `.timeout`; it owns the cadence-variance anti-cheat and the duration/density
+  gate. **WG-073 (ring-stop) must gate alarm dismissal on `permitsAlarmDismissal` (a valid terminal
+  `.passed`)** — never on a raw notification action or a stale Live-Activity button (#24) — flagged by
+  alarm-safety as a downstream review item.
