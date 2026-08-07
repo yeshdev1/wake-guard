@@ -2048,3 +2048,45 @@ decisions are recorded above using the ADR template.
 - **Handoffs.** **WG-070** owns the regular-cadence shake + replay defense (the headline anti-cheat).
   The task that wires WG-069 into WG-068 must map `.insufficient` to "keep waiting / let the timeout
   fire", **never** to a failure or a stop command (both reviewers flagged this integration contract).
+
+### WG-070 (2026-08-07): Anti-shake & replay defenses
+
+- **The cadence-regularity model.** `CadenceRegularity` (domain) reconstructs the inter-step interval
+  series from `MovementObservation` cumulative step counts (the live pedometer exposes no per-step
+  interval, WG-063) and classifies it: `.plausibleGait` (the only case that corroborates a walk) vs
+  `.tooFewSteps` / `.implausibleTiming` (a per-step interval outside [0.25, 1.2] s) / `.tooErratic`
+  (coefficient of variation > 0.5) / `.tooRegular` (CV < 0.03). Pure and deterministic.
+- **Acceptance met — rapid *irregular* motion fails.** Verified: an alternating `[0.3, 1.1, …]`
+  series → `.tooErratic`; a bursty shake (`[0.2, 1.0, 0.167, …]`) → `.implausibleTiming`. **Duplicates
+  can't inflate:** reconstruction skips any segment with Δsteps ≤ 0 (a duplicate or reset contributes
+  no interval — 20 duplicate samples padded onto a real walk still yield too few intervals), and a
+  constant-cadence (metronomic) replay → `.tooRegular`.
+- **Honest limitations (disclosed, not silent — acceptance criterion 3).** This is a *first-moment*
+  (CV) model and it is **corroboration, not a standalone pass** — SAFETY_INVARIANT #19/#20 hold at the
+  *system* level because a dismissal requires multiple independent signals and the timeout keeps the
+  alarm; a rejection here is never authoritative. Within that frame, the accepted residuals are:
+  - **A *regular* / paced shake passes** (review S1). A human shaking rhythmically at ~2/s with hand
+    jitter lands CV ≈ 0.065 — inside the plausible band; a CV-only model cannot separate it from a
+    gait. The literal criterion ("rapid *irregular* motion fails") is met; the *regular*-shake fix is
+    deferred to the WG-075 on-device calibration study. Pinned by `testPacedShakePassesAsKnownLimitation`
+    so it can't change silently.
+  - **Exactly-periodic alternation is accepted** (S2). CV is order-blind, so `[0.4, 0.6, 0.4, 0.6, …]`
+    (a tap/replay signature) reads as `.plausibleGait`. A periodicity / autocorrelation gate is
+    out of scope for the MVP CV model → WG-075.
+  - **Jittered fabricated replay isn't defeated here** (S3). A monotonic fabricated stream with
+    hand-like jitter passes; that is the adapter's *injection-trust* boundary (WG-063), not a cadence
+    property. Only duplicate/reset and constant-cadence replays are defeated by this statistic.
+  - **`minimumIntervals = 8` is coupled to CMPedometer's ~1 Hz delivery** (S4): a genuine 10 s walk
+    yields ~9 intervals, so slower/batched delivery could false-reject a real short walk. Calibratable
+    (WG-075). Population variance (`/n`, N1) is marginally permissive; calibration accounts for it.
+- **False-positive set (corrected — S5).** The specific real walkers this *rejects*: a steady
+  **treadmill** walker (near-constant cadence → `.tooRegular`), a **slow / elderly** gait slower than
+  1.2 s/step (→ `.implausibleTiming`), and any very-regular walker. Each is tolerable **only** because
+  the rejection is non-authoritative and the **accessible alternative is always available** (#21/#22).
+- **Review (motion-red-team).** Confirmed rapid-irregular-motion fails and duplicates can't inflate;
+  no safety invariant violated (every rejection is non-authoritative; the accessible fallback is
+  untouched). Applied: corrected the false-positive docstring (a limp actually *passes*; treadmill /
+  slow-gait are the real rejections), corrected the replay-scope claim, and added the paced-shake
+  limitation test. **Handoffs:** WG-071/073 wire the verdict into the challenge (not consumed yet);
+  **WG-075** owns the device calibration + the periodicity/regular-shake follow-up. The system "shaking
+  alone cannot pass" guarantee (#20) rests on multi-signal corroboration (#19), not on this file alone.
