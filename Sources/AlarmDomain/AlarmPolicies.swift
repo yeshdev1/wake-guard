@@ -60,33 +60,54 @@ struct SnoozePolicy: Codable, Sendable, Equatable, Hashable {
 
 /// Pre-alarm movement-check policy. Disabled is canonical; enabled requires a
 /// positive lead time. Evaluation-window defaults are ADR-008.
+/// An action the smart pre-alarm prompt may offer (PRODUCT_SPEC §3.3). "Keep original alarm" is
+/// always available implicitly — it is the no-op that #7 guarantees when the user doesn't respond
+/// — so it is never in this set. This set is the user-controlled subset the prompt presents.
+enum PreAlarmAction: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+    case turnOffToday
+    case changeTime
+    case remindLater
+}
+
 struct PreAlarmPolicy: Codable, Sendable, Equatable, Hashable {
     let isEnabled: Bool
     let leadTime: TimeInterval
+    /// The actions the pre-alarm prompt offers (WG-047). Empty when disabled, and may be empty
+    /// even when enabled (a purely informational prompt — the user still keeps the alarm by
+    /// default, #7). Enforcement of the critical-alarm confirmation on these actions is the
+    /// pre-alarm runtime's job; the policy engine already gates any resulting destructive command.
+    let allowedActions: Set<PreAlarmAction>
 
-    private init(isEnabled: Bool, leadTime: TimeInterval) {
+    private init(isEnabled: Bool, leadTime: TimeInterval, allowedActions: Set<PreAlarmAction>) {
         self.isEnabled = isEnabled
         self.leadTime = leadTime
+        self.allowedActions = allowedActions
     }
 
-    static let disabled = PreAlarmPolicy(isEnabled: false, leadTime: 0)
+    static let disabled = PreAlarmPolicy(isEnabled: false, leadTime: 0, allowedActions: [])
 
-    static func enabled(leadTime: TimeInterval) throws -> PreAlarmPolicy {
+    static func enabled(
+        leadTime: TimeInterval, allowedActions: Set<PreAlarmAction> = []
+    ) throws -> PreAlarmPolicy {
         guard leadTime > 0 else {
             throw DomainError.invalidPreAlarmPolicy(reason: "leadTime must be > 0")
         }
-        return PreAlarmPolicy(isEnabled: true, leadTime: leadTime)
+        return PreAlarmPolicy(isEnabled: true, leadTime: leadTime, allowedActions: allowedActions)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case isEnabled, leadTime
+        case isEnabled, leadTime, allowedActions
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if try container.decode(Bool.self, forKey: .isEnabled) {
+            let actions =
+                try container.decodeIfPresent(Set<PreAlarmAction>.self, forKey: .allowedActions)
+                ?? []
             self = try PreAlarmPolicy.enabled(
-                leadTime: container.decode(TimeInterval.self, forKey: .leadTime))
+                leadTime: container.decode(TimeInterval.self, forKey: .leadTime),
+                allowedActions: actions)
         } else {
             self = .disabled
         }

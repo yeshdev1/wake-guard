@@ -65,6 +65,7 @@ struct CreateAlarmView: View {
                 TravelSection(
                     travel: $model.travel, zoneID: model.anchorZoneID,
                     timeText: model.time.formatted(date: .omitted, time: .shortened))
+                PreAlarmSection(preAlarm: $model.preAlarm, isCritical: model.isCritical)
                 Section {
                     NextOccurrenceRow(date: model.nextOccurrence)
                 }
@@ -293,6 +294,69 @@ private struct TravelSection: View {
     /// A VoiceOver-friendly reading of the identifier, e.g. "America, New York".
     private var spokenZone: String {
         readableZone.replacingOccurrences(of: "/", with: ", ")
+    }
+}
+
+/// The smart-pre-alarm configuration (WG-047, PRODUCT_SPEC §3.3). Enables a gentle pre-wake
+/// prompt, sets its bounded lead-time window, and lets the user choose which actions the prompt
+/// offers. The footer always states the #7 guarantee (no response → the alarm is unchanged) and,
+/// for a critical alarm, that turning it off from the prompt needs confirmation.
+private struct PreAlarmSection: View {
+    @Binding var preAlarm: PreAlarmDraft
+    let isCritical: Bool
+
+    var body: some View {
+        Section {
+            Toggle("Check before the alarm", isOn: $preAlarm.isEnabled)
+                .accessibilityIdentifier("preAlarmToggle")
+            if preAlarm.isEnabled {
+                Stepper(
+                    "Check \(preAlarm.leadTimeMinutes) minutes early",
+                    value: $preAlarm.leadTimeMinutes, in: PreAlarmDraft.leadRange, step: 5
+                )
+                .accessibilityIdentifier("preAlarmLeadStepper")
+                .accessibilityLabel("Pre-alarm window")
+                .accessibilityValue("\(preAlarm.leadTimeMinutes) minutes before")
+
+                ForEach(PreAlarmAction.allCases, id: \.self) { action in
+                    Toggle(Self.actionTitle(action), isOn: binding(for: action))
+                        .accessibilityHint("Adds this option to the pre-alarm prompt")
+                        .accessibilityIdentifier("preAlarmAction-\(action.rawValue)")
+                }
+            }
+        } header: {
+            Text("Smart pre-alarm")
+        } footer: {
+            if preAlarm.isEnabled {
+                Text(
+                    PreAlarmDraft.promptDisclosure(
+                        isCritical: isCritical, offersActions: !preAlarm.allowedActions.isEmpty))
+            } else {
+                Text(
+                    "A gentle check before the alarm if you already seem awake. You choose what "
+                        + "the prompt can do; ignoring it always keeps your alarm.")
+            }
+        }
+    }
+
+    private func binding(for action: PreAlarmAction) -> Binding<Bool> {
+        Binding(
+            get: { preAlarm.allowedActions.contains(action) },
+            set: { isOn in
+                if isOn {
+                    preAlarm.allowedActions.insert(action)
+                } else {
+                    preAlarm.allowedActions.remove(action)
+                }
+            })
+    }
+
+    private static func actionTitle(_ action: PreAlarmAction) -> String {
+        switch action {
+        case .turnOffToday: "Offer “Turn off today”"
+        case .changeTime: "Offer “Change time”"
+        case .remindLater: "Offer “Remind later”"
+        }
     }
 }
 

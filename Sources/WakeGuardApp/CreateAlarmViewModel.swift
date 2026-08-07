@@ -39,6 +39,8 @@ final class CreateAlarmViewModel {
     /// The travel behavior (WG-046): how the alarm's time zone follows or resists device
     /// travel. The zone it is anchored to is `anchorZoneID`.
     var travel: TravelOption = .followLocal
+    /// The smart pre-alarm configuration (WG-047): the pre-wake prompt window + allowed actions.
+    var preAlarm = PreAlarmDraft()
     private(set) var isSaving = false
 
     private let processor: any AlarmCommandProcessing
@@ -75,6 +77,7 @@ final class CreateAlarmViewModel {
             self.isCritical = editing.criticality == .critical
             self.challenge = ChallengeDraft(from: editing.challengePolicy)
             self.travel = TravelOption(from: editing.travelBehavior)
+            self.preAlarm = PreAlarmDraft(from: editing.preAlarmPolicy)
         } else {
             self.time = now
             self.date = now
@@ -145,7 +148,7 @@ final class CreateAlarmViewModel {
         return try? Alarm(
             id: id, label: trimmed, schedule: schedule, travelBehavior: travel.behavior,
             criticality: isCritical ? .critical : .standard, challengePolicy: challenge.build(),
-            createdAt: now, updatedAt: now)
+            preAlarmPolicy: preAlarm.build(), createdAt: now, updatedAt: now)
     }
 
     private func buildSchedule() -> ScheduleRule? {
@@ -181,9 +184,9 @@ final class CreateAlarmViewModel {
     }
 
     /// Build the edited alarm — same id, bumped revision. Label, schedule, criticality (WG-044),
-    /// the wake challenge (WG-045), and the travel behavior (WG-046) are editable; the remaining
-    /// policies (sound, snooze, pre-alarm) are preserved. Weakening `criticality` (critical →
-    /// standard) is gated by the policy engine (#6) when `save()` submits the `.update`.
+    /// the wake challenge (WG-045), the travel behavior (WG-046), and the pre-alarm (WG-047) are
+    /// editable; the remaining policies (sound, snooze) are preserved. Weakening `criticality`
+    /// (critical → standard) is gated by the policy engine (#6) when `save()` submits the `.update`.
     private func buildAlarm(id: AlarmID, basedOn existing: Alarm) -> Alarm? {
         guard let schedule = buildSchedule() else { return nil }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -192,7 +195,7 @@ final class CreateAlarmViewModel {
             travelBehavior: travel.behavior,
             criticality: isCritical ? .critical : .standard,
             sound: existing.sound, snoozePolicy: existing.snoozePolicy,
-            challengePolicy: challenge.build(), preAlarmPolicy: existing.preAlarmPolicy,
+            challengePolicy: challenge.build(), preAlarmPolicy: preAlarm.build(),
             createdAt: existing.createdAt, updatedAt: clock.now, revision: existing.revision + 1)
     }
 

@@ -1474,3 +1474,39 @@ decisions are recorded above using the ADR template.
     interpreted in the anchor zone — an inherent wall-clock-across-zones nuance (WG-022 territory),
     not re-opened here; the anchor itself is preserved (above).
   - **Localization** of the option titles / labels / preview (E11).
+
+### WG-047 (2026-08-07): Pre-alarm-policy configuration UI
+
+- **The config surface.** A "Smart pre-alarm" section in the create/edit form: enable + a bounded
+  lead-time window (5–120 min, default 30) + which actions the prompt offers (Turn off today /
+  Change time / Remind later — PRODUCT_SPEC §3.3; "Keep original alarm" is the implicit no-op).
+  `PreAlarmDraft` builds a validated `PreAlarmPolicy`; it is seeded from the edited alarm.
+- **Domain extension (minimal, spec-driven).** `PreAlarmPolicy` gained
+  `allowedActions: Set<PreAlarmAction>` (the spec's prompt actions). The factory param defaults to
+  `[]` (existing callers unaffected); Codable decodes it with `decodeIfPresent ?? []` so pre-WG-047
+  data still loads; an unknown action string fails **closed** (throws, #27). `.disabled` keeps an
+  empty set and strips stray actions on decode. The `leadTime > 0` bound is unchanged.
+- **#7 + critical limit, config-only (the safety framing).** The `allowedActions` set records
+  **intent only** — the pre-alarm prompt runtime is E05, and any actual "turn off / change" it later
+  triggers still routes through the command processor + policy engine, which gates a critical
+  alarm's destructive change behind #6 (proven by the existing `testUpdateGatesOnlyCriticalAlarms`).
+  So configuring `.turnOffToday` can never cancel a critical alarm without confirmation.
+  `promptDisclosure` always states #7 ("if you don't respond, the alarm rings unchanged at its set
+  time"); it adds an informational-only note when no actions are offered, and appends the critical
+  confirmation limit when the alarm is critical (visible + live via `model.isCritical`).
+- **Reviews (alarm-safety + ux-accessibility): no blocker.** alarm-safety verified the #6/#7
+  guarantees are enforced by tested code (not just comments), the decode fails closed, and no config
+  path bypasses the engine. Applied: the informational-only note for enabled-with-no-actions (ux M1
+  — it was the default state, whose copy otherwise implied actions existed); a 5-minute-grid
+  alignment on a seeded off-grid lead time so it can't silently desync the stepper (safety MINOR-2);
+  action-toggle VoiceOver hints (ux m1); and de-duplicated the section header vs the enable-toggle
+  label (ux m4 — header "Smart pre-alarm", toggle "Check before the alarm").
+- **Deferred (with rationale).**
+  - **The critical limit sits in the section footer** (not a dedicated in-body `Label`) — accepted
+    debt, parity with WG-044's "extra critical prominence" posture; it is text (not color-alone) and
+    updates live.
+  - **A per-toggle "needs confirmation" annotation** for critical alarms — the footer disclosure
+    suffices for a config task; the runtime enforces #6.
+  - **The pre-alarm evaluation windows / awake-inference runtime** (ADR-008 / E05 —
+    `PreAlarmEvaluator`); this task is config only.
+  - **Localization** (E11), and an AX5 screenshot reference for the section (manual checklist).
