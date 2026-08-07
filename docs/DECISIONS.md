@@ -1898,3 +1898,36 @@ decisions are recorded above using the ADR template.
   short burst of device-motion sampling, not continuous high-rate updates. The actual CMDeviceMotion
   battery cost at the chosen rate/window **and** on-device calibration of the (deliberately cautious)
   default thresholds are deferred to the WG-065 real-device checklist.
+
+### WG-066 (2026-08-07): Optional altimeter evidence
+
+- **Supporting-only, enforced by the type.** `AltitudeEvidenceAnalyzer.evaluate` (domain) classifies
+  a window of `AltitudeSample` into `unavailable` / `insufficient` / `flat` / `significantChange`. The
+  enum deliberately has **no "fails a challenge" case** — `corroboratesMovement` is true for exactly
+  one case (`significantChange`) and false for every neutral case — so an absent, flat, or drifting
+  altimeter can only ever *fail to add* positive corroboration, never subtract. That structurally
+  satisfies "altimeter is supporting evidence only" and "unavailable barometer has no negative
+  impact" (every non-`.available` state maps to `.unavailable`).
+- **Drift doesn't pass — with an honest caveat.** A `significantChange` requires **both** a real
+  magnitude (`minSignificantChange`, 0.8 m) **and** a real rate (`minChangeRate`, 0.1 m/s). *Slow*
+  weather/HVAC drift moves little over a short window and slowly over a long one, so it clears at most
+  one and stays `.flat` (the tested anti-cheat). Red-team's honest correction (S1): a *fast step*
+  transient — a slammed door, an HVAC kick, a nearby elevator — can clear both, and **barometry alone
+  cannot distinguish it from a stand-up**. That is inherent to the sensor, which is why this is *weak*
+  evidence. **Integration constraint / handoff:** WG-067/069 must never pass a challenge on a lone
+  `.significantChange`; it may only corroborate independent accel/pedometer movement. Documented on
+  the case and the analyzer.
+- **Robust, direction-agnostic, total.** Net change uses **head/tail medians** (reject a single
+  spike), clamped to *disjoint* windows so they can't overlap and halve the measured span at the
+  minimum sample count (review S2). A change up *or* down corroborates (both are physical movement).
+  The function is total — empty / too-few / non-finite / zero-duration windows all return a neutral
+  case; it never throws or traps (#21).
+- **Reviews (motion-red-team; privacy/architecture not run — no surface).** No blocker. Pure
+  Foundation logic with no I/O, logging, concurrency, or persistence, so only the anti-cheat/classifier
+  was reviewed. Applied: **S2** disjoint-endpoint clamp, **S1/N1** doc honesty (fast step transients +
+  the downstream cross-check constraint), and a `.temporarilyUnavailable` test case.
+- **Deferred.** **N2** (no sanity cap on an absurd-but-finite altitude): harmless for WG-066 — an
+  over-claimed `.significantChange` is still only weak, non-failing corroboration that downstream
+  cross-checks, and a cap risks rejecting a legitimate multi-floor stairs climb. On-device threshold
+  calibration is on the WG-066 checklist. Uses the derived `relativeAltitudeMeters`, not raw pressure
+  (data minimization; the relative altitude is CMAltimeter's own conversion).
