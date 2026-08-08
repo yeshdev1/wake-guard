@@ -2124,3 +2124,44 @@ decisions are recorded above using the ADR template.
 - **Handoffs.** WG-072 wires `onUseAccessibleAlternative` to the accessible-alternative flow
   (compile-enforced). The challenge *runtime* that feeds `apply(_:)` from live sensors is a later task.
   On-device VoiceOver / haptics / Dynamic Type / Reduce Motion verification is on the checklist.
+
+### WG-072 (2026-08-08): Accessible challenge alternatives
+
+- **A deterministic, input-gated runtime.** `AccessibleChallengeMachine` (AlarmDomain, Foundation-only)
+  passes the *same* challenge via a deliberate manual gesture — a **debounced tap sequence** or a
+  **press-and-hold**. It advances **only** through explicit user-input events (`tap` / `beginHold` /
+  `holdTick` / `endHold`) with a caller-supplied timestamp; it reads no clock and has no model/AI
+  seam. So — exactly as AI cannot call AlarmKit (#1) — **AI can neither invoke nor complete it** (it
+  can't emit touches); `AccessibleChallengeTests` proves there is no non-input path to `.passed`.
+- **Deliberate but completable, never a dead-end.** `requiredTaps` clamps to [4, 12] and taps are
+  debounced (within-0.15 s / out-of-order / non-finite taps ignored), so a single accidental / stuck /
+  auto-repeating touch can't pass it; press-and-hold clamps to [2, 8] s and an early release **safely
+  resets** (never *fails* the challenge — the alarm stays active until genuinely passed, #21). Passing
+  the alternative is equivalent to passing the walk. **Preselection without stigma** already exists in
+  the create/edit flow (WG-045, default `.tapSequence`); the copy is affirming ("Another way to turn
+  off the alarm"), and the VM's `onPassed` is the seam WG-073 wires to the authorized stop (the
+  WG-071 entry point's closure is compile-enforced).
+- **The accessible fallback is itself accessible (the ux review's two blockers, fixed).**
+  - **B1:** a sustained `onLongPressGesture` is a **VoiceOver / Switch Control dead-end** (assistive
+    tech intercepts touch, so the gesture never fires). Added an `.accessibilityAction` +
+    `completeViaAccessibleActivation()` so an assistive-tech activation completes the hold — the
+    accessible equivalent of holding, still a deliberate input (not AI-reachable), so the fallback is
+    never a dead-end.
+  - **B2 / S1 / S3:** the default tap path gave no per-tap feedback. Added a **big live count**
+    ("3 of 6 taps") and a **per-tap VoiceOver announcement** (only on an accepted tap), so a groggy /
+    low-vision / blind user knows a tap registered and how many remain. **S5:** the completion
+    announcement is posted **high-priority** so it isn't clobbered by the next screen. Dynamic Type
+    (semantic fonts), Reduce-Motion-gated bar, non-color, and the hold timeline is paused when not
+    actively holding.
+- **Reviews.** ux-accessibility-reviewer found the two blockers above (fixed) and confirmed the
+  non-stigmatizing framing + deterministic anti-cheat. The alarm-safety-reviewer **timed out** before
+  returning — its hostile probes (identical-timestamp taps rejected, hold requires begin, backward
+  clock ignored, `onPassed` fires once, wrong-kind inert) were all *passing* when it stopped, and the
+  safety property is directly encoded and covered by `AccessibleChallengeTests` (input-gating /
+  AI-can't-invoke) and `AccessibleChallengeViewModelTests` (`onPassed` once, early release never
+  fires); the reviewer left probe code in the test file, which was removed.
+- **Handoffs.** WG-073 wires `onPassed` → authorized stop. WG-075 verifies on-device accessibility
+  (VoiceOver / Switch Control completion, motor-impaired usability). Residual **B2** (a non-assistive
+  tremor user could still self-select the harder press-and-hold) → the create-flow picker should
+  recommend `.tapSequence`; noted for the WG-045 polish, and the always-available alternative + the
+  assistive-tech completion mitigate it.
