@@ -38,7 +38,10 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
         _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor,
         userConfirmed: Bool
     ) async -> CommandOutcome {
-        state.mutate { store in
+        // A real suspension point, so a caller's `await process(...)` genuinely yields — this lets
+        // concurrency tests exercise the actor reentrancy window around a caller's once-only guard.
+        await Task.yield()
+        return state.mutate { store in
             store.seen.append(command)
             return userConfirmed ? store.confirmed : store.unconfirmed
         }

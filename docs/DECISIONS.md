@@ -2165,3 +2165,49 @@ decisions are recorded above using the ADR template.
   tremor user could still self-select the harder press-and-hold) → the create-flow picker should
   recommend `.tapSequence`; noted for the WG-045 polish, and the always-available alternative + the
   assistive-tech completion mitigate it.
+
+### WG-073 (2026-08-08): Connect a valid challenge pass to the authorized stop
+
+- **The ring-stop primitive (the port doc promised it).** Added `stopRing(alarmID:)` to
+  `AlarmManagerAdapter` — the authorized ring-stop, gated on a valid pass (#24), a **no-op on a
+  not-ringing id** (idempotent), distinct from `cancel` (which removes a *scheduled* alarm and must
+  never stop a ring). Impls: `SystemAlarmManagerAdapter` → AlarmKit `stop(id:)` (presence-checked like
+  `cancel`; ios-architect confirmed `stop` is the right primitive vs `cancel`), the interim
+  `DeferredAlarmManagerAdapter` → **no-op** (nothing rings yet — safe), `FakeAlarmManagerAdapter` →
+  records the call.
+- **`markChallengePassed` now stops the ring.** The processor's stub (which audited `.noOp`) becomes
+  `applyChallengePassed`: it stops the ring through the **outbox-bracketed** `runExternal` (key kind
+  `"stopRing"`), so a racing / duplicate submission **dedups on the key** (the adapter is called at
+  most once) and a crash/uncertain outcome is tracked; it makes **no local mutation** (only the ring
+  stops; the next occurrence still fires). The command dispatch was extracted to `apply(_:context:)`
+  to stay within the cyclomatic-complexity limit (behavior-preserving — architect verified the
+  non-comment diff is exactly the new case + handler).
+- **The coordinator (the "connect").** `ChallengeStopCoordinator` (AlarmApplication, an `actor`)
+  submits **exactly one** `markChallengePassed` through the `AlarmCommandProcessing` boundary (the only
+  path to the adapter, #2) for a **terminal walk pass** (`permitsAlarmDismissal`, true only for
+  `.passed`) or the **accessible fallback** — and *nothing* for any other phase (#21: a movement
+  inference alone never stops the alarm). Its once-only guard flips **before** the first `await`, so
+  the actor makes it race-safe exactly-once (architect confirmed: no reentrancy hole).
+- **Reviews (alarm-safety-reviewer + ios-architect — both read-only, safety-critical).** No blocker;
+  both confirmed **"only a valid pass stops the ring" (#24) HOLDS** and **"duplicate / racing passes
+  stop once" HOLDS** (coordinator once-only + outbox dedup, tested to `stoppedRingIDs == [id]`).
+  Applied the findings:
+  - **A (audit honesty, #46):** an *uncertain* stop was audited `.succeeded` ("Alarm stopped") though
+    the ring may still sound. Now audited **`.failed`** with an honest reason — matching the codebase's
+    `auditUncertainRepair` convention. `.applied` → `.succeeded`, a definite failure → `.failed`, a
+    missing alarm → `.noOp`.
+  - **B (comment overclaim):** corrected "an uncertain delivery is reconciled from the outbox" — no
+    reconciler re-drives a stranded `stopRing` (reconcile only does schedule/cancel from divergence). A
+    not-actually-stopped ring simply keeps ringing and the user re-completes the challenge (the safe
+    direction — a ring never silently looks handled).
+  - **Test:** `FakeAlarmCommandProcessor.process` now has a real suspension point so the 50-task
+    concurrency test genuinely exercises the actor reentrancy window.
+- **Interim scope (honest).** `DeferredAlarmManagerAdapter` is what's composed today (nothing rings),
+  so `stopRing` is a field no-op; the real ring-stop is live once `SystemAlarmManagerAdapter` is
+  composed (WG-026). The **CONNECT half is a seam**: the challenge *runtime* (a later task) wires
+  `ChallengeViewModel` (phase → `.passed`) → `coordinator.walkChallengeReached` and
+  `AccessibleChallengeViewModel.onPassed` → `accessibleAlternativePassed`, injecting the right audit
+  `source` (`.notificationAction` for a notification-driven pass). **Handoffs:** WG-026 must make
+  `SystemAlarmManagerAdapter.map`'s reason strings **operation-aware** (a failed `stopRing` currently
+  reads "could not be scheduled"); WG-029 could add stranded-`stopRing` recovery (today the re-ring is
+  the fallback).

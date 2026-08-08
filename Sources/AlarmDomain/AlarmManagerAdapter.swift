@@ -39,6 +39,15 @@ protocol AlarmManagerAdapter: Sendable {
     /// that is currently firing.
     func cancel(alarmID: AlarmID) async throws
 
+    /// Stop the currently *ringing* alarm with this id — the authorized ring-stop, gated on a valid
+    /// challenge pass (#24, WG-073). Stopping an id that is **not** ringing is a **no-op**
+    /// (idempotent), so a racing / duplicate pass callback can neither error nor double-stop.
+    /// Distinct from `cancel(alarmID:)`: that removes a *scheduled future* alarm (and must never stop
+    /// a ring), while this stops the *current* alert and leaves the alarm's next occurrence intact.
+    /// Only `AlarmCommandProcessor` invokes it (#2), and only after a valid pass. Same
+    /// uncertain / cancellation contract as the other mutating calls.
+    func stopRing(alarmID: AlarmID) async throws
+
     /// Snooze the alarm so it next fires at `until` (the caller derives `until` from
     /// the snooze policy; the adapter applies no policy). Snoozing an id the system
     /// does not hold is a no-op — there is no occurrence to defer.

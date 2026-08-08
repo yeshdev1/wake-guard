@@ -26,6 +26,11 @@ struct DeferredAlarmManagerAdapter: AlarmManagerAdapter {
         // Nothing is scheduled in the system, so there is nothing to cancel — a no-op.
     }
 
+    func stopRing(alarmID: AlarmID) async throws {
+        // This interim adapter makes no AlarmKit calls, so no alarm rings yet — there is nothing to
+        // stop, a no-op. The real ring-stop lands with the AlarmKit-backed adapter (WG-026).
+    }
+
     func snooze(alarmID: AlarmID, until: Date) async throws {
         // Nothing is scheduled, so there is nothing to defer — `.unavailable`, not
         // `.uncertain` (which would send reconciliation chasing a phantom snooze).

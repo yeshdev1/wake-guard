@@ -281,6 +281,7 @@ final class AlarmCommandProcessorTests: XCTestCase {
         func requestAuthorization() async throws -> AlarmAuthorizationState { .authorized }
         func schedule(_ request: AlarmScheduleRequest) async throws { throw CancellationError() }
         func cancel(alarmID: AlarmID) async throws {}
+        func stopRing(alarmID: AlarmID) async throws {}
         func snooze(alarmID: AlarmID, until: Date) async throws {}
         func scheduledAlarms() async throws -> [ScheduledAlarmSnapshot] { [] }
     }

@@ -60,6 +60,23 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
         }
     }
 
+    func stopRing(alarmID: AlarmID) async throws {
+        // Stop the *currently alerting* alarm. Stopping an id the system does not hold is a no-op
+        // (port contract) — check presence first so a stale/duplicate pass never surfaces a spurious
+        // failure. The full AlarmKit stop/criticality mapping is refined with the real adapter
+        // (WG-026); a cancelled/uncertain call maps to `.uncertain` for reconciliation (#10).
+        if let alarms = try? AlarmManager.shared.alarms,
+            !alarms.contains(where: { $0.id == alarmID.rawValue })
+        {
+            return
+        }
+        do {
+            try AlarmManager.shared.stop(id: alarmID.rawValue)
+        } catch {
+            throw Self.map(error)
+        }
+    }
+
     func snooze(alarmID: AlarmID, until: Date) async throws {
         // Reschedule the same id to fire at `until` (schedule replaces on id). The
         // original title is not available here, so a generic label is used — minimal.

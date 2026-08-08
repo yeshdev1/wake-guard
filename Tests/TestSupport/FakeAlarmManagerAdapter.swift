@@ -19,6 +19,7 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
         case requestAuthorization
         case schedule
         case cancel
+        case stopRing
         case snooze
         case query
     }
@@ -34,6 +35,7 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
         var injected: [Operation: AlarmManagerError] = [:]
         var scheduledRequests: [AlarmScheduleRequest] = []
         var cancelledAlarmIDs: [AlarmID] = []
+        var stoppedRingIDs: [AlarmID] = []
         var snoozeCalls: [SnoozeCall] = []
         var requestAuthorizationCallCount = 0
     }
@@ -72,6 +74,9 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
     /// idempotent system set): two schedules of one id log twice but leave one alarm.
     var scheduledRequests: [AlarmScheduleRequest] { state.get().scheduledRequests }
     var cancelledAlarmIDs: [AlarmID] { state.get().cancelledAlarmIDs }
+    /// Append-only log of `stopRing` calls (one per invocation) — a duplicate stop that the outbox
+    /// dedups reaches the adapter only once, so a second entry here would flag a lost idempotency.
+    var stoppedRingIDs: [AlarmID] { state.get().stoppedRingIDs }
     var snoozeCalls: [SnoozeCall] { state.get().snoozeCalls }
     var requestAuthorizationCallCount: Int { state.get().requestAuthorizationCallCount }
     var currentlyScheduled: [ScheduledAlarmSnapshot] {
@@ -110,6 +115,15 @@ final class FakeAlarmManagerAdapter: AlarmManagerAdapter {
             if let error = store.injected[.cancel] { return error }
             store.cancelledAlarmIDs.append(alarmID)
             store.scheduled[alarmID] = nil
+            return nil
+        }
+        if let injected { throw injected }
+    }
+
+    func stopRing(alarmID: AlarmID) async throws {
+        let injected: AlarmManagerError? = state.mutate { store in
+            if let error = store.injected[.stopRing] { return error }
+            store.stoppedRingIDs.append(alarmID)
             return nil
         }
         if let injected { throw injected }

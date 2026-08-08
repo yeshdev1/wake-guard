@@ -1,13 +1,12 @@
 import Foundation
 
 /// Applies an authorized `AlarmCommand` transactionally to local state and AlarmKit via the
-/// outbox/reconciliation pattern (WG-027; ARCHITECTURE §6) — the **single command boundary**
-/// and the only invoker of `AlarmManagerAdapter` (#2). Per command: authorize (#3, a rejection
-/// mutates nothing) → persist local first (source of truth, #10) → audit (#46) → sync to
-/// AlarmKit, the outbox bracketing the external call so a crash/uncertain outcome is recoverable
-/// (#10; re-arming + stranded-entry recovery are reconciliation's, WG-029). Strict no-interleave
-/// serialization is a follow-up (the actor yields at each `await`; the revision guard prevents a
-/// lost update). The audit records the *local* mutation; the external outcome lives in the outbox.
+/// outbox/reconciliation pattern (WG-027; ARCHITECTURE §6) — the **single command boundary** and the
+/// only invoker of `AlarmManagerAdapter` (#2). Per command: authorize (#3, a rejection mutates
+/// nothing) → persist local first (source of truth, #10) → audit (#46) → sync to AlarmKit, the outbox
+/// bracketing the external call so a crash/uncertain outcome is recoverable (#10; re-arming +
+/// stranded-entry recovery are reconciliation's, WG-029). The audit records the *local* mutation; the
+/// external outcome lives in the outbox.
 actor AlarmCommandProcessor {
     private let policy: any AlarmPolicyEngine
     private let alarms: any AlarmRepository
@@ -69,6 +68,11 @@ actor AlarmCommandProcessor {
             await appendAudit(context, old: nil, new: nil, outcome: .rejected, reason: reason)
             return .needsConfirmation(reason: reason)
         }
+        return await apply(command, context: context)
+    }
+
+    /// Dispatch an authorized command to its handler (kept separate so `process` stays within budget).
+    private func apply(_ command: AlarmCommand, context: CommandContext) async -> CommandOutcome {
         switch command {
         case .create(let alarm):
             return await applyMutation(context, mutated: alarm, prior: nil)
@@ -87,15 +91,48 @@ actor AlarmCommandProcessor {
             let reason = "This action isn't available yet; the alarm is unchanged."
             await appendAudit(context, old: nil, new: nil, outcome: .noOp, reason: reason)
             return .unsupported(reason: reason)
+        case .markChallengePassed:
+            return await applyChallengePassed(context)
         default:
-            // markChallengePassed (WG-073 stop) / reconcile / recover (WG-029):
-            // authorized and audited here; not applying them fails safe (the alarm
-            // keeps its scheduled state).
+            // reconcile / recover (WG-029): authorized and audited here; not applying
+            // them fails safe (the alarm keeps its scheduled state).
             await appendAudit(
                 context, old: nil, new: nil, outcome: .noOp,
                 reason: "Accepted; applied by another subsystem.")
             return .noOp
         }
+    }
+
+    /// A valid challenge pass (walk terminal pass, or the authorized accessible fallback — WG-073)
+    /// stops the ringing alarm (#24) through the outbox: racing / duplicate passes dedup on the key
+    /// (idempotent, adapter called at most once), and the pass is audited (#46). Only the *ring*
+    /// stops — no local mutation, so the next occurrence still fires.
+    private func applyChallengePassed(_ context: CommandContext) async -> CommandOutcome {
+        let id = context.command.alarmID
+        guard let alarm = try? await alarms.alarm(id: id) else {
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .noOp, reason: "The alarm no longer exists.")
+            return .noOp
+        }
+        let key = outboxKey(id, alarm.revision, "stopRing", nil)
+        let outcome = await runExternal(key, context.command) {
+            try await self.alarmManager.stopRing(alarmID: id)
+        }
+        switch outcome {
+        case .uncertain:
+            // Outcome unknown — the ring may still sound, so do NOT record "stopped"; audit `.failed`
+            // (like `auditUncertainRepair`). No re-drive: a still-ringing alarm is re-completed (safe).
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .failed,
+                reason: "Stop requested after a valid pass; outcome unknown.")
+        case .failed(let reason):
+            await appendAudit(context, old: nil, new: nil, outcome: .failed, reason: reason)
+        default:
+            await appendAudit(
+                context, old: nil, new: nil, outcome: .succeeded,
+                reason: "Alarm stopped after a valid challenge pass.")
+        }
+        return outcome
     }
 
     private func applyEnable(_ context: CommandContext, enabled: Bool) async -> CommandOutcome {
@@ -114,14 +151,10 @@ actor AlarmCommandProcessor {
         return await applyMutation(context, mutated: alarm, prior: prior)
     }
 
-    /// Delete the alarm: drop local state first (the source of truth, #10), audit it, then make
-    /// a best-effort system cancel through the outbox. Once the local delete succeeds the delete
-    /// is **done** from the user's view, so the system cancel's result is not propagated as the
-    /// delete's outcome — a failed/uncertain cancel leaves at most an "extra" system alarm, which
-    /// is the safe direction for a wake app (a spurious ring, never a missed alarm) and which the
-    /// WG-029 reconciliation pass reaps once its launch/foreground trigger is composed. Reversing
-    /// the order (cancel-then-delete) is rejected: a cancel that succeeds before a failed local
-    /// delete would silently stop a still-listed alarm from ringing — the dangerous direction.
+    /// Delete the alarm: drop local state first (source of truth, #10), audit, then a best-effort
+    /// system cancel through the outbox. The local delete is the outcome — a failed/uncertain cancel
+    /// leaves at most an "extra" system alarm (a spurious ring, never a missed one; WG-029 reaps it).
+    /// Cancel-then-delete is rejected: it could stop a still-listed alarm from ringing (dangerous).
     private func applyDelete(_ context: CommandContext) async -> CommandOutcome {
         let id = context.command.alarmID
         guard let alarm = try? await alarms.alarm(id: id) else { return .noOp }  // already gone
@@ -180,12 +213,10 @@ actor AlarmCommandProcessor {
         }
     }
 
-    /// The outbox brackets the external call. `enqueue` dedups on the key, so re-read
-    /// the stored entry and mark *its* id — not the freshly-minted one, which may not
-    /// have been inserted. An already-`applied` entry means the op is done (idempotent
-    /// re-process); an exhausted retry budget (or a concurrent owner) means we do NOT
-    /// call the adapter again. Best-effort post-call marks — reconciliation recovers a
-    /// stranded entry (#10; WG-029).
+    /// The outbox brackets the external call. `enqueue` dedups on the key, so re-read the stored
+    /// entry and mark *its* id; an already-`applied` entry means the op is done (idempotent
+    /// re-process); an exhausted retry budget / concurrent owner means we do NOT call the adapter
+    /// again. Best-effort post-call marks — reconciliation recovers a stranded entry (#10; WG-029).
     private func runExternal(
         _ key: String, _ command: AlarmCommand, _ external: () async throws -> Void
     ) async -> CommandOutcome {
@@ -265,18 +296,9 @@ actor AlarmCommandProcessor {
 /// path and the reconciliation path each stay within the type-body budget; both are
 /// actor-isolated and share the same single adapter-invoking boundary (#2).
 extension AlarmCommandProcessor {
-    /// Make the system authority match the persisted desired state. Reads ground truth
-    /// and the desired alarms, plans the safe repairs (missing / extra / divergent), and
-    /// applies each through the adapter as a `.systemReconciliation` action, auditing
-    /// every repair (#46, #50). The plan is idempotent, so re-running when nothing
-    /// diverged is a no-op.
-    ///
-    /// **Fails safe (#10):** if ground truth *or* the desired state cannot be read it
-    /// repairs nothing and returns `skipped` — it never repairs against an unknown system
-    /// (which could strand a divergence), and never treats a *failed* desired read as "no
-    /// alarms" (which would cancel every system alarm). A repair that hard-fails is
-    /// audited and counted; a repair whose outcome is *uncertain* (interrupted /
-    /// cancelled) is counted separately and re-checked on the next pass, never dropped.
+    /// Make the system authority match the persisted desired state — plan + apply safe repairs
+    /// (missing / extra / divergent) as `.systemReconciliation`, auditing each (#46, #50). Idempotent;
+    /// fails safe (#10): an unreadable ground-truth/desired repairs nothing (`skipped`), never dropped.
     func reconcile() async -> ReconciliationSummary {
         guard let system = try? await alarmManager.scheduledAlarms() else {
             return ReconciliationSummary(skipped: true)
@@ -358,10 +380,8 @@ extension AlarmCommandProcessor {
         }
     }
 
-    /// Record a repair whose external outcome is unknown (interrupted / cancelled).
-    /// Audited as `.failed` — the safe "treat as not-yet-applied" posture (#10) — with an
-    /// honest reason; the next reconciliation pass re-checks ground truth and retries. (A
-    /// dedicated `.uncertain` *audit* outcome is a future domain addition — WG-048.)
+    /// Record a repair whose external outcome is unknown — audited `.failed` (the safe "not-yet-
+    /// applied" posture, #10); the next pass re-checks and retries. (A `.uncertain` audit is WG-048.)
     private func auditUncertainRepair(_ context: CommandContext) async -> RepairOutcome {
         await appendAudit(
             context, old: nil, new: nil, outcome: .failed,

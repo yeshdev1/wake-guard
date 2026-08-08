@@ -306,6 +306,7 @@ private struct CancellationCheckingAdapter: AlarmManagerAdapter {
     func requestAuthorization() async throws -> AlarmAuthorizationState { .authorized }
     func schedule(_ request: AlarmScheduleRequest) async throws { try Task.checkCancellation() }
     func cancel(alarmID: AlarmID) async throws { try Task.checkCancellation() }
+    func stopRing(alarmID: AlarmID) async throws { try Task.checkCancellation() }
     func snooze(alarmID: AlarmID, until: Date) async throws { try Task.checkCancellation() }
     func scheduledAlarms() async throws -> [ScheduledAlarmSnapshot] { [] }
 }
