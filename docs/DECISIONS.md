@@ -2211,3 +2211,32 @@ decisions are recorded above using the ADR template.
   `SystemAlarmManagerAdapter.map`'s reason strings **operation-aware** (a failed `stopRing` currently
   reads "could not be scheduled"); WG-029 could add stranded-`stopRing` recovery (today the re-ring is
   the fallback).
+
+### WG-074 (2026-08-08): Motion trace recorder for internal testing
+
+- **DEBUG-only; production excludes it.** `MotionTraceRecorder` records the WG-060 motion samples into
+  a `MotionTrace` exportable as JSON for the on-device calibration study (WG-075). The whole file is
+  `#if DEBUG`, so it **does not exist in the App Store archive** — privacy-security verified the
+  Release build config sets no `DEBUG` compilation condition and that **no production code references**
+  the recorder (nothing composes it into `AppEnvironment`). The test file is `#if DEBUG` too.
+- **Anonymized traces (#41).** Each sample is **re-timestamped on capture** to a *relative* offset
+  (`rebased(to:)` → `epoch + (t − base)`), so no absolute wall-clock time — which could reveal *when*
+  the user slept — survives into the trace; the export encodes dates as `.secondsSince1970` so JSON
+  shows offsets (`1.5`), not a wall clock. The WG-060 samples already carry only motion magnitudes + a
+  single orientation scalar and **no user / device / alarm id and no location** (no raw axes). The
+  recorder **logs and persists nothing** — state is in-memory and export is explicit and caller-driven.
+- **Consent-gated (fail-closed).** `record` is a no-op unless the tester acknowledged `consentWarning`
+  (which states what is captured, that it's anonymized, and that it's internal-only). One recorder
+  instance is one consented session (consent is fixed at init; re-consent = a new recorder).
+- **Residual re-identification risk (documented — privacy SHOULD-FIX).** An anonymized trace is still
+  a *pseudonymous-behavioral* artifact: a gait cadence + step series can be fingerprinted against an
+  external labeled reference of a known person. This is inherent to any motion-calibration trace and
+  acceptable for an **internal, consented** artifact that never ships and carries no direct
+  identifier — **but the exported trace must stay on-device / internal and never be distributed**, and
+  its **retention (#43)** is owned by whoever holds the exported `Data` (WG-075). The caller-supplied
+  `label` is a free-text run tag and must not contain PII (documented on `makeTrace`).
+- **Review (privacy-security-reviewer, read-only).** **PASS, no blocker** — production-exclusion and
+  anonymization both confirmed. Applied the doc findings: the one-session consent note + the `label`
+  caveat on the recorder, and this ADR's residual-risk / on-device-only / retention note. **Handoffs:**
+  WG-075 consumes the traces (and owns their retention); the recording *harness* (a debug UI that
+  obtains consent and feeds live samples) is a debug-tooling seam.

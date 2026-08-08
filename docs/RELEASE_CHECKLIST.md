@@ -49,6 +49,7 @@
 - [ ] In-app privacy policy link.
 - [ ] Explicit consent before third-party AI sharing.
 - [ ] No raw sensitive logs.
+- [ ] Motion trace recorder (WG-074) is **excluded from the release archive** (it is `#if DEBUG`; confirm no symbol in the shipped binary — ties to "Archive contains no debug tools" below); in internal debug builds it records only after the consent warning, exports **anonymized** traces (relative offsets, no wall clock / name / device / location), and the exported traces stay **on-device / internal**, never distributed (a gait/step series is a pseudonymous-behavioral fingerprint).
 - [ ] No health/motion/location/calendar advertising use.
 - [ ] Export works.
 - [ ] Deletion works.
