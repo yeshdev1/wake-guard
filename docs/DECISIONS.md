@@ -2597,6 +2597,39 @@ decisions are recorded above using the ADR template.
   **must be cooperatively cancellable**. WG-089 (foreground fallback) owns cancelling an in-flight BG
   evaluation on foreground + prompt de-duplication.
 
+### Pre-alarm runtime composition (2026-08-09): tying the E05 primitives together
+
+- **Why.** WG-080–089 each delivered a tested primitive and deferred its runtime glue as a handoff. This
+  pass builds the **testable orchestration** that connects them, discharging those handoffs, so the
+  remaining gap is only the thin device-framework adapters.
+- **`PreAlarmResponseRouter` (`AlarmApplication`).** Pure, deterministic (`now` injected): maps a
+  tapped WG-083 prompt-action identifier + context (alarm id, occurrence, criticality, remindersUsed)
+  → a `PreAlarmResponse`. keep → `.submit(.keepOriginal)` (WG-084); turn-off-today →
+  `.submit(.cancelOccurrence(fireTime:))` (WG-085); remind-later → `PreAlarmReminder` → `.reschedule-
+  Prompt(at:)` / `.stopReminding` (WG-087); change-time → `.presentChangeTimeUI` (WG-086); unknown →
+  `.ignored`. It **holds no authority** — a `.submit` is handed to `AlarmCommandProcessor`, which
+  authorizes it and gates a critical/imminent change on confirmation (#6); the router never pre-sets
+  `userConfirmed`, so the runtime foregrounds on `.needsConfirmation`. A `.reschedulePrompt` re-arms
+  the prompt, never the alarm (#7/#8).
+- **`PreAlarmPipeline` (`AlarmApplication`).** The advisory `work` a background opportunity (WG-088) or
+  a foreground launch (WG-089) runs: recent-movement query (WG-081) → awake evidence + prompt policy
+  (WG-080/082) → prompt de-dup (WG-089) → prompt content (WG-083). Returns the content to present, or
+  `nil`. Holds no alarm authority — decides only *whether* to prompt and *what it says*.
+- **`AppEnvironment`.** Now constructs the persisted `CoreDataPreAlarmPromptLedger` + `PreAlarmPrompt-
+  Coordinator` so the background + foreground paths share one de-dup.
+- **What remains device-wired (the honest gap to "runs on a phone").** The thin, device-verified
+  adapters: (1) a `UNUserNotificationCenterDelegate` that reads a tapped action's `userInfo` → the
+  router → `AlarmCommandProcessor` (foregrounding on `.needsConfirmation`); (2) notification scheduling
+  that presents the pipeline's content via the WG-083 `UNNotificationCategory`; (3) the `BGTaskScheduler`
+  registration that runs the pipeline as `PreAlarmBackgroundRunner`'s `work`, + the foreground entry
+  point; (4) the persisted remind-later count. And separately, swapping the interim
+  `DeferredAlarmManagerAdapter` for the real `SystemAlarmManagerAdapter` (so alarms ring) still needs
+  the AlarmKit authorization **UI shell** (WG-025 built the flow logic; the app-shell UI + Info.plist
+  usage descriptions are the remaining piece). Review: none run — this is thin composition of
+  already-adversarially-reviewed primitives with no new authority; the router's one safety-relevant
+  mapping (turn-off → `cancelOccurrence`, not pre-confirmed) is directly tested and the processor's #6
+  gate is intact.
+
 ### WG-089 (2026-08-09): Foreground fallback — pre-alarm prompt de-dup ledger
 
 - **What it is.** An **idempotency-key prompt-suppression ledger** so a pre-alarm prompt surfaces at

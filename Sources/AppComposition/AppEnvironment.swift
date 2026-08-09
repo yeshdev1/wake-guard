@@ -24,6 +24,11 @@ struct AppEnvironment: Sendable {
     /// (#46), and synced to the alarm authority. Screens never touch persistence or the
     /// adapter directly.
     let alarmCommandProcessor: any AlarmCommandProcessing
+    /// The pre-alarm prompt de-dup (WG-089): the background opportunity (WG-088) and a foreground
+    /// launch (WG-089) both route their evaluation's surface decision through this, so a prompt shows
+    /// at most once per (alarm, occurrence). Persisted, so the de-dup survives relaunch. It holds no
+    /// alarm authority — surfacing/suppressing a prompt never changes an alarm.
+    let preAlarmPromptCoordinator: PreAlarmPromptCoordinator
     /// Whether created alarms are actually placed in the system authority yet. `false` while
     /// the interim `DeferredAlarmManagerAdapter` is composed (WG-042) — alarms are saved and
     /// shown but **do not ring** until the real `SystemAlarmManagerAdapter` + authorization UI
@@ -83,6 +88,8 @@ struct AppEnvironment: Sendable {
         let processor = AlarmCommandProcessor(
             policy: policy, alarms: alarms, audit: audit, outbox: outbox,
             alarmManager: DeferredAlarmManagerAdapter(), clock: clock, ids: identifierGenerator)
+        let promptCoordinator = PreAlarmPromptCoordinator(
+            ledger: CoreDataPreAlarmPromptLedger(persistence))
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -91,6 +98,7 @@ struct AppEnvironment: Sendable {
             outboxRepository: outbox,
             settingsRepository: settings,
             alarmCommandProcessor: processor,
+            preAlarmPromptCoordinator: promptCoordinator,
             // The interim adapter does not touch AlarmKit yet, so nothing rings — disclosed.
             schedulesAlarmsInSystem: false)
     }
