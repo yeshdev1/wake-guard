@@ -2633,6 +2633,44 @@ decisions are recorded above using the ADR template.
   `AlarmCommandProcessor` (foregrounding on `.needsConfirmation`) is the remaining app-shell composition
   step (implemented behind this pure proposal).
 
+### WG-090 (2026-08-09): False-positive feedback loop
+
+- **What it is.** `PreAlarmFeedback` (`AlarmDomain`, Foundation-only): `PreAlarmFeedbackCategory`
+  (`notAwake` / `helpful`), an aggregate `PreAlarmFeedbackCounts` (two non-negative counters), and the
+  `PreAlarmFeedbackStore` port (`record` / `counts`); plus a persisted `CoreDataPreAlarmFeedbackStore`
+  (a v6 single-row `PreAlarmFeedbackRecord`). After a pre-alarm prompt the user can indicate the nudge
+  was a false positive or helpful.
+- **Local + coarse (acceptance, #41 — HOLDS strongly).** The entity has exactly three attributes:
+  `singletonKey` + `notAwakeCount` + `helpfulCount`. `record` writes **only** the two clamped counts —
+  no alarm id, no occurrence / fire time, no sleep-revealing timestamp, no raw motion/health/location/
+  journal sample. The tally is genuinely aggregate (a single prompt's feedback folds into a `+1` and is
+  unrecoverable). A **recursive** no-PII structural test pins the exact key set against a forbidden
+  list (the WG-075 pattern). On-device Core Data only — no network/log/export path touches it.
+- **Cannot silently retune critical behavior (acceptance, #8/#31 — HOLDS structurally).**
+  `PreAlarmFeedback*` references no `Alarm`, `AlarmID`, `Criticality`, `AlarmCommand`, `ScheduleRule`,
+  `AwakeEvidenceModel.Config`, adapter, or scheduling — so recording feedback has **no path** to
+  whether/when a critical alarm rings, its gates, or an automatic model retune. Nothing outside the
+  WG-090 files reads the tally (verified), so there is no auto-apply to WG-080 or scheduling. Pinned by
+  a reflection test (the value is exactly two `Int`s, no alarm-authority child) and an integration test
+  (recording every category over a shared store leaves a saved critical alarm byte-for-byte unchanged).
+  Any advisory use of the tally to tune WG-080 must be a separate, explicit, user-initiated step.
+- **Fail-closed + robustness.** `record` is best-effort non-throwing (a conflict rolls back, a genuine
+  fault is swallowed — the alarm is never affected); `counts` returns `.empty` on an unreadable store;
+  counts clamp negatives at zero on init + decode and **saturate** at `Int.max` (no overflow trap); the
+  category is String-raw fail-closed (#27). No force-unwrap, no trap path.
+- **Schema v6.** `PreAlarmFeedbackRecord` is a **purely additive** entity (no change to v1–v5) — the
+  same inferred-lightweight-migration class as v2–v5; existing stores open safely.
+- **Review (privacy-security-reviewer, read-only). No BLOCKER / SHOULD-FIX — "a model of data
+  minimization"; all five properties hold and are pinned by strong tests.** No code change needed. It
+  noted (process) that the store is not yet wired — which is *why* the no-auto-retune boundary is
+  currently airtight — and (pre-existing, **not** WG-090) the verbatim-`label` audit-retention gap
+  already tracked for WG-027, and the absent privacy manifest (release-time).
+- **Handoff.** The prompt's **feedback affordance** (a UI control that calls `record(.notAwake)` /
+  `record(.helpful)`) + constructing `CoreDataPreAlarmFeedbackStore` in `AppEnvironment` is the app-shell
+  step. A **tripwire test** — asserting no background/pipeline type imports `PreAlarmFeedbackCounts` —
+  should guard the "advisory, explicit-user-action-only, no auto-retune" boundary when the store is
+  wired.
+
 ### Pre-alarm runtime composition (2026-08-09): tying the E05 primitives together
 
 - **Why.** WG-080–089 each delivered a tested primitive and deferred its runtime glue as a handoff. This

@@ -60,6 +60,7 @@
 - [ ] No raw sensitive logs.
 - [ ] Motion trace recorder (WG-074) is **excluded from the release archive** (it is `#if DEBUG`; confirm no symbol in the shipped binary — ties to "Archive contains no debug tools" below); in internal debug builds it records only after the consent warning, exports **anonymized** traces (relative offsets, no wall clock / name / device / location), and the exported traces stay **on-device / internal**, never distributed (a gait/step series is a pseudonymous-behavioral fingerprint).
 - [ ] No health/motion/location/calendar advertising use.
+- [ ] Pre-alarm feedback is local + coarse (**internal**): "I wasn't awake" / "helpful" is stored **on-device** as a coarse two-counter tally — **no** alarm id, occurrence/fire time, sleep-revealing timestamp, or raw sample (#41); it is **never logged or transmitted**; and it **cannot silently retune critical-alarm behavior** — any advisory use of it to tune the awake model is an explicit, user-initiated step, never automatic (#8/#31) (WG-090).
 - [ ] Export works.
 - [ ] Deletion works.
 - [ ] Secrets audit passes.

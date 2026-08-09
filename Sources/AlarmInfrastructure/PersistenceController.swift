@@ -23,8 +23,8 @@ final class PersistenceController: @unchecked Sendable {
     /// The current Core Data schema version (grows as entities are added).
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
     /// v3: + AuditRecord (WG-015). v4: + OutboxRecord (WG-016).
-    /// v5: + PreAlarmPromptRecord (WG-089).
-    static let schemaVersion = "5"
+    /// v5: + PreAlarmPromptRecord (WG-089). v6: + PreAlarmFeedbackRecord (WG-090).
+    static let schemaVersion = "6"
 
     let container: NSPersistentContainer
 
@@ -68,7 +68,7 @@ final class PersistenceController: @unchecked Sendable {
         let model = NSManagedObjectModel()
         model.entities = [
             makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity(), makeOutboxEntity(),
-            makePreAlarmPromptEntity(),
+            makePreAlarmPromptEntity(), makePreAlarmFeedbackEntity(),
         ]
         model.versionIdentifiers = [schemaVersion]
         return model
@@ -166,6 +166,24 @@ final class PersistenceController: @unchecked Sendable {
         // At most one row per prompt key, so a prompt surfaces once per (alarm, occurrence) whether
         // the background opportunity or the foreground fallback claims it first (WG-089).
         record.uniquenessConstraints = [["idempotencyKey"]]
+        return record
+    }
+
+    private static func makePreAlarmFeedbackEntity() -> NSEntityDescription {
+        let record = NSEntityDescription()
+        record.name = "PreAlarmFeedbackRecord"
+        record.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        // A single-row **coarse counter** (WG-090): only two aggregate tallies — how many times the
+        // user reported "I wasn't awake" vs "helpful". Deliberately NO timestamp, alarm id, occurrence,
+        // or raw sample, so it reveals nothing about when the user slept or was prompted (#41/#43).
+        record.properties = [
+            attribute("singletonKey", .integer16AttributeType),
+            attribute("notAwakeCount", .integer64AttributeType),
+            attribute("helpfulCount", .integer64AttributeType),
+        ]
+        // Exactly one feedback row (like SettingsRecord): concurrent inserts of the same key collapse
+        // under the store's error merge policy rather than duplicating (WG-090).
+        record.uniquenessConstraints = [["singletonKey"]]
         return record
     }
 
