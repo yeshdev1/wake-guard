@@ -2381,6 +2381,60 @@ decisions are recorded above using the ADR template.
   prompt notification categories/actions, the #6 confirmation enforcement (via `AlarmCommandProcessor`),
   and the cooldown/de-dup.
 
+### WG-083 (2026-08-09): Pre-alarm notification categories and actions
+
+- **What it is.** `PreAlarmPromptContent` (pure, Foundation-only, `AlarmApplication`) is the pre-alarm
+  prompt's presentation model — the ordered buttons + the title/warning keys — built from a WG-082
+  `PreAlarmRecommendation`; `PreAlarmPromptStrings` holds the development-language copy; and
+  `PreAlarmNotificationCategoryFactory` (`AlarmInfrastructure`, the only file that imports
+  `UserNotifications`) maps the model to a real `UNNotificationCategory` + `UNNotificationAction`s.
+- **Actions as configured, keep always present (acceptance).** `keep` — the #7 no-op default — is
+  **always** the first button, for any criticality and even for an empty offered set (an informational
+  keep-only prompt); the user's configured actions follow in a deliberate **safe → destructive** order
+  `[keep, remindLater, changeTime, turnOffToday]`, so a groggy accidental tap on the top button is the
+  safe outcome and the one truly alarm-silencing action is last (and renders `.destructive`/red, with
+  the label itself — not color alone — carrying the meaning).
+- **Warning says the alarm remains unless amended (#7, acceptance).** Every prompt carries the warning
+  ("Your original alarm stays scheduled unless you change it.") — **including the keep-only
+  informational prompt** (pinned by `testInformationalPromptStillCarriesTheWarning`), the case where a
+  user could most easily mistake the prompt for "already off". It is a non-optional field, so it can
+  never be absent.
+- **Localization-ready (acceptance).** Every displayed string is a namespaced key; the factory
+  resolves action titles via `NSLocalizedString(key, value: <dev English>, comment:)`, and the
+  dev-English fallback lives in `PreAlarmPromptStrings` (renamed `developmentFallback(for:)` — it is a
+  fallback shim, **not** a localizer). Stable identifiers (`prealarm.action.<case>`) are separate from
+  title keys and never localized, so a later response router can switch on them. E11 supplies the
+  translated `.strings`.
+- **#6 confirmation flag.** `requiresConfirmation` is set on a **destructive button only** (`turnOff-
+  Today`/`changeTime`) and only for a critical alarm; `keep`/`remindLater` never confirm. The factory
+  maps it to `UNNotificationActionOptions.authenticationRequired` — **a device-unlock gate, NOT the #6
+  explicit confirmation.** The real confirmation + the mutation are the prompt runtime's job, routed
+  through `AlarmCommandProcessor` (which returns `.needsConfirmation` for an unconfirmed critical
+  change). `changeTime` is correctly destructive (it amends a critical alarm) and thus confirmation-
+  gated. Comments at both surfaces now say this explicitly.
+- **#8 — no authority.** `PreAlarmPromptContent`/`Button`/`Action` are pure values carrying only an
+  identifier, localization keys, and flags — no alarm id, command, adapter, or closure; the model does
+  not import `UserNotifications` or AlarmKit (lint's `domain_no_apple_frameworks` enforces it for
+  `AlarmApplication`). Building the content mutates nothing; `keep` is a no-op label.
+- **Review (ux-accessibility-reviewer + alarm-safety-reviewer, read-only). No BLOCKER** — ux confirmed
+  the safe-to-destructive ordering, non-stigmatizing pressure-free copy, and genuine action-title
+  localization-readiness; alarm-safety verified #7 honesty + always-present warning, the #6 flag
+  derivation (destructive-only, never dropped, backed by the real `AlarmCommandProcessor` gate), #8
+  no-authority, and keep-always-present. Applied: renamed the shim to `developmentFallback` (footgun),
+  shortened "Remind me later" → "Remind later" (truncation + spec) and dropped the overpromising
+  "here" from the warning, tightened the `authenticationRequired`-is-a-lock-gate comments, and added
+  the informational-prompt warning test.
+- **Handoffs (recorded).** (1) The runtime that builds the notification **body** (title/warning) MUST
+  resolve those keys via `NSLocalizedString` (like the factory does for actions), not the dev-fallback
+  shim. (2) The response handler (WG-084/085) MUST submit a destructive choice as an `AlarmCommand`
+  through `AlarmCommandProcessor` with `userConfirmed` for a critical alarm — never a direct adapter
+  call; since a critical `turnOffToday` is **not** `.foreground`, that handler must **foreground to
+  collect real confirmation** and never treat "device unlocked" as "confirmed" (else the user taps and
+  nothing happens — a #7-honesty risk at handling time). (3) A design note for the runtime/design
+  owner: `changeTime` currently renders `.destructive` (red) like the true turn-off; consider reserving
+  red for `turnOffToday` alone. (4) The `UNNotificationCategory` option mapping + action-title
+  truncation on narrow banners are on the WG-083 real-device checklist.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062
