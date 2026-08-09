@@ -2326,3 +2326,52 @@ decisions are recorded above using the ADR template.
   0.15 so a pickup is never decisive. **Handoffs:** WG-081 (recent-movement history query) supplies
   the steps/episodes/recency; WG-082 (pre-alarm evaluator) consumes `AwakeEvidence` and **must treat
   `.likely` as advisory** — surface the prompt, never suppress; a later task may add the transport gate.
+
+### WG-081 (2026-08-09): Recent movement history query
+
+- **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062
+  historical pedometer into a `RecentMovementSnapshot` — a recent step count + a recency upper bound +
+  a `sourceAvailable` flag — the recent-movement half of what WG-082 (pre-alarm evaluator) will feed
+  the WG-080 model. `now` is injected (no clock read); the snapshot is a pure value with no alarm
+  authority, so recent-movement evidence can never by itself suppress an alarm (#8).
+- **No continuous overnight sensing (acceptance).** The query depends **only** on the bounded-window
+  historical port (`HistoricalPedometerSource.samples(in:)`, one-shot `CMPedometer.queryPedometerData`
+  which returns up-to-7-days of stored history without the app running) — never the live stream, no
+  `BGTaskScheduler`, no background sensing. A snapshot issues one `availability()` check + at most
+  `recencyLadderSeconds.count` (default 3) bounded queries on demand, right before the alarm.
+- **Bounded window (acceptance).** Every query window is built through WG-062's `PedometerQueryWindow`
+  (finite, ordered, `end <= now`, span `<= 24 h`). The recency **ladder** ([180, 600, 1800] s by
+  default) is sanitised — non-finite / ≤0 rungs dropped, each clamped to `maxSpan`, deduped, and
+  **capped to the widest `maxLadderRungs` (8)** so a pathological config can't fan out into unbounded
+  I/O. The widest rung bounds the step count; the tightest rung still containing a step sets recency.
+- **Clock changes & stale samples (acceptance).** Fail-closed on a non-finite clock (→ `.empty`).
+  `stepCount(in:)` re-checks **every** sample against the *current* `now`-derived window — a
+  backward clock jump (a now-future-stamped sample) or a forward jump (a now-stale sample) is dropped,
+  so neither can fabricate "recent movement". This re-check is **deliberately redundant** with the
+  adapter's `PedometerSample.validated` (it re-tests against the *new* window and guards fakes) — a
+  comment forbids DRYing it away and reopening the clock-jump hole. Step sums **saturate** (no
+  overflow trap; the WG-080/068 lesson).
+- **Recency is honest but coarse — pinned residual.** Aggregate history exposes only a per-window
+  count stamped at the window end (constant `endDate == now`), not a precise last-step time, so the
+  ladder infers recency from *which nested window's count is non-zero* and recency is **quantized to
+  the rungs** (a step 181 s ago reports 600, not ~181; `testRecencyIsRungQuantizedKnownLimitation`).
+  It is an honest **upper bound** that never under-reports (a step 200 s ago can never read ≤180 s,
+  verified against both the real-adapter per-window-count mechanism and the fake). The
+  `HistoricalPedometerSource` doc now states the aggregate-coverage / monotonicity contract the ladder
+  relies on. Per-sample `quality` is intentionally collapsed (CMPedometer history is authoritative
+  `.high` — WG-062); quality-weighting is out of scope for the historical path (recorded here).
+- **`sourceAvailable` — "couldn't observe" ≠ "confirmed still".** An unavailable / transient-failure
+  source fails closed to zero steps like a genuine still night, but the snapshot now carries
+  `sourceAvailable` so WG-082 can treat "sensor unavailable" differently from "confirmed still" —
+  both keep the alarm (#8), but a safety-sensitive evaluator should not present them identically.
+- **Review (motion-red-team + ios-architect, read-only). No BLOCKER** — red-team confirmed stale /
+  replay / clock-jump can't fabricate movement, the ladder is an honest upper bound, it's one-shot,
+  and #8 holds structurally; ios-architect confirmed domain purity, Clock injection, Sendability, and
+  determinism. Applied: the `sourceAvailable` field (the "most consequential" API gap — couldn't-
+  observe vs confirmed-still), a `Task.isCancelled` break so cancellation yields the honest widest
+  bound instead of a silently-loosened one, a window-aware fake + tests for the real-adapter mechanism
+  + the two-burst tightest-rung case + the pinned quantization residual, the port aggregate-contract
+  doc, the rung-count cap, the quality-collapse decision, and the deliberate-redundancy comment.
+  **Handoff:** WG-082 combines this snapshot (recent steps + recency + availability) with a
+  sustained-episode source and device interaction into the WG-080 model, then applies criticality +
+  time-remaining prompt policy — movement never directly cancels.

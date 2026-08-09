@@ -46,7 +46,9 @@ struct PedometerQueryWindow: Sendable, Equatable, Hashable {
 protocol HistoricalPedometerSource: Sendable {
     func availability() async -> MotionSourceAvailability
     /// Cumulative pedometer data over the validated window. Throws `MotionSourceError.unavailable`
-    /// when the source can't deliver; never logs raw samples (#41).
+    /// when the source can't deliver; never logs raw samples (#41). Contract: the returned samples
+    /// **aggregate-cover the whole window**, so a wider window's step total is ≥ any contained
+    /// sub-window's — WG-081's recency ladder (nested windows) relies on this monotonicity.
     func samples(in window: PedometerQueryWindow) async throws -> [PedometerSample]
 }
 
