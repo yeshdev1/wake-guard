@@ -39,7 +39,7 @@ enum AltitudeEvidence: String, Sendable, Equatable, Hashable, CaseIterable, Coda
 enum AltitudeEvidenceAnalyzer {
 
     /// Tunable thresholds. Cautious defaults; **calibrate on-device** (WG-066 real-device checklist).
-    struct Thresholds: Sendable, Equatable {
+    struct Thresholds: Sendable, Equatable, Codable {
         /// Below this many samples → `insufficient`.
         var minSamples: Int
         /// Min |net altitude change| (m) to be a candidate real move — well above sensor noise.

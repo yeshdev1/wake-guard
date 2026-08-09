@@ -29,7 +29,7 @@ enum CadenceVerdict: String, Sendable, Equatable, Hashable, CaseIterable, Codabl
 /// `maxStepInterval` (→ `.implausibleTiming`), and a very-regular walker can each be *rejected*. Each
 /// is tolerable only because a rejection is non-authoritative (the timeout keeps the alarm) and the
 /// **accessible alternative is always available** (#21/#22) — never by narrowing that safety net.
-struct CadenceThresholds: Sendable, Equatable {
+struct CadenceThresholds: Sendable, Equatable, Codable {
     /// Minimum number of step *intervals* needed to judge cadence (a shake burst is short).
     var minimumIntervals: Int
     /// Fastest plausible per-step interval (s) — below this is implausibly fast (a shake).

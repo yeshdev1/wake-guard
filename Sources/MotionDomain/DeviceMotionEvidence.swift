@@ -49,7 +49,7 @@ enum DeviceMotionEvidenceAnalyzer {
     /// Tunable decision thresholds. The defaults are cautious starting points and **must be
     /// calibrated on-device** alongside the battery-cost measurement (WG-065 real-device checklist);
     /// they deliberately favour `insufficient`/`stationary` over a false `pickup`.
-    struct Thresholds: Sendable, Equatable {
+    struct Thresholds: Sendable, Equatable, Codable {
         /// Below this many samples (or usable orientation readings) → `insufficient`.
         var minSamples: Int
         /// Max user-acceleration magnitude (g, gravity removed) to still count as "still".

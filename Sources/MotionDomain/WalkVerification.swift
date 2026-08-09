@@ -17,7 +17,7 @@ enum WalkVerification: String, Sendable, Equatable, Hashable, CaseIterable, Coda
 /// within safe bounds**. A challenge may be made *stricter* (longer, more steps, denser) but never
 /// weaker than these floors — a mis-set or adversarial config cannot create a trivially-passable
 /// challenge. The ten-second duration floor is the task's namesake.
-struct WalkRequirements: Sendable, Equatable {
+struct WalkRequirements: Sendable, Equatable, Codable {
     /// Minimum continuous walking duration.
     let minimumDuration: TimeInterval
     /// Minimum real steps within the episode (rejects a stationary pickup / device-only motion).
@@ -57,6 +57,21 @@ struct WalkRequirements: Sendable, Equatable {
     {
         guard value.isFinite else { return fallback }
         return min(high, max(low, value))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case minimumDuration, minimumSteps, maximumMeanGap
+    }
+
+    /// Decode **through the clamping initializer**, so a persisted calibration profile (WG-075) can
+    /// never weaken the requirements below the safe floor — the ten-second minimum re-holds on every
+    /// decode (the WG-060 re-validate-on-decode posture).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            minimumDuration: try container.decode(TimeInterval.self, forKey: .minimumDuration),
+            minimumSteps: try container.decode(Int.self, forKey: .minimumSteps),
+            maximumMeanGap: try container.decode(TimeInterval.self, forKey: .maximumMeanGap))
     }
 }
 

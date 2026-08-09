@@ -2240,3 +2240,38 @@ decisions are recorded above using the ADR template.
   caveat on the recorder, and this ADR's residual-risk / on-device-only / retention note. **Handoffs:**
   WG-075 consumes the traces (and owns their retention); the recording *harness* (a debug UI that
   obtains consent and feeds live samples) is a debug-tooling seam.
+
+### WG-075 (2026-08-08): Real-device calibration study
+
+- **The study.** The motion analyzers (WG-065 / 066 / 069 / 070) ship with cautious baseline
+  thresholds; this study tunes them on real hardware. The **test matrix + procedure** live in
+  `docs/CALIBRATION.md`: carry positions **hand / pocket / bag**, **slow / brisk gait**, and **shake
+  attempts** (rhythmic, erratic, nightstand, and the paced-shake cheat), plus still / pickup / stairs
+  — each recorded as a WG-074 anonymized trace and compared to the expected verdict.
+- **Threshold decision — baseline retained pending the on-device study.** The real-device study
+  requires hardware + human testers and **cannot run in CI**, so the tuned values are **device-pending**.
+  The decision recorded here today: the app ships on the **`CalibrationProfile.baseline`** — every
+  analyzer's cautious `.default` (the individual values + rationale are in the WG-065 / 066 / 069 / 070
+  ADRs). When the study runs, the chosen `CalibrationProfile` values, their rationale, and the
+  **residuals** are recorded in this section. The known **paced-shake residual** (WG-070; matrix cell
+  15) must be closed by requiring a *second independent signal*, **never** by loosening a threshold —
+  the study is forbidden from widening a gate to force a case.
+- **No participant identifiers (the safety criterion, privacy: HOLDS).** `CalibrationProfile` stores
+  **only tuning parameters** + its own random-UUID `id` (a within-app foreign key, not tied to a
+  person) — no name / user / device / location / timestamp / raw sample (tested structurally, incl. a
+  recursive nested-key check). `WalkRequirements` **re-clamps on decode**, so a persisted / tampered
+  profile can only make the walk *stricter*, never below the ten-second floor; and the advisory
+  analyzers (device-motion / altitude / cadence) never gate a pass, so their un-clamped thresholds
+  can't flip a non-walk to a pass (both tested). Codable was added to the four `Thresholds` types (the
+  three advisory ones auto-synthesized; `WalkRequirements` custom, re-clamping).
+- **Artifact sensitivity (privacy NIT).** Unlike a WG-074 *trace* (a pseudonymous gait fingerprint
+  that must stay on-device / internal), the `CalibrationProfile` is a **shareable non-sensitive
+  artifact** — purely numeric thresholds with no path back to a person. This distinction is
+  deliberate and recorded so the two are not conflated in retention policy (#43).
+- **Review (privacy-security-reviewer, read-only). No blocker** — confirmed no participant identifiers
+  are stored and the walk floor can't be weakened via a decoded profile. Applied its hardenings: the
+  no-participant-id test now recurses into nested keys (structural, not top-level only), a test pins
+  that lenient advisory thresholds can't manufacture a pass, and this ADR records the decision (SF-1)
+  and the artifact-sensitivity distinction (NIT-3). **Handoffs:** the real-device execution (tune +
+  record the final profile) is device-pending; wiring an alarm's `CalibrationProfileID` → load profile
+  → supply the analyzers is the challenge-runtime seam.
