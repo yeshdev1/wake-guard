@@ -9,6 +9,7 @@
 - [ ] No AI path can call AlarmKit directly.
 - [ ] No response to a pre-alarm prompt leaves the original alarm unchanged.
 - [ ] A movement-based "likely awake" inference never suppresses or cancels an alarm — at most it surfaces a pre-alarm prompt (#8). Verify a **false** `.likely` (e.g. a car/train commute jostling the phone in a bag) still rings the alarm on time (WG-080 evidence model; wired by WG-082).
+- [ ] Pre-alarm prompt policy on device (**UAT CP-D**, WG-083 runtime): the evaluator surfaces a prompt **only** inside the lead window when the evidence is `.likely` and **not** in the imminent stretch before ringing (a **critical** alarm uses a more conservative 120 s cutoff); a critical alarm's turn-off from the prompt **requires explicit confirmation** and is submitted as an `AlarmCommand` through `AlarmCommandProcessor` (#6) — never a direct adapter call, and the `requiresConfirmation` flag is honored, not treated as optional; an **unavailable** movement source declines (`.sourceUnavailable`) rather than nudging; and the WG-083 runtime applies a **cooldown / once-per-morning** gate so one finished walk doesn't re-prompt (WG-082 is stateless) (WG-082).
 - [ ] Critical alarm cancellation/delay requires explicit confirmation.
 - [ ] Critical alarm rings through silent mode, Focus, and Do Not Disturb on a real device (AlarmKit has no app-facing criticality knob — WG-026 assumes the system-alarm baseline; verify — WG-030).
 - [ ] Ten-second challenge pass is validated on real devices.

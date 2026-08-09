@@ -89,8 +89,9 @@ struct PreAlarmPolicy: Codable, Sendable, Equatable, Hashable {
     static func enabled(
         leadTime: TimeInterval, allowedActions: Set<PreAlarmAction> = []
     ) throws -> PreAlarmPolicy {
-        guard leadTime > 0 else {
-            throw DomainError.invalidPreAlarmPolicy(reason: "leadTime must be > 0")
+        guard leadTime > 0, leadTime.isFinite else {
+            throw DomainError.invalidPreAlarmPolicy(
+                reason: "leadTime must be a positive, finite interval")
         }
         return PreAlarmPolicy(isEnabled: true, leadTime: leadTime, allowedActions: allowedActions)
     }

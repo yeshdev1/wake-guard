@@ -2327,6 +2327,60 @@ decisions are recorded above using the ADR template.
   the steps/episodes/recency; WG-082 (pre-alarm evaluator) consumes `AwakeEvidence` and **must treat
   `.likely` as advisory** — surface the prompt, never suppress; a later task may add the transport gate.
 
+### WG-082 (2026-08-09): Pre-alarm evaluator
+
+- **What it is.** `PreAlarmEvaluator` (pure, Foundation-only, `AlarmApplication` — the composition
+  layer) turns the WG-080 awake evidence + the WG-081 recent-movement snapshot + the alarm's
+  `Criticality` + `PreAlarmPolicy` + `timeRemaining` into a `PreAlarmRecommendation` — the E05
+  capstone. `now`/`timeRemaining` are injected; it holds no state.
+- **Only recommends whether to prompt (acceptance + #8, HOLDS structurally).** `PreAlarmRecommendation`
+  has four fields — `reason`, `offeredActions` (a subset of the user's policy), `requiresConfirmation`,
+  `evidence` — and **no** alarm id, command, adapter, or `cancel`/`stop`/`suppress`. It cannot reach
+  AlarmKit, the command processor, or persistence; the strongest output is "prompt, and here are the
+  actions the prompt *may* offer". So a movement inference can never directly cancel an alarm.
+- **Criticality and time remaining influence the policy (acceptance).** Time gates the lead window:
+  prompt only when `minimumTimeRemaining(for:) < timeRemaining <= leadTime` (inclusive upper, strict
+  lower; a non-finite/negative `timeRemaining` fails closed). Criticality influences two things: (a)
+  `requiresConfirmation = critical && offers a destructive action` (#6 — `turnOffToday`/`changeTime`
+  are destructive, `remindLater` is not); and (b) a **more conservative imminent cutoff** — a critical
+  alarm uses a larger minimum (120 s vs 60 s), so it is not nudged in the final stretch before ringing.
+- **Evidence floor + #7.** Only a corroborated `.likely` prompts (`.weak`/`.notEnough` decline) — and
+  WG-080 guarantees `.likely` cannot come from a single weak signal, so no lone signal ever nudges. An
+  enabled policy with empty `allowedActions` still prompts but purely informationally; "keep the alarm"
+  is the implicit no-op that #7 guarantees on no response.
+- **`sourceAvailable` — "couldn't observe" ≠ "confirmed still".** The snapshot overload gates on
+  WG-081's `sourceAvailable` **explicitly** (not on the coincidence that an unavailable source reports
+  0 steps) and declines with a distinct `.sourceUnavailable` reason, so a future degraded source that
+  reports steps while unavailable still can't nudge, and the reason stays honest for a later
+  explanation UI (#32).
+- **`leadTime` finiteness (fail-open closed).** A `leadTime == .infinity` would have collapsed the
+  "too early" upper bound. Fixed at the root — `PreAlarmPolicy.enabled` now rejects a non-finite
+  `leadTime` (the `Decodable` init inherits it, so a corrupt persisted ∞ fails closed) — plus a
+  defense-in-depth `policy.leadTime.isFinite` guard in the evaluator.
+- **Known limitation — passive transport prompts (pinned).** The MVP feeder (WG-081 aggregate history)
+  gives recent-steps + recency, the exact pair passive transport corroborates, so a commute's false
+  `.likely` (WG-080's residual) **surfaces a prompt** here (`testPassiveTransportStillPromptsKnown-
+  Limitation`). Tolerable only because the prompt is advisory (#7/#8). Re-pinned at this surface rather
+  than silently inherited.
+- **Stateless — cooldown is WG-083's job (handoff).** WG-082 is deliberately stateless, so it has no
+  de-dup/cooldown; a finished walk keeps reading `.likely` until it ages out of the widest recency
+  rung, so **prompt de-duplication / cooldown / once-per-morning gating is a hard requirement on the
+  WG-083 runtime**, not optional.
+- **#6 enforcement is a hard handoff, not a convention.** `requiresConfirmation` is advisory until
+  WG-083 reads it. The rule for WG-083: a destructive pre-alarm action MUST be submitted as an
+  `AlarmCommand` through `AlarmCommandProcessor` (which independently gates critical cancel/delay on
+  `userConfirmed`) — **never** a direct adapter call, and the flag MUST NOT be treated as optional. #6
+  is thus defended in depth (the policy engine re-gates even if a consumer ignored the flag).
+- **Review (alarm-safety-reviewer + motion-red-team, read-only). No BLOCKER** — alarm-safety verified
+  #8 (no mutation path exists, by type), #7, #6 (flag + correct destructive classification),
+  criticality×time gating, and determinism; motion-red-team confirmed the coarse recency never
+  *over*-states awakeness (it's an upper bound → harder to fire) and a bare device pickup can't reach
+  `.likely`. Applied: the `leadTime.isFinite` fix (fail-open), the explicit `sourceAvailable` gate +
+  `.sourceUnavailable` reason, the transport residual re-pin (doc + test), the stateless/cooldown +
+  #6-routing handoffs recorded here, and boundary + confirmed-still tests. **Handoff:** WG-083 owns the
+  prompt notification categories/actions, the #6 confirmation enforcement (via `AlarmCommandProcessor`),
+  and the cooldown/de-dup.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062
