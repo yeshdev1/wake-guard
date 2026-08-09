@@ -2597,6 +2597,55 @@ decisions are recorded above using the ADR template.
   **must be cooperatively cancellable**. WG-089 (foreground fallback) owns cancelling an in-flight BG
   evaluation on foreground + prompt de-duplication.
 
+### WG-089 (2026-08-09): Foreground fallback — pre-alarm prompt de-dup ledger
+
+- **What it is.** An **idempotency-key prompt-suppression ledger** so a pre-alarm prompt surfaces at
+  most once per (alarm, occurrence), whether the trigger is the background opportunity (WG-088) or a
+  foreground app launch: `PreAlarmPromptKey` (`AlarmDomain`), the `PreAlarmPromptLedger` port
+  (`claim(_:at:) async -> Bool`), the persisted `CoreDataPreAlarmPromptLedger`, and the
+  `PreAlarmPromptCoordinator` (`surface = shouldPrompt && ledger.claim`).
+- **Original alarm remains clear (the safety property, HOLDS structurally).** The coordinator holds
+  **only** the ledger and reads the WG-082 recommendation's `shouldPrompt`; the ledger touches only the
+  `PreAlarmPromptRecord` entity. No `Alarm`, `AlarmCommand`, adapter, processor, or alarm persistence
+  anywhere — so de-dup/suppression can never cancel, delay, or reschedule an alarm. The worst case of
+  every path is a **missed advisory prompt**; the alarm rings exactly as scheduled (#7/#8). Turn-off /
+  keep still route through `AlarmCommandProcessor`, untouched.
+- **Prompt suppression uses idempotency keys (acceptance).** The key is `alarmID +` the occurrence
+  **truncated to a whole second** (occurrences are second-aligned; kept as a `Double`, never `Int` —
+  `.distantFuture` is finite but exceeds `Int64.max`, so an `Int` conversion would **trap**; the
+  earlier draft crashed there, now fixed + regression-tested). Two different alarms at the same instant
+  are different keys (no cross-alarm suppression, tested); a declined recommendation does **not** claim
+  the key, so a later genuine prompt still surfaces.
+- **Without duplicate prompting, across relaunch (acceptance).** The ledger is **persisted** (a v5 Core
+  Data entity, `idempotencyKey` unique), so a foreground fallback after a background prompt — even
+  across app termination — de-dups (tested via a fresh ledger over the same store). The `claim` is
+  **atomic**: fetch-first + insert, with the uniqueness constraint + `NSMergePolicy.error` as the real
+  guarantor — a concurrent loser's `save` throws a conflict, caught (rollback → `false`, the expected
+  non-error outcome, mirroring the outbox); exactly one concurrent claim wins (tested).
+- **Fail-closed degradation (documented).** A **genuine** storage fault (distinct from that conflict)
+  also returns `false` — suppress rather than risk a duplicate. So a persistently wedged store (disk
+  full, file-protection-locked before first unlock, corruption) silently disables **all** pre-alarm
+  prompts. This is **safe** (the alarm is unaffected — the #7 baseline) and is the better of the two
+  safe directions for "without duplicate prompting"; recorded per the WG-016 fail-closed precedent.
+  Claims older than 48 h are pruned on each claim (bounded; a past occurrence's key never matches a
+  future one, so pruning can't cause a duplicate).
+- **Schema v5 migration.** `PreAlarmPromptRecord` is a **purely additive** entity (no change to v1–v4
+  entities, no relationship to `AlarmRecord`) — the same inferred-lightweight-migration pattern the app
+  already used for v2/v3/v4 under `shouldInferMappingModelAutomatically`; no mapping model is needed and
+  existing user stores are safe. A dedicated v4→v5 **on-disk** migration fixture belongs to the WG-017
+  migration harness (still unbuilt) — the follow-on that would add coverage.
+- **Review (ios-architect + alarm-safety-reviewer, read-only).** Both confirmed the safety property,
+  the atomic-claim correctness (faithful outbox mirror), pruning, key identity, layering, and actor
+  design. Fixed alarm-safety's **BLOCKER** (the `Int` overflow trap → kept in `Double`), applied the
+  **narrowed catch** (isConflict + rollback for the expected loser; genuine faults fail closed), and
+  added the no-trap / whole-second / cross-alarm tests + this fail-closed/migration documentation.
+- **Handoff (scope — the primitive, not the wiring).** WG-089 delivers the de-dup **mechanism**; the
+  actual app-launch/foreground entry point that calls `surface` (and routes the WG-088 `work` pipeline
+  through the same coordinator) is a **composition follow-on**, exactly like WG-088's `BGTaskScheduler`
+  registration — it constructs `CoreDataPreAlarmPromptLedger` in `AppEnvironment` and cancels an
+  in-flight BG evaluation when the app foregrounds. "App launch evaluates without duplicate prompting"
+  is proven at the mechanism + unit-test level here; the launch path is that follow-on.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062

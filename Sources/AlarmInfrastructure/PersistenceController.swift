@@ -23,7 +23,8 @@ final class PersistenceController: @unchecked Sendable {
     /// The current Core Data schema version (grows as entities are added).
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
     /// v3: + AuditRecord (WG-015). v4: + OutboxRecord (WG-016).
-    static let schemaVersion = "4"
+    /// v5: + PreAlarmPromptRecord (WG-089).
+    static let schemaVersion = "5"
 
     let container: NSPersistentContainer
 
@@ -67,6 +68,7 @@ final class PersistenceController: @unchecked Sendable {
         let model = NSManagedObjectModel()
         model.entities = [
             makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity(), makeOutboxEntity(),
+            makePreAlarmPromptEntity(),
         ]
         model.versionIdentifiers = [schemaVersion]
         return model
@@ -148,6 +150,23 @@ final class PersistenceController: @unchecked Sendable {
         // external operation (WG-012 at-most-once).
         outbox.uniquenessConstraints = [["id"], ["idempotencyKey"]]
         return outbox
+    }
+
+    private static func makePreAlarmPromptEntity() -> NSEntityDescription {
+        let record = NSEntityDescription()
+        record.name = "PreAlarmPromptRecord"
+        record.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        record.properties = [
+            // The (alarm, occurrence) idempotency key; `claim` is idempotent on it.
+            attribute("idempotencyKey", .stringAttributeType),
+            // When the prompt was claimed — used only to prune expired rows so the ledger stays
+            // bounded (a past occurrence's key never matches a future one).
+            attribute("surfacedAt", .dateAttributeType),
+        ]
+        // At most one row per prompt key, so a prompt surfaces once per (alarm, occurrence) whether
+        // the background opportunity or the foreground fallback claims it first (WG-089).
+        record.uniquenessConstraints = [["idempotencyKey"]]
+        return record
     }
 
     private static func attribute(
