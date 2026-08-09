@@ -2597,6 +2597,42 @@ decisions are recorded above using the ADR template.
   **must be cooperatively cancellable**. WG-089 (foreground fallback) owns cancelling an in-flight BG
   evaluation on foreground + prompt de-duplication.
 
+### WG-086 (2026-08-09): Change-time action
+
+- **What it is.** `ChangeTimeProposal` (pure, Foundation-only, `AlarmApplication`) — the value the
+  "Change time" pre-alarm action opens for the user to review before saving. Tapping change-time does
+  **not** mutate; the router returns `.presentChangeTimeUI`, never a command.
+- **Opens a proposal, not immediate mutation (acceptance, HOLDS).** The proposal is **inert**:
+  constructing it, `proposedAlarm(now:)`, `command(now:)`, `previewNextOccurrence`, and `isChange`
+  mutate nothing (no persistence, no AlarmKit, not even a read). Its **only** mutating exit is
+  `command(now:)` → a plain `.update(Alarm)` submitted through `AlarmCommandProcessor`, which
+  authorizes it. It holds no adapter/processor/persistence — it merely *carries* a would-be command,
+  mirroring `AlarmProposal`.
+- **Original remains active until save succeeds (acceptance, HOLDS).** The live stored alarm is
+  untouched until an `.update` actually applies; a failed/uncertain save preserves the original desired
+  state for reconciliation (#10). `proposedAlarm` changes only the wall-clock time (+ a one-time date)
+  — preserving `id` (so it updates, never duplicates), enabled, the **anchor IANA zone** (no silent
+  re-anchor, #11/#16), `criticality` (#31), every policy, and `skippedOccurrences` — bumps `revision`,
+  and sets `updatedAt = max(now, createdAt)` (respecting the `updatedAt >= createdAt` invariant).
+- **Race with imminent ring handled (acceptance, HOLDS).** Opening/holding a proposal never suppresses
+  an imminent ring (it's inert). On save, a **critical** (or imminent-critical) retime returns
+  `.needsConfirmation`, mutating nothing (#6); a **standard** retime applies and **reschedules
+  in-place** (`schedule` replaces by alarm id — no cancelled-but-not-yet-rescheduled gap where a ring
+  could be lost). A standard imminent retime is authorized without confirmation, consistent with
+  WG-028 (only a *critical* `.update` is gated) — a deliberate, in-scope-preserving posture.
+- **Crash-safe.** `proposedAlarm` returns `nil` (not a force-unwrap) if the Alarm invariant rejects the
+  copy; `command`/`previewNextOccurrence` propagate `nil`. A past one-time retime → `nil` (not
+  saveable). No trap path.
+- **Review (alarm-safety-reviewer, read-only). No BLOCKER / SHOULD-FIX** — all five properties verified
+  (inert, original-active-until-save with correct field preservation, imminent race can't lose a
+  critical alarm, crash-safe, no authority). Noted (not fixed — not WG-086 regressions): `revision + 1`
+  is an unguarded add (codebase-wide pattern, unreachable in practice at `Int.max`); a one-time retime
+  onto a DST spring-forward gap previews a shifted instant (engine WG-022, fails safe — still rings).
+- **Handoff.** The change-time **editor UI** (a picker pre-filled from the proposal) + wiring the
+  router's `.presentChangeTimeUI` → present it → on confirm submit `proposal.command(now:)` through
+  `AlarmCommandProcessor` (foregrounding on `.needsConfirmation`) is the remaining app-shell composition
+  step (implemented behind this pure proposal).
+
 ### Pre-alarm runtime composition (2026-08-09): tying the E05 primitives together
 
 - **Why.** WG-080–089 each delivered a tested primitive and deferred its runtime glue as a handoff. This
