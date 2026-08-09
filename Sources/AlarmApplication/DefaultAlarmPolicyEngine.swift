@@ -113,7 +113,7 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
         switch command {
         case .disable, .delete, .cancelOccurrence, .rescheduleOccurrence, .snooze, .update:
             return true
-        case .create, .enable, .markChallengePassed, .reconcile, .recover:
+        case .create, .enable, .markChallengePassed, .keepOriginal, .reconcile, .recover:
             return false
         }
     }

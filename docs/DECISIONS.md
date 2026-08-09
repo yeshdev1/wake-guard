@@ -2435,6 +2435,47 @@ decisions are recorded above using the ADR template.
   red for `turnOffToday` alone. (4) The `UNNotificationCategory` option mapping + action-title
   truncation on narrow banners are on the WG-083 real-device checklist.
 
+### WG-084 (2026-08-09): Keep-original pre-alarm action
+
+- **What it is.** The response to the "Keep alarm" button (WG-083) — a new
+  `AlarmCommand.keepOriginal(AlarmID)` handled by `applyKeepOriginal` (in a new
+  `AlarmCommandProcessor+PreAlarm.swift` extension). It is **audit-only**: it appends a `.noOp`
+  acknowledgement and returns `.noOp`.
+- **No schedule mutation (#7, acceptance — HOLDS by construction).** The handler calls **only**
+  `appendAudit`; it never touches `alarms.save`/`deleteAlarm`, `alarmManager.schedule`/`cancel`/
+  `stopRing`, the outbox, or a revision — and it never even reads the alarm. The only adapter-invoking
+  path (`runExternal`) is unreachable from it, so keep leaves both the local record and the system
+  authority exactly as scheduled. Tested: the reloaded alarm is byte-identical and no adapter call is
+  made.
+- **Stale-safe by construction (acceptance).** Because it never reads or touches the alarm, a missing
+  / deleted / already-rung alarm is the *same* inert no-op — no crash, no error surfaced, no adapter
+  call (tested for the never-existed and post-delete cases). Not reading is strictly safer than
+  reading (a read could throw and tempt an error path).
+- **Audit acknowledgement (acceptance).** The ack is recorded with `outcome: .noOp`, `old`/`new` nil,
+  and a no-PII reason — consistent with the codebase's existing non-mutation audits (the
+  snooze/reconcile `.noOp` rows). "Audit *may* record the acknowledgement" is satisfied.
+- **Never gated — the safe default.** `.keepOriginal` is classified **non-destructive** in
+  `isDestructive`, so `authorize` returns `.authorized` at its short-circuit *without reading the
+  alarm* — even for a critical alarm, even `userConfirmed: false`, **from any source**. Keep is the #7
+  safe default that must never require confirmation; and since it mutates nothing, even an
+  `.agentProposal`-sourced keep can only no-op (#4/#8, tested).
+- **Structure.** Pre-alarm response handlers live in their own extension file (WG-085 turn-off-today
+  and WG-087 remind-later will join it); `CommandContext` + `appendAudit` were widened `private` →
+  internal so the extension can share them. Both remain **actor-isolated** on the `AlarmCommand-
+  Processor` actor, so the single command boundary (#2) and authorize-every-command (#3) are intact —
+  `process(...)` is still the only entry, and no external caller can forge an audit or bypass
+  authorization.
+- **Review (alarm-safety-reviewer, read-only). No BLOCKER / SHOULD-FIX** — the no-mutation,
+  authorization, stale-safety, audit, and boundary-intact properties were all verified, and the two
+  enum switches (`alarmID`, `isDestructive`) are compiler-enforced exhaustive. Applied its one
+  actionable NIT: a test that an `.agentProposal`-sourced keep is still a no-op. Noted, not acted
+  (out of scope): a future `Outcome.acknowledged` to make keep visually distinct in history (today it
+  renders "No change needed"), and the pre-existing `default:` in `apply` (a future *new* command
+  would fall into the safe-`.noOp` default rather than a compile error — the mutation guarantee rests
+  on `authorize` + that safe default, not `apply` exhaustiveness).
+- **Handoff.** The notification-response router maps `prealarm.action.keep` → `.keepOriginal(alarmID)`
+  from `.notificationAction` by `.user`; WG-085/087 add their handlers to the same extension.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062

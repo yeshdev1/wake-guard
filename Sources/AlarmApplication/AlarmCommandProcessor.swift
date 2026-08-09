@@ -39,8 +39,8 @@ actor AlarmCommandProcessor {
         self.deviceTimeZone = deviceTimeZone
     }
 
-    /// Who/what/where of a command in flight — travels together through the flow.
-    private struct CommandContext: Sendable {
+    /// Who/what/where of a command in flight — internal so the pre-alarm handler extension shares it.
+    struct CommandContext: Sendable {
         let command: AlarmCommand
         let actor: AuditActor
         let source: CommandSource
@@ -93,6 +93,8 @@ actor AlarmCommandProcessor {
             return .unsupported(reason: reason)
         case .markChallengePassed:
             return await applyChallengePassed(context)
+        case .keepOriginal:
+            return await applyKeepOriginal(context)
         default:
             // reconcile / recover (WG-029): authorized and audited here; not applying
             // them fails safe (the alarm keeps its scheduled state).
@@ -103,10 +105,8 @@ actor AlarmCommandProcessor {
         }
     }
 
-    /// A valid challenge pass (walk terminal pass, or the authorized accessible fallback — WG-073)
-    /// stops the ringing alarm (#24) through the outbox: racing / duplicate passes dedup on the key
-    /// (idempotent, adapter called at most once), and the pass is audited (#46). Only the *ring*
-    /// stops — no local mutation, so the next occurrence still fires.
+    /// A valid challenge pass (WG-073) stops the ringing alarm (#24) via the outbox — racing /
+    /// duplicate passes dedup (adapter called at most once), audited (#46); only the *ring* stops.
     private func applyChallengePassed(_ context: CommandContext) async -> CommandOutcome {
         let id = context.command.alarmID
         guard let alarm = try? await alarms.alarm(id: id) else {
@@ -277,7 +277,7 @@ actor AlarmCommandProcessor {
         return key
     }
 
-    private func appendAudit(
+    func appendAudit(
         _ context: CommandContext, old: String?, new: String?, outcome: Outcome, reason: String
     ) async {
         // Best-effort: the alarm (already persisted) is the source of truth, so a rare

@@ -21,6 +21,10 @@ enum AlarmCommand: Codable, Sendable, Equatable, Hashable {
     case rescheduleOccurrence(AlarmID, fireTime: Date, to: Date)
     case snooze(AlarmID)
     case markChallengePassed(AlarmID)
+    /// The user tapped "Keep alarm" on a pre-alarm prompt (WG-084): an explicit acknowledgement that
+    /// keeps the alarm exactly as scheduled and changes nothing (#7). Recorded for the audit trail; it
+    /// never mutates the schedule, local state, or AlarmKit — so it is inherently stale-safe.
+    case keepOriginal(AlarmID)
     case reconcile(AlarmID)
     case recover(AlarmID)
 
@@ -30,7 +34,8 @@ enum AlarmCommand: Codable, Sendable, Equatable, Hashable {
         case .create(let alarm), .update(let alarm):
             alarm.id
         case .enable(let id), .disable(let id), .delete(let id), .snooze(let id),
-            .markChallengePassed(let id), .reconcile(let id), .recover(let id):
+            .markChallengePassed(let id), .keepOriginal(let id), .reconcile(let id),
+            .recover(let id):
             id
         case .cancelOccurrence(let id, _), .rescheduleOccurrence(let id, _, _):
             id
