@@ -2524,6 +2524,43 @@ decisions are recorded above using the ADR template.
   before WG-086, relocate the occurrence handlers into an `AlarmCommandProcessor+Occurrence.swift`
   extension (`applyMutation`/`appendAudit` are already internal) rather than trimming further.
 
+### WG-087 (2026-08-09): Remind-later action
+
+- **What it is.** `PreAlarmReminder` (pure, Foundation-only, `AlarmApplication`) is the calculator
+  behind a pre-alarm prompt's "Remind me later" button: `next(now:alarmFireTime:remindersUsed:critical-
+  ity:config:)` returns a bounded re-prompt `Date` or `.exhausted(.reachedCap / .noSafeWindow)`. It
+  defers the **prompt**, never the alarm.
+- **Reminder cannot extend beyond safe bounds (acceptance).** A reminder is offered only when a full
+  deferral fits with at least `minLeadBeforeAlarm` to spare before the alarm (`now + interval <=
+  alarmFireTime - minLead`); otherwise `.noSafeWindow`. The `Config` initializer **clamps every value
+  to a safe range** (interval [60, 1800] s, minLead [30, 600] s), so no config — including a 0/negative
+  interval or a negative minLead — can produce a near-instant or past-the-alarm re-prompt. A reminder
+  therefore always lands ≥ 30 s before the ring, never at or after it.
+- **Critical alarms retain original schedule (acceptance).** Structural: `next(...)` takes
+  `alarmFireTime` **by value** and returns a prompt time — there is no `Alarm`, `AlarmCommand`,
+  adapter, or persistence anywhere, so remind-later cannot change the schedule. Criticality only
+  **tightens**: the critical cap is clamped ≤ the standard cap (critical: 1, standard: 3 by default),
+  so a critical alarm is deferred at most once and always rings exactly when scheduled.
+- **Repeated prompts are capped (acceptance).** `remindersUsed >= maxReminders(for:)` → `.reachedCap`
+  (standard ≤ 5, critical ≤ standard, both ≥ 0). A **negative** `remindersUsed` fails closed (never
+  resets the counter to grant extras). The `.remind(at:remindersUsed:)` case returns the incremented
+  count for the caller to persist. Fail-closed on a non-finite `now`/`alarmFireTime` (Date comparison
+  is NaN-blind) → `.noSafeWindow`; and an exhausted reminder is #7-safe (no prompt reappears, the
+  alarm rings as scheduled — the user is no worse off than ignoring the prompt).
+- **Review (alarm-safety-reviewer, read-only). No BLOCKER / SHOULD-FIX** — the three acceptance
+  criteria hold under adversarial input (no reminder can land at/after the alarm; the alarm is
+  untouched by type; the cap can't be bypassed via config). Applied its one NIT: the negative
+  `remindersUsed` fail-closed guard (+ test). Left as-is (NIT, both outcomes `.exhausted`/safe): the
+  cap check precedes the finiteness check, so a non-finite clock with an already-reached cap reports
+  `.reachedCap` — the more honest reason for that corner anyway.
+- **Handoff (the load-bearing runtime obligation).** WG-087 is the pure calculator; the notification-
+  response handler that reschedules the prompt is the pre-alarm runtime's (joins the
+  `AlarmCommandProcessor` pre-alarm extension). That runtime **must persist the incremented
+  `remindersUsed`** across the notification round-trip, app termination/relaunch, and stale/duplicate
+  notification actions — otherwise the cap is bypassable at runtime even though this calculator is
+  correct. That persistence is where the "repeated prompts are capped" invariant is truly enforced and
+  must be tested.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062
