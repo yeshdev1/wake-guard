@@ -2275,3 +2275,54 @@ decisions are recorded above using the ADR template.
   and the artifact-sensitivity distinction (NIT-3). **Handoffs:** the real-device execution (tune +
   record the final profile) is device-pending; wiring an alarm's `CalibrationProfileID` → load profile
   → supply the analyzers is the challenge-runtime seam.
+
+### WG-080 (2026-08-09): Deterministic awake-evidence model
+
+- **What it is.** `AwakeEvidenceModel` (pure, Foundation-only, `MotionDomain`) combines the four
+  signals the acceptance names — **recent steps**, a **sustained movement episode** (WG-067), how
+  **recent** that movement is, and an **optional device interaction** — into an advisory
+  `AwakeEvidence`: an `AwakeLikelihood` (`notEnough` / `weak` / `likely`), a numeric `score`, and the
+  **per-factor contributions** (each factor + whether it fired + its weight). It opens E05 (pre-alarm
+  intelligence); WG-082 will consume it to decide whether to *surface a pre-alarm prompt*.
+- **Advisory only — the governing invariant (#8, HOLDS structurally).** "A movement-based *likely
+  awake* inference never cancels an alarm in the MVP." `AwakeEvidence` is a pure value — three lets +
+  a derived `presentFactors`, conforming only to `Sendable/Equatable/Hashable/Codable`. It carries
+  **no** alarm id, command, adapter reference, or `cancel`/`suppress`/`stop` — so it *cannot* reach
+  AlarmKit or persistence. Even `.likely` is just a label; the strongest reading can, at most, inform
+  a prompt. (No consumer wires it yet — WG-082's seam.)
+- **No single weak signal is conclusive — STRUCTURAL, not a default-weights coincidence.** The core
+  acceptance property. `.likely` requires the summed score to reach `likelyThreshold` (0.6), and the
+  `Config` initializer **clamps every factor weight strictly below `likelyThreshold`** (`min(weight,
+  likelyThreshold.nextDown)`), so *no lone factor at any magnitude* — a phone racking up steps in a
+  bag, an hours-long "episode", a fresh recency, a pickup — can ever reach `.likely`, for **any**
+  caller-supplied config (pinned by `testHostileConfigCannotMakeSingleFactorConclusive`). This mirrors
+  WG-075's re-clamp-on-construct: the safety property is enforced by the type, fail-closed toward "not
+  awake". Default weights: steps 0.4, sustained 0.4, recency 0.25, **device 0.15** — the device signal
+  is deliberately *supporting-only* (a bare pickup + one main factor stays `.weak`, so a pickup is
+  never the deciding vote into `.likely`; `testDevicePickupCannotTipSingleMainFactorToLikely`).
+- **Inspectable factor contributions (acceptance, HOLDS).** `evaluate` always emits a contribution
+  for **all four** factors (present-or-not, with weight), plus the total `score` — a consumer can
+  reconstruct exactly why the evidence read as it did (feeds the future #32 explanation UI). Nothing
+  is collapsed into an opaque number.
+- **Fail-closed on adversarial numeric inputs.** The raw overload sanitises before gating: a
+  non-finite / negative `longestEpisodeDuration` → 0 (an `.infinity` duration must not satisfy `>=
+  minSustainedDuration`), and a negative / `NaN` `secondsSinceLastMovement` → `.infinity` (a negative
+  recency must not satisfy `<= recencyWindow`) — a garbage input reads `.notEnough`, never a spurious
+  `.likely`. The episode-derive overload **drops future-dated episodes** from recency and sums step
+  counts with **saturating arithmetic** (`addingReportingOverflow` → `Int.max`) so a hostile
+  large-`stepCount` trace can't trap the process (#10; the WG-068 overflow lesson) — and since steps
+  are only a ≥15 boolean gate, saturation can't inflate the score either.
+- **Known limitation — passive transport reads as `.likely` (pinned, not hidden).** The model has no
+  activity-class / cadence discriminator, so a phone accruing pedometer steps in a bag on a moving
+  vehicle presents recent steps + a sustained episode + recency at once and reads `.likely`
+  (`testPassiveTransportReadsAsAwakeKnownLimitation`). Documented per the WG-070/075 house style;
+  **tolerable only because the model is advisory** — a false `.likely` can surface a prompt but can
+  never suppress an alarm (#8). Closing it (a cadence/activity gate) is deferred.
+- **Review (motion-red-team, read-only). No BLOCKER** — it confirmed #8 advisory-only integrity and
+  inspectability hold, and that no single default-weight reaches the bar. Applied its four SHOULD-FIX
+  findings: the **structural `Config` clamp** (was a default-weights coincidence), the **transport
+  residual** doc + pinned test, the **raw-overload sanitisation** (∞/negative duration & recency), and
+  the **saturating step sum** (was an overflow trap); plus its NIT — the device weight nudged 0.2 →
+  0.15 so a pickup is never decisive. **Handoffs:** WG-081 (recent-movement history query) supplies
+  the steps/episodes/recency; WG-082 (pre-alarm evaluator) consumes `AwakeEvidence` and **must treat
+  `.likely` as advisory** — surface the prompt, never suppress; a later task may add the transport gate.

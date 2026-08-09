@@ -8,6 +8,7 @@
 - [ ] Core alarm works without HealthKit, location, calendar, or AI.
 - [ ] No AI path can call AlarmKit directly.
 - [ ] No response to a pre-alarm prompt leaves the original alarm unchanged.
+- [ ] A movement-based "likely awake" inference never suppresses or cancels an alarm — at most it surfaces a pre-alarm prompt (#8). Verify a **false** `.likely` (e.g. a car/train commute jostling the phone in a bag) still rings the alarm on time (WG-080 evidence model; wired by WG-082).
 - [ ] Critical alarm cancellation/delay requires explicit confirmation.
 - [ ] Critical alarm rings through silent mode, Focus, and Do Not Disturb on a real device (AlarmKit has no app-facing criticality knob — WG-026 assumes the system-alarm baseline; verify — WG-030).
 - [ ] Ten-second challenge pass is validated on real devices.
