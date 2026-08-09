@@ -39,6 +39,7 @@
 - [ ] Device restarted.
 - [ ] Low Power Mode.
 - [ ] Background App Refresh disabled.
+- [ ] Pre-alarm background opportunity on device (**internal**): with Background App Refresh **on**, the `BGAppRefreshTask` runs the pre-alarm evaluation **opportunistically** and **expiration-safely** (yields when the OS reclaims it — no runaway task), **reschedules without a tight loop** (bounded delay, acceptable battery), and a **failed / expired / skipped** run **changes no alarm**; and — the invariant — a **critical alarm rings on schedule even if the BG task never runs** (#9, Background App Refresh off) (WG-088).
 - [ ] Notification permission revoked.
 - [ ] Motion permission revoked mid-flow.
 - [ ] Location/Health/Calendar denied and revoked.

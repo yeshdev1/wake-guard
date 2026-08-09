@@ -2561,6 +2561,42 @@ decisions are recorded above using the ADR template.
   correct. That persistence is where the "repeated prompts are capped" invariant is truly enforced and
   must be tested.
 
+### WG-088 (2026-08-09): Pre-alarm background opportunity handler
+
+- **What it is.** `PreAlarmBackgroundRunner` (pure, Foundation-only, `AlarmApplication`) runs one
+  pre-alarm background opportunity, plus `BackgroundTaskHandle` — a minimal protocol wrapping the
+  app-facing subset of `BGTask` (`setExpirationHandler` + `complete`) so the logic is testable without
+  `BackgroundTasks`.
+- **Failure produces no alarm change (acceptance + the safety property).** The runner holds **no alarm
+  authority** — no repository, adapter, command processor, or persistence; it only invokes the injected
+  advisory `work` and `scheduleNext`, and discards the work's result. So a failed / cancelled / expired
+  run structurally cannot change an alarm. This satisfies "**never require a `BGTaskScheduler` run to
+  preserve a critical alarm**" (#9/#10): the schedule lives in AlarmKit + reconciliation, a graph this
+  runner is entirely absent from.
+- **Opportunistic + expiration-safe (acceptance).** `run` (1) **reschedules the next opportunity
+  first** (so a crash/expiry mid-run still leaves one queued), (2) runs `work` in a **cancellable**
+  task and wires expiration → cancel **race-free** (an expiration that fires before the work task is
+  stored still cancels it — via a `Mutex` that records the intent), (3) **completes** the task
+  (unsuccessful if cancelled). `work` **must be cooperatively cancellable**; an uncooperative one is
+  force-terminated by the OS — safe (no alarm seam, next opportunity already queued), just wasteful
+  (documented, not silently promised).
+- **Reschedules responsibly without tight loops (acceptance).** `nextRequestTime = now +
+  minimumReschedule`, clamped **≥ 60 s** (non-finite → 900 s), rescheduled exactly once, first — no
+  config yields a sub-minute/zero/negative delay, so submissions can't tight-loop.
+- **Review (ios-architect, read-only). No BLOCKER — "ship-ready"; the safety property is airtight.**
+  Applied both SHOULD-FIX: the **race-free expiration registration** (was a window where an early OS
+  expiration left the work uncancelled → force-kill; + an instant-expiration test), and the
+  **cooperative-cancellability documentation** (the docstring no longer over-promises "always
+  completes"). Applied the NITs: the protocol notes `complete` must be idempotent at the adapter, and
+  `now` must come from the injected `WallClock`.
+- **Handoffs.** The real `BGTaskScheduler` adapter (conform a `BGTask` to `BackgroundTaskHandle`), the
+  `BGTaskSchedulerPermittedIdentifiers` / Info.plist entries, and task registration are a **composition
+  follow-on** (`AlarmInfrastructure` / `AppComposition`), mirroring the notification-adapter pattern.
+  The composition builds `work` as the query → evidence → `PreAlarmEvaluator` → schedule-prompt
+  pipeline — which **must route through the WG-083 prompt cooldown** (the evaluator is stateless) and
+  **must be cooperatively cancellable**. WG-089 (foreground fallback) owns cancelling an in-flight BG
+  evaluation on foreground + prompt de-duplication.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062
