@@ -33,6 +33,10 @@ struct Alarm: Identifiable, Codable, Sendable, Equatable, Hashable {
     var label: String
     var isEnabled: Bool
     var schedule: ScheduleRule
+    /// Fire instants the user turned off for that day (WG-085). The scheduling engine skips these, so
+    /// the alarm stays enabled and its *next recurrence* still rings ("only the occurrence is
+    /// affected"). Backward-compatible: absent in older persisted payloads → empty.
+    var skippedOccurrences: Set<Date>
     var travelBehavior: TravelBehavior
     var criticality: Criticality
     var sound: AlarmSound
@@ -48,6 +52,7 @@ struct Alarm: Identifiable, Codable, Sendable, Equatable, Hashable {
         label: String,
         isEnabled: Bool = true,
         schedule: ScheduleRule,
+        skippedOccurrences: Set<Date> = [],
         travelBehavior: TravelBehavior = .followLocal,
         criticality: Criticality = .standard,
         sound: AlarmSound = .default,
@@ -68,6 +73,7 @@ struct Alarm: Identifiable, Codable, Sendable, Equatable, Hashable {
         self.label = label
         self.isEnabled = isEnabled
         self.schedule = schedule
+        self.skippedOccurrences = skippedOccurrences
         self.travelBehavior = travelBehavior
         self.criticality = criticality
         self.sound = sound
@@ -80,7 +86,7 @@ struct Alarm: Identifiable, Codable, Sendable, Equatable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, label, isEnabled, schedule, travelBehavior, criticality, sound
+        case id, label, isEnabled, schedule, skippedOccurrences, travelBehavior, criticality, sound
         case snoozePolicy, challengePolicy, preAlarmPolicy, createdAt, updatedAt, revision
     }
 
@@ -91,6 +97,8 @@ struct Alarm: Identifiable, Codable, Sendable, Equatable, Hashable {
             label: container.decode(String.self, forKey: .label),
             isEnabled: container.decode(Bool.self, forKey: .isEnabled),
             schedule: container.decode(ScheduleRule.self, forKey: .schedule),
+            skippedOccurrences: container.decodeIfPresent(
+                Set<Date>.self, forKey: .skippedOccurrences) ?? [],
             travelBehavior: container.decode(TravelBehavior.self, forKey: .travelBehavior),
             criticality: container.decode(Criticality.self, forKey: .criticality),
             sound: container.decode(AlarmSound.self, forKey: .sound),

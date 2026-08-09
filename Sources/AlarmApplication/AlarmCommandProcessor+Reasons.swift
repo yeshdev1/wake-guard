@@ -39,4 +39,15 @@ extension AlarmCommandProcessor {
         }
         return "The alarm could not be saved."
     }
+
+    /// A stable idempotency key per logical operation: an alarm's revision bumps on every mutation, so
+    /// a re-issue of the same command dedups but a new mutation does not (WG-016 at-most-once). Pure,
+    /// so it lives here with the other formatters (no #2 boundary surface).
+    static func outboxKey(_ id: AlarmID, _ revision: Int, _ kind: String, _ fireTime: Date?)
+        -> String
+    {
+        var key = "\(id.rawValue.uuidString):r\(revision):\(kind)"
+        if let fireTime { key += ":\(Int(fireTime.timeIntervalSince1970))" }
+        return key
+    }
 }

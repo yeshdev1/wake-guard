@@ -2476,6 +2476,54 @@ decisions are recorded above using the ADR template.
 - **Handoff.** The notification-response router maps `prealarm.action.keep` → `.keepOriginal(alarmID)`
   from `.notificationAction` by `.user`; WG-085/087 add their handlers to the same extension.
 
+### WG-085 (2026-08-09): Turn-off-today action (occurrence-level cancel)
+
+- **What it is.** Implements `.cancelOccurrence(AlarmID, fireTime:)` (previously `.unsupported`): turn off
+  *today's* occurrence while keeping the alarm enabled, so the next recurrence still rings.
+- **Modeling decision — a skip set on the domain `Alarm`.** Added `skippedOccurrences: Set<Date>` to
+  `Alarm`; the scheduling engine's `nextOccurrence(for:)` advances past any skipped instant. Chosen
+  over an occurrence-exceptions side table because it keeps the scheduling primitive pure and total
+  (one input → one occurrence) and lets the **reconciler and policy engine see the same truth for
+  free** (both already call `nextOccurrence(for:)`), so reconciliation can never resurrect a
+  turned-off occurrence (pinned by `testReconciliationHonorsSkippedOccurrence`). Backward-compatible:
+  the alarm persists as a JSON payload (no Core Data migration), and `init(from:)` decodes a missing
+  key to `[]` (`decodeIfPresent ?? []`).
+- **Only the occurrence is affected (acceptance).** `applyCancelOccurrence` builds the mutated alarm
+  from the **stored** record, changing only `skippedOccurrences` (+ `revision`/`updatedAt`) — never
+  `isEnabled`, `schedule`, `criticality`, or policies. The command carries **no `Alarm` payload**, so
+  (unlike `.update(alarm)`) a caller cannot smuggle a broader change through it.
+- **Critical alarm requires confirmation (#6, acceptance).** `.cancelOccurrence` is destructive, so
+  `authorize` returns `.needsConfirmation` for a critical (or imminent) alarm unless `userConfirmed` —
+  and the gate runs *before* `apply`, so an unconfirmed critical turn-off mutates nothing (no skip, no
+  reschedule, no adapter call). An `.agentProposal` turn-off of a critical alarm is hard-rejected (#4).
+- **Next recurrence remains correct (acceptance).** `applyMutation` reschedules AlarmKit to the
+  skip-aware next occurrence (schedule replaces by alarm id → today is superseded, tomorrow rings). A
+  **one-time** alarm's only occurrence, skipped, yields no next occurrence → AlarmKit is cancelled
+  (the occurrence *is* the alarm). Stale-safe: a past `fireTime` or missing alarm is a `.noOp`.
+- **Robust skip match (fail-safe).** The engine matches by **whole second** (occurrences are
+  second-aligned), so the skip survives `Date`'s JSON float round-trip and can't trap on a non-finite
+  persisted value — not fragile exact-`Double` equality. Every uncertain edge fails **toward ringing**:
+  a follow-local zone change remaps the instant → it no longer matches → the alarm still rings; a
+  failed / uncertain reschedule leaves the local skip durable (#10) for reconciliation to re-arm (a
+  spurious today ring, never a missed one) — pinned by `testTurnOffTodayPersistsSkipEvenIfReschedule-
+  Fails`.
+- **Restructuring.** To hold the 400-line processor file, the pure `outboxKey` moved to `+Reasons`
+  (a `static`, byte-identical key format → outbox idempotency unchanged) and several comments were
+  trimmed (no behavioral change; `applyMutation`/`alarmManager`/`clock`/`alarms` stay `private` — the
+  #2/#3 boundary is intact).
+- **Review (alarm-safety-reviewer + ios-architect, read-only). No BLOCKER** — all three acceptance
+  criteria hold and every uncertain edge fails safe; ios-architect confirmed backward-compat, engine
+  termination (`0...count` is correct, not off-by-one), the pure `outboxKey` move, and domain layering.
+  Applied: the **whole-second engine match** (was fragile exact-`Double` equality; ios-architect SF1),
+  and three tests — reconciler-honors-skip, skip-durable-on-failed-reschedule, and idempotent-double-
+  turn-off. **Deferred (NIT):** skip-set pruning is lazy (only on the next turn-off) — bounded and
+  harmless (a past skip never matches a future candidate). **Handoffs:** the notification-response
+  router maps `prealarm.action.turnOffToday` → `.cancelOccurrence(id, fireTime:)` with the **exact
+  engine-produced** next occurrence (a re-derived instant that drifts would silently miss the skip and
+  ring) from `.notificationAction`, foregrounding a critical turn-off for #6 confirmation (WG-083);
+  before WG-086, relocate the occurrence handlers into an `AlarmCommandProcessor+Occurrence.swift`
+  extension (`applyMutation`/`appendAudit` are already internal) rather than trimming further.
+
 ### WG-081 (2026-08-09): Recent movement history query
 
 - **What it is.** `RecentMovementQuery` (pure, Foundation-only, `MotionDomain`) turns the WG-062

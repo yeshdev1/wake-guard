@@ -262,8 +262,9 @@ final class AlarmSchedulingIntegrationTests: XCTestCase {
         _ = await fixture.processor.process(.create(alarm), from: .userInterface, by: .user)
         let scheduledBefore = fixture.adapter.scheduledRequests.count
 
+        // `.cancelOccurrence` is now supported (WG-085 turn-off-today); snooze / reschedule remain.
         for command: AlarmCommand in [
-            .snooze(alarm.id), .cancelOccurrence(alarm.id, fireTime: now),
+            .snooze(alarm.id),
             .rescheduleOccurrence(alarm.id, fireTime: now, to: now.addingTimeInterval(600)),
         ] {
             let outcome = await fixture.processor.process(command, from: .userInterface, by: .user)
@@ -286,7 +287,7 @@ final class AlarmSchedulingIntegrationTests: XCTestCase {
         XCTAssertTrue(unresolved.isEmpty, "an unsupported command enqueues no external work")
         let events = try await fixture.audit.events(forAlarm: alarm.id)
         XCTAssertEqual(
-            events.filter { $0.outcome == .noOp }.count, 3, "each unsupported command is audited")
+            events.filter { $0.outcome == .noOp }.count, 2, "each unsupported command is audited")
     }
 }
 

@@ -52,6 +52,26 @@ extension AlarmSchedulingEngine {
             for: alarm.travelBehavior,
             anchor: alarm.schedule.anchorTimeZone,
             deviceTimeZone: deviceTimeZone)
-        return nextOccurrence(of: alarm.schedule, after: now, in: zone)
+        // Skip occurrences the user turned off for that day (WG-085): advance past each skipped
+        // instant so the *next recurrence* still rings. Bounded — one attempt per skip plus one (the
+        // engine returns strictly-increasing instants; the skip set is finite). A one-time alarm whose
+        // only occurrence is skipped resolves to `nil` (no ring), correct. Match by **whole second**
+        // (occurrences are second-aligned), so the comparison is robust to `Date`'s JSON float
+        // round-trip and never traps on a non-finite persisted value — not exact `Double` equality. A
+        // follow-local zone change between skip and fire remaps the instant, so it no longer matches
+        // and the alarm still rings — the fail-safe direction (#8-adjacent).
+        func wholeSecond(_ date: Date) -> Double { date.timeIntervalSince1970.rounded(.towardZero) }
+        let skipped = Set(
+            alarm.skippedOccurrences.lazy.filter { $0.timeIntervalSince1970.isFinite }
+                .map(wholeSecond))
+        var cursor = now
+        for _ in 0...skipped.count {
+            guard let candidate = nextOccurrence(of: alarm.schedule, after: cursor, in: zone) else {
+                return nil
+            }
+            if !skipped.contains(wholeSecond(candidate)) { return candidate }
+            cursor = candidate
+        }
+        return nil
     }
 }
