@@ -3081,6 +3081,20 @@ decisions are recorded above using the ADR template.
 - **No medical claims (#39).** The prompt forbids diagnostic/medical statements; claim text is inert
   display text. `make ci-fast` green — 985 (+7). Feeds WG-172.
 
+### WG-170 (2026-08-10): Conversational sleep-journal extraction
+
+- **What.** `JournalExtractor` (free text → the constrained `AIJournalExtraction` → a structured
+  `JournalExtraction`) + `JournalAssociationCopy` (non-causal framing).
+- **Structured optional fields.** Unstated fields stay `nil`/`.unknown` — the schema fails closed rather
+  than fabricating a bedtime/quality; out-of-range times are rejected; model failure/empty text ⇒
+  `.unavailable`.
+- **Original journal stays local.** The raw text is sent only to the on-device model (WG-163, no network);
+  the extractor persists/logs/transmits nothing (source-scan pinned) and returns only the structured
+  fields. The raw journal never leaves the device (#35).
+- **Associations, not causation.** Any relationship the UI surfaces uses `JournalAssociationCopy`, pinned
+  to association language and forbidden from causal terms — and from medical claims (#39). WakeGuard shows
+  patterns without implying cause. `make ci-fast` green — 996 (+8). Feeds WG-172.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
