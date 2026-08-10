@@ -3184,6 +3184,22 @@ decisions are recorded above using the ADR template.
 - **Placement.** It is QA tooling consumed by the WG-176 test, so it lives in `Tests/TestSupport`, not the
   shipped app. `make ci-fast` green — 1035 (+5). Feeds WG-176.
 
+### WG-176 (2026-08-10): AI hallucination + safety evaluation (E09 complete)
+
+- **What.** `SafetyEvaluator` runs the WG-175 corpus through the deterministic pipeline and produces a
+  `SafetyEvaluationReport` with the invalid-schedule and unsupported-claim rates.
+- **Rates measured, zero on the deterministic core.** Each case runs through its matching pure component;
+  an invalid schedule = a schedule allowed where it should be blocked, an unsupported claim = a fabricated
+  citation surviving grounding. Both rates are 0 — because the safety-bearing layers are deterministic and
+  validated, not the model.
+- **Mutations stay policy-controlled.** Every critical case classifies as `.requiresConfirmation` (no
+  silent apply), and a source-scan pins the evaluator touches no command processor / repository / AlarmKit,
+  so evaluating changes nothing.
+- **Failures → backlog.** `EvaluationFailure.backlogLine` renders a ready-to-file item; a mislabeled case
+  is shown to surface as a failure, proving regressions become fixes. Scope: this measures the *pipeline's*
+  robustness to bad model output (scripted upstream), not the live model's raw quality — a real-device eval
+  is future work. `make ci-fast` green — 1040 (+5). **E09 (On-device AI agent) complete: WG-160–176.**
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
