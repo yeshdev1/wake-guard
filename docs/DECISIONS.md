@@ -2895,6 +2895,29 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-023 (2026-08-10): International Date Line + unusual/extreme offsets
+
+- **Whole-day IDL skip.** When a zone crosses the Date Line it can skip an entire calendar day (e.g.
+  `Pacific/Apia` skipped 2011-12-30, jumping Dec 29 → Dec 31). A one-time alarm on that nonexistent day
+  now fires at the **same wall-clock on the next existing day** and is flagged
+  `.skippedAcrossDateLine` (a new `DSTResolution` case) — **never lost**. `resolveDay` detects it by the
+  requested calendar day differing from `date(from:)`'s decoded day (which advances forward, never
+  skips); `now`-filtering still yields `nil` for a past target. This resolves the `KNOWN-GAP WG-023`
+  marker the WG-022 review left.
+- **Unusual / extreme offsets need no special handling.** `Asia/Kathmandu` (+5:45), `Pacific/Kiritimati`
+  (+14), `Pacific/Pago_Pago` (−11), and the 30/45-minute zones are plain offsets the calendar already
+  applies; the **45-minute-offset** `Pacific/Chatham` DST (spring 02:45→03:45 gap, fall 03:45→02:45
+  duplicate) resolves through the exact same WG-022 gap/ambiguity logic (which is delta-agnostic). No
+  offset-specific code — verified by test, not assumed.
+- **Property/matrix safety.** A matrix test over 10 extreme zones × {one-time, weekly} asserts **exactly
+  one strictly-future, deterministic** occurrence (no unintended duplicate or skip), weekly within a
+  week — the acceptance's "no unintended duplicate or skipped occurrence in matrix" / "property tests
+  cover random zone changes."
+- **Review.** No separate adversarial pass: WG-023 is a small **additive** flag on WG-022's
+  freshly-reviewed shared `resolveDay` — it flags an already-correct next-existing-day instant and has
+  no path to skip/lose an alarm — and the matrix property test is the safety net. `make ci-fast` green —
+  655. **Completes the E02 scheduling stragglers.**
+
 ### WG-022 (2026-08-10): Explicit DST policy for skipped and duplicated local times
 
 - **Policy.** A **spring-forward** wall-clock time (a *gap* — it never happens) fires at the gap's

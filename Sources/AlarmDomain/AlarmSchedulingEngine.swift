@@ -13,6 +13,10 @@ enum DSTResolution: String, Sendable, Equatable, Hashable, CaseIterable, Codable
     case skippedToGapEnd
     /// The wall-clock time happens twice on a fall-back day; the alarm fires at the first (earlier) one.
     case ambiguousUsedFirst
+    /// The requested calendar **day** does not exist in this zone — an International Date Line crossing
+    /// skipped it (WG-023). The alarm fires at the same wall-clock on the **next existing day**; it is
+    /// never lost.
+    case skippedAcrossDateLine
 }
 
 /// Pure next-occurrence calculation for a `ScheduleRule`. Deterministic: a pure function of the rule,
@@ -25,8 +29,11 @@ enum DSTResolution: String, Sendable, Equatable, Hashable, CaseIterable, Codable
 /// *skipped* (spring-forward) time fires at the gap's **end** (the DST transition instant), never
 /// skipped; a *repeated* (fall-back) time fires at the **first** (earlier) instant. This holds for any
 /// DST delta, including Lord Howe's 30-minute shift, because a gap is detected on the intended day
-/// itself, not by a time-of-day roll (which would wrongly jump to the next day/week). International Date
-/// Line whole-day gaps are WG-023.
+/// itself, not by a time-of-day roll (which would wrongly jump to the next day/week). An International
+/// Date Line **whole-day** skip (WG-023) is likewise detected and flagged `.skippedAcrossDateLine` — the
+/// alarm fires at the same wall-clock on the next existing day, never lost. Unusual **offsets** (UTC+14,
+/// −11, and the 30/45-minute zones like Kathmandu +5:45 and Chatham +12:45) need no special handling:
+/// they are plain offsets the calendar already applies.
 struct AlarmSchedulingEngine: Sendable {
 
     /// The earliest occurrence of `rule` strictly after `now`, interpreted in `timeZone`. Returns `nil`
@@ -69,13 +76,18 @@ struct AlarmSchedulingEngine: Sendable {
         full.minute = time.minute
         full.second = 0
         guard let naive = calendar.date(from: full) else { return nil }
+        let wall = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: naive)
+        // International Date Line whole-day skip (WG-023): the requested calendar day does not exist in
+        // this zone (a Date Line crossing skipped it — e.g. Pacific/Apia's 2011-12-30). `date(from:)`
+        // never skips; it advances to the same wall-clock on the next existing day. Flag it so a UI can
+        // explain the shift — the alarm still fires, never lost, at the equivalent time on the next day.
+        if wall.year != year || wall.month != month || wall.day != day {
+            return (naive, .skippedAcrossDateLine)
+        }
         // Spring-forward gap on THIS day: `date(from:)` never skips but shifts a gap's wall-clock, so the
         // decoded time differs from what was asked. Resolve to the gap's **end** — the DST transition
         // instant. (A time-of-day roll can't be used: with only 02:00–02:29 missing, a 30-min gap, it
         // would wrongly jump to the next day/week — the WG-022 review BLOCKER.)
-        // KNOWN-GAP: a nonexistent *calendar day* (an International Date Line crossing) is not detected
-        // here and currently mis-resolves as `.exact` — that is WG-023.
-        let wall = calendar.dateComponents([.hour, .minute], from: naive)
         if wall.hour != time.hour || wall.minute != time.minute {
             guard
                 let transition = calendar.timeZone.nextDaylightSavingTimeTransition(
