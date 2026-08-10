@@ -2895,6 +2895,21 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
+
+- **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
+  text is inert. Docs-heavy/verification (like WG-130), reinforcing WG-140's redaction.
+- **Calendar text cannot inject the model.** A battery of prompt-injection / tool-instruction / sensitive
+  titles, redacted to `RedactedEventSummary`, leaves **no** trace in the model-facing JSON — the summary
+  is structurally text-free, so a malicious title can't reach a model or invoke a tool (#28/#35, #30).
+- **Hostile text can't corrupt planning.** Coarse fields (`start`/`hasLocation`/`isAllDay`) extract
+  correctly regardless of the title, and the wake calc consumes the title-free summary — a benign vs
+  hostile title yield the **same** wake time.
+- **Displayed text is safely rendered.** `EventTitleText` uses `Text(verbatim:)`, which never interprets
+  Markdown or a localization key, so an untrusted title (Markdown, control/RTL chars, fake "SYSTEM:") is
+  inert plain text. Verified at the source.
+- `make ci-fast` green — 892. **E08 (Calendar & morning planning) complete: 9/9 (WG-140–148).**
+
 ### WG-147 (2026-08-10): Calendar-change refresh
 
 - **What.** `CalendarChangeRefreshPolicy` (pure) + `TomorrowPlanRefresher` (`@MainActor`) keep the plan
