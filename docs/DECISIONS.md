@@ -3380,6 +3380,14 @@ decisions are recorded above using the ADR template.
   whether the alarm still rings, so a screen-reader user isn't surprised. Automated pins + a manual audit
   checklist. `make ci-fast` green — 1117 (+5).
 
+### WG-202 (2026-08-11): Dynamic Type & layout stress
+
+- **What.** `DynamicTypeLayoutTests` — static guarantees for large-type layout.
+- **Scalable fonts.** No fixed `.system(size:)` anywhere; all fonts are semantic (`DesignSystem.Typography`)
+  so text grows with Dynamic Type. **No horizontal scrolling** anywhere; long screens (consent center) are
+  scrollable so controls stay reachable. Pixel-level AX5 pass is the manual checklist. `make ci-fast` green
+  — 1120 (+3).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
