@@ -83,7 +83,7 @@ struct CompositionErrorView: View {
     let error: Error
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DesignSystem.Spacing.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
                 .accessibilityHidden(true)

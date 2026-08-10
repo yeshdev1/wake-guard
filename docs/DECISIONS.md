@@ -3437,6 +3437,14 @@ decisions are recorded above using the ADR template.
   alarm stops only by completing the challenge, so a groggy stray tap can't cancel/snooze/delete it.
   Bounds prevent regressions. `make ci-fast` green — 1144 (+4).
 
+### WG-209 (2026-08-11): Aesthetic consistency epoch
+
+- **What.** `AestheticConsistencyTests` + `docs/AESTHETIC_CONSISTENCY.md`.
+- Views must draw spacing/corner/color from `DesignSystem` (no raw literals); a scan enforces it and caught
+  one drift (`RootView` raw `spacing: 12` → token). Typography/animation/status consistency are pinned by
+  WG-202/203/204; visual hierarchy documented. Before/after screenshots are a manual PR review. `make
+  ci-fast` green — 1146 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
