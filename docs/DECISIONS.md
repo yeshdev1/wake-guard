@@ -3213,6 +3213,21 @@ decisions are recorded above using the ADR template.
 - **Honest copy.** No medical/advertising claims — health explicitly says "never a diagnosis"; a test bans
   treat/cure/advertise/sell. `make ci-fast` green — 1045 (+5). Feeds the rest of E10.
 
+### WG-181 (2026-08-10): Sensitive-data classification types
+
+- **What.** `Sensitive<Value>` (a log-proof wrapper) and `Cleared<Value>` + `Redaction` (the cloud
+  compiler boundary), in `PrivacyDomain`.
+- **Log-proof by construction (#41).** `Sensitive` renders `"<redacted>"` through every string API *and*
+  `dump`/`Mirror` (it is `CustomReflectable`), so an accidental `print`/`log`/`dump` cannot leak the value;
+  the raw value is reachable only via an explicit, greppable `reveal()`. It is intentionally not `Codable`,
+  so it can't be silently serialized either.
+- **Redact-to-transmit (#35).** `Cleared` has a `fileprivate` init and is produced *only* by
+  `Redaction.redact(_:using:)` — an explicit transform that strips the sensitive parts. Cloud-bound builders
+  take `Cleared<…>`, so raw/`Sensitive` data cannot reach a transmit path; the type system enforces it.
+- **Naming.** Renamed from `Redacted` to `Cleared` to avoid clashing with the existing Observability
+  `Redacted` privacy-log marker. These are the primitives; migrating existing sensitive fields onto them is
+  incremental (WG-190 scans for residual leaks). `make ci-fast` green — 1051 (+6).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
