@@ -2934,6 +2934,25 @@ decisions are recorded above using the ADR template.
   the user/policy set criticality and only `AlarmPolicyEngine` authorizes. `make ci-fast` green — 910
   (+12). Feeds WG-163/165/175.
 
+### WG-162 (2026-08-10): Apple Foundation Models availability gate
+
+- **What.** A domain availability model (`ModelAvailability` + `ModelUnavailabilityReason`, behind a
+  `ModelAvailabilityProviding` port), a pure `AIAvailabilityGate`, a Settings-copy presenter, a real
+  FoundationModels adapter, and a Settings view-model + section.
+- **Unavailable ⇒ deterministic fallback (#33).** The gate maps `.available` ⇒ AI enabled and **every**
+  unavailable reason ⇒ AI off (reason preserved) so consumers take their deterministic path. Unknown/
+  future states fail closed to `.unknown` ⇒ unavailable — never optimistically "available".
+- **No AI feature blocks alarm use (#9).** Alarm scheduling has **zero** dependency on availability — a
+  source-scan test asserts `AlarmDomain`/`AlarmApplication`/`AlarmInfrastructure` never name any
+  AI-availability symbol, and a Mirror pin shows the decision holds no alarm authority. An unavailable
+  model can turn *suggestions* off, never an *alarm*.
+- **Visible in Settings.** `AIAvailabilitySection` renders honest per-state copy (SF Symbol + text, no
+  color-only, accessibility IDs) that **always** states alarms are unaffected; the view-model refreshes on
+  a live availability change.
+- **Framework isolation.** Only `FoundationModelsAvailabilityAdapter` imports FoundationModels (domain
+  stays framework-free); it is `#if canImport`-guarded and fails closed to `.modelNotReady` when the SDK
+  lacks it. `make ci-fast` green — 920 (+10). Feeds WG-163/168.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
