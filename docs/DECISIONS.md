@@ -3028,6 +3028,23 @@ decisions are recorded above using the ADR template.
 - **Seam to scheduling.** `commit` is wired to the real `AlarmCommandProcessing` path in WG-172; keeping it
   injected here let WG-166 stay UI-focused and fully deterministic. `make ci-fast` green — 960 (+9).
 
+### WG-167 (2026-08-10): Tomorrow Agent context builder (E09 Phase 3 start)
+
+- **What.** `TomorrowContextBuilder` → `TomorrowContext` — a minimized, structured, text-free context the
+  Tomorrow Agent reasons over, assembled purely from already-computed domain values + coarse access states.
+- **Minimized structured factors.** Each factor has a stable `TomorrowFactorID` and a coarse value only —
+  times as `"HH:mm"`, readiness as its qualitative level, sleep debt as a band from hours. No raw seconds,
+  no scores, no free text.
+- **Raw text excluded by construction.** The calendar factor is built from the text-free
+  `RedactedEventSummary` (WG-140), so a hostile title structurally cannot enter; a test pins the value has
+  no letters. Reuses the same redaction that already guarantees #28/#35.
+- **Missing permissions represented, not dropped.** A source that isn't granted is listed in
+  `unavailableSources`, so the model distinguishes "no data / no permission" from "zero" — it never
+  fabricates a factor for a denied source.
+- **Grounding vocabulary.** The factor IDs are exactly what WG-168 proposals and WG-169 explanations must
+  cite; an AI claim referencing an ID not in the context is dropped downstream. No alarm authority.
+  `make ci-fast` green — 967 (+7). Feeds WG-168/169.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
