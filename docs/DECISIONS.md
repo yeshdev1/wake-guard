@@ -2895,6 +2895,27 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-019 (2026-08-10): Privacy-safe structured logging
+
+- **What.** A structured-logging primitive whose redaction is **structural, not a runtime scan**.
+  Sensitive values (#41: health, location, calendar, journal, LLM prompts, raw samples) are represented
+  by `Redacted`, which carries **only a category — never the raw value** — so they are impossible to log
+  raw, in **release and debug alike**. The log **message is a `StaticString`**, forcing runtime data
+  into `fields`, where anything sensitive must be a `Redacted`. `SystemPrivacyLog` backs it with
+  `os.Logger` (the single `os` touch-point); the pre-rendered line is logged `.public` because it
+  provably holds no raw value. `LogLine` renders once so the real and in-memory backends redact
+  identically.
+- **Why structural over a filter.** A release-only redaction or a substring scrubber can be bypassed by
+  a new call site; making the sensitive type unable to hold the raw value means a developer **cannot**
+  log it even by accident. Proven by a reflection test (`Redacted` has exactly one stored field, the
+  category) plus a no-leak test over fabricated health/location/journal/prompt strings.
+- **Scope.** Provides the safe primitive; no call sites are wired (there is no existing logging, and the
+  motion/alarm adapters already avoid raw logs, #41 — verified by their own tests). Future logging must
+  route through this. Discharges the WG-008 threat model's *privacy-leakage-via-logs* mitigation.
+- **Tests.** `make ci-fast` green — 661. `PrivacyLogTests` (4). Device: capture a release build's logs
+  and confirm no raw sensitive values appear → `RELEASE_CHECKLIST.md`. **Completes the E00/E01 governance
+  stragglers.**
+
 ### WG-017 (2026-08-10): Schema-migration test harness
 
 - **What.** A CI harness proving the Core Data schema migrates safely. Since every version **adds** one
