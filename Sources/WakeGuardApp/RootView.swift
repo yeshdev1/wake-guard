@@ -26,7 +26,8 @@ struct RootView: View {
                 if let environment {
                     CreateAlarmView(
                         editing: alarm, processor: environment.alarmCommandProcessor,
-                        clock: environment.clock, ids: environment.identifierGenerator)
+                        clock: environment.clock, ids: environment.identifierGenerator,
+                        feedbackStore: environment.preAlarmFeedback)
                 }
             }
             .alert(

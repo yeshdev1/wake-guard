@@ -9,14 +9,16 @@ struct CreateAlarmView: View {
     @State private var model: CreateAlarmViewModel
     @State private var errorMessage: String?
     @State private var confirmationReason: String?
+    private let feedbackStore: (any PreAlarmFeedbackStore)?
 
     init(
         editing: Alarm? = nil, processor: any AlarmCommandProcessing, clock: any WallClock,
-        ids: any IdentifierGenerator
+        ids: any IdentifierGenerator, feedbackStore: (any PreAlarmFeedbackStore)? = nil
     ) {
         _model = State(
             wrappedValue: CreateAlarmViewModel(
                 editing: editing, processor: processor, clock: clock, ids: ids))
+        self.feedbackStore = feedbackStore
     }
 
     var body: some View {
@@ -73,6 +75,9 @@ struct CreateAlarmView: View {
                     } footer: {
                         Text("Who changed this alarm and when — including any automatic recovery.")
                     }
+                }
+                if model.editingAlarmID != nil, model.preAlarm.isEnabled, let feedbackStore {
+                    PreAlarmFeedbackSection(store: feedbackStore)
                 }
                 Section {
                     NextOccurrenceRow(date: model.nextOccurrence)

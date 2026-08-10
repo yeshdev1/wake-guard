@@ -22,7 +22,8 @@ struct AlarmListView: View {
                 alarms: environment.alarmRepository, clock: environment.clock,
                 processor: environment.alarmCommandProcessor, ids: environment.identifierGenerator,
                 schedulesInSystem: environment.schedulesAlarmsInSystem,
-                authorizationCoordinator: environment.authorizationCoordinator)
+                authorizationCoordinator: environment.authorizationCoordinator,
+                feedbackStore: environment.preAlarmFeedback)
         } else {
             AlarmListMessageView(
                 systemImage: "externaldrive.badge.exclamationmark", title: "Alarms unavailable",
@@ -45,12 +46,14 @@ private struct AlarmListScreen: View {
     private let clock: any WallClock
     private let ids: any IdentifierGenerator
     private let schedulesInSystem: Bool
+    private let feedbackStore: any PreAlarmFeedbackStore
 
     init(
         alarms: any AlarmRepository, clock: any WallClock,
         processor: any AlarmCommandProcessing, ids: any IdentifierGenerator,
         schedulesInSystem: Bool,
-        authorizationCoordinator: AlarmAuthorizationCoordinator
+        authorizationCoordinator: AlarmAuthorizationCoordinator,
+        feedbackStore: any PreAlarmFeedbackStore
     ) {
         _model = State(
             wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock, processor: processor))
@@ -60,6 +63,7 @@ private struct AlarmListScreen: View {
         self.clock = clock
         self.ids = ids
         self.schedulesInSystem = schedulesInSystem
+        self.feedbackStore = feedbackStore
     }
 
     var body: some View {
@@ -103,7 +107,9 @@ private struct AlarmListScreen: View {
                 item: $editingAlarm,
                 onDismiss: { Task { await model.load() } },
                 content: {
-                    CreateAlarmView(editing: $0, processor: processor, clock: clock, ids: ids)
+                    CreateAlarmView(
+                        editing: $0, processor: processor, clock: clock, ids: ids,
+                        feedbackStore: feedbackStore)
                 }
             )
             .alert(

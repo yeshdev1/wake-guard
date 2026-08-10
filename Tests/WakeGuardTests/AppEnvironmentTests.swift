@@ -138,6 +138,15 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertEqual(effect, PreAlarmResponseEffect.none)
     }
 
+    func testInMemoryGraphComposesAWorkingFeedbackStore() async throws {
+        // WG-090 step 7: the graph composes the pre-alarm feedback store; feedback round-trips through
+        // it (advisory + on-device; the store's own tests pin that it never touches an alarm).
+        let env = try AppEnvironment.inMemory()
+        await env.preAlarmFeedback.record(.helpful)
+        let counts = await env.preAlarmFeedback.counts()
+        XCTAssertEqual(counts.helpfulCount, 1, "feedback round-trips through the composed store")
+    }
+
     func testAppEnvironmentIsSendable() {
         // Compile-time guard: the container is delivered through the SwiftUI
         // environment across isolation, so it must stay Sendable. If a future port

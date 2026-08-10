@@ -2870,6 +2870,31 @@ decisions are recorded above using the ADR template.
   a disabled pre-alarm policy, or when the repo is unreadable (fail-safe #9). Device-only: the real
   foreground prompt + the notification-permission prompt → `RELEASE_CHECKLIST.md`.
 
+### Runs-on-a-phone step 7 (2026-08-10): pre-alarm feedback affordance (WG-090 handoff)
+
+- **What.** Composed `PreAlarmFeedbackStore` in `AppEnvironment` (`CoreDataPreAlarmFeedbackStore` over
+  the shared persistence — on-disk in production, in-memory for tests/previews), a tested
+  `PreAlarmFeedbackModel`, and an accessible `PreAlarmFeedbackSection` (two low-friction taps: "The
+  pre-alarm was helpful" / "I wasn't actually awake"). Shown when **editing an alarm that has the
+  pre-alarm check enabled**; on a tap it records the coarse category and thanks the user.
+- **Safety / privacy.** Advisory only, discharging WG-090's app-shell handoff. The affordance writes to
+  the **aggregate, on-device** two-counter tally (no id / timestamp / sample, #41); it holds **no alarm
+  authority and cannot retune any behavior** (#8/#31) — the copy states it "never changes when your
+  alarms ring." The store's no-alarm-authority + no-PII properties were already adversarially reviewed
+  under WG-090; this step only adds the composition + the affordance.
+- **Scope.** The **WG-090 feedback** affordance is done. The **WG-086 change-time-from-notification**
+  presentation (surfacing the `.presentChangeTimeUI` / critical-confirmation effect the responder
+  returns) remains the step-5 follow-up — it needs the delegate → app navigation and is advisory (the
+  alarm is never wrongly changed meanwhile, #6/#7). The in-app change-time *proposal + editor* (WG-086)
+  already exist and are reachable via the normal edit flow; only the notification-driven entry is
+  deferred.
+- **Tests.** `make ci-fast` green — 643. `PreAlarmFeedbackModelTests` (2): a tap records only the chosen
+  category and marks the session; `AppEnvironmentTests`: feedback round-trips through the composed
+  store. Device: the on-device affordance → `RELEASE_CHECKLIST.md`.
+- **Runs-on-a-phone steps 2–7 complete** (with the documented, advisory-only follow-ups: the
+  opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
+  `remindersUsed` — none affect whether or when an alarm rings, #9).
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)

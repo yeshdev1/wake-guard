@@ -46,6 +46,10 @@ struct AppEnvironment: Sendable {
     /// authority (#7/#8/#9); production drives it with the real Core Motion pipeline, the in-memory
     /// graph with an unavailable source (so it never posts).
     let preAlarmWork: PreAlarmBackgroundWork
+    /// The false-positive feedback store (WG-090): records the user's coarse "I wasn't awake" / "helpful"
+    /// feedback on the pre-alarm. Aggregate + on-device; holds no alarm authority and cannot retune any
+    /// behavior (#8/#31/#41) — advisory only.
+    let preAlarmFeedback: any PreAlarmFeedbackStore
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -145,6 +149,7 @@ struct AppEnvironment: Sendable {
                 movementQuery: RecentMovementQuery(source: wiring.pedometerSource),
                 coordinator: promptCoordinator),
             notifications: wiring.preAlarmNotifications, deviceTimeZone: { .current })
+        let preAlarmFeedback = CoreDataPreAlarmFeedbackStore(persistence)
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -158,6 +163,7 @@ struct AppEnvironment: Sendable {
             preAlarmNotifications: wiring.preAlarmNotifications,
             preAlarmResponder: preAlarmResponder,
             preAlarmWork: preAlarmWork,
+            preAlarmFeedback: preAlarmFeedback,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }
