@@ -3200,6 +3200,19 @@ decisions are recorded above using the ADR template.
   robustness to bad model output (scripted upstream), not the live model's raw quality — a real-device eval
   is future work. `make ci-fast` green — 1040 (+5). **E09 (On-device AI agent) complete: WG-160–176.**
 
+### WG-180 (2026-08-10): Permission & consent center (E10 start)
+
+- **What.** A new `PrivacyDomain` home for E10, starting with `ConsentCategory` / `ConsentStatus` /
+  `ConsentCopy` / `ConsentStatusProviding`, plus a `ConsentCenterModel` + `ConsentCenterView`.
+- **Seven separate categories.** Alarm, notifications, motion, location, health, calendar, and cloud AI are
+  independent enum cases — the app stays functional when any optional one is denied, and the two core ones
+  (alarm, notifications) are flagged non-optional.
+- **Status + purpose + revocation, per category.** Each carries an honest purpose and revocation guidance
+  (the Settings path + a reassurance that alarms are unaffected); the view-model pairs the static copy with
+  a live status from an injected provider (composition maps the OS authorizations). No color-only status.
+- **Honest copy.** No medical/advertising claims — health explicitly says "never a diagnosis"; a test bans
+  treat/cure/advertise/sell. `make ci-fast` green — 1045 (+5). Feeds the rest of E10.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
