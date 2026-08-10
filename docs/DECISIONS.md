@@ -2895,6 +2895,30 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-108 (2026-08-10): Airport/transit and rapid zone changes
+
+- **What.** `RapidZoneChangeGate` — a pure gate over versioned time-zone observations that coalesces
+  rapid changes, keeps only the latest reliable state, and defers changes for an imminent alarm.
+  `VersionedZoneObservation` = zone + monotonic `version` + `observedAt`. No consumer yet (the
+  WG-100→104→105→108 coordinator is future work).
+- **Prompt spam suppressed.** `settledZone(from:now:)` returns a zone only once it has held for
+  `settleDuration` (default 120 s). Rapid flapping (each flip fresh) yields `nil` (no prompt) until it
+  stops — errs toward suppression, the safe direction.
+- **Latest reliable state wins through versioning.** The winner is the **highest-version** observation,
+  chosen by a **total order** (version → newest `observedAt` → `zone.identifier`), so it is independent
+  of delivery / array order — a delayed, later-timestamped **lower** version never wins, and a
+  version **tie** (re-delivery / VPN flap / launch replay) resolves deterministically. (Review SHOULD-FIX:
+  the first cut used `max(by: version <)`, which resolves ties by array order — fixed with the total
+  order + a forward-vs-reversed determinism test.)
+- **An alarm close to firing is not destabilized (#16/#9).** `shouldDeferForImminentAlarm(nextRing:now:)`
+  defers for a ring within `imminentWindow` (default 900 s) **or** overdue, so a transient zone change
+  never moves an alarm about to ring — deferral is a safe no-op that leaves it exactly as scheduled; the
+  change is reconsidered after it rings.
+- **Safe by construction.** Holds **no alarm authority** — it returns a zone or a defer bool, references
+  no `AlarmCommand`/criticality, and cannot move/drop/duplicate an alarm because it can't touch one
+  (`Mirror`-pinned). Durations clamp to bounds (min 30/60, upper cap 1 day) so a pathological config can't
+  disable coalescing or defer forever. `make ci-fast` green — 732.
+
 ### WG-107 (2026-08-10): International Date Line travel
 
 - **What.** Compose the WG-023 whole-day IDL skip with travel-zone selection (WG-104) and the WG-105/106
