@@ -2704,6 +2704,49 @@ decisions are recorded above using the ADR template.
   mapping (turn-off → `cancelOccurrence`, not pre-confirmed) is directly tested and the processor's #6
   gate is intact.
 
+### Runs-on-a-phone (2026-08-10): device-integration plan + AlarmKit/Motion usage descriptions
+
+- **Context.** Every *component* needed to ring on a device already exists and is adversarially
+  reviewed: the real `SystemAlarmManagerAdapter` (AlarmKit, #1), the `AlarmAuthorizationCoordinator`
+  (WG-025), `PreAlarmNotificationCategoryFactory` (UserNotifications), `PreAlarmBackgroundRunner`
+  (BGTaskScheduler), the `PreAlarmResponseRouter`, and the full SwiftUI shell. What's missing is
+  **integration + device configuration**, not new logic. `AppEnvironment.make()` still composes the
+  interim `DeferredAlarmManagerAdapter` (nothing rings; `schedulesAlarmsInSystem = false`, honestly
+  disclosed in the list UI); `AlarmAuthorizationCoordinator` is constructed nowhere; no launch
+  reconciliation runs; and there were **no Info.plist usage descriptions**.
+- **Decision (this step).** Add `NSAlarmKitUsageDescription` + `NSMotionUsageDescription` as
+  `INFOPLIST_KEY_*` build settings (`GENERATE_INFOPLIST_FILE` is on; there is no checked-in plist).
+  These are a hard prerequisite — the app **crashes / is App-Review-rejected the instant it touches
+  AlarmKit or Core Motion** without them. Only these two: the shipped features (E02 alarms, E04/E05
+  motion) touch only these frameworks; Health/Location/Calendar strings land with E06–E08 (YAGNI). The
+  copy names the specific use and disclaims location + saved workouts/health records (#41). No runtime
+  behavior changes yet — `make ci-fast` stays green (616 tests; tests/previews use the fake/in-memory
+  graph and never touch these frameworks).
+- **The ordered, non-regressing plan.** Each step is safe on its own and never claims a safety it can't
+  deliver:
+  1. ✅ **Usage descriptions** (this step).
+  2. **Permission UI**: an accessible explanation screen + a concrete `SettingsOpener`
+     (`UIApplication.openSettingsURLString`) driving `AlarmAuthorizationCoordinator`
+     (`explainThenRequest` → `requestAfterExplanation`) — the system dialog must never appear
+     unexplained (WG-025 acceptance).
+  3. **Flip to the real adapter**: `production()` → `SystemAlarmManagerAdapter` +
+     `schedulesAlarmsInSystem = true`, while `inMemory()` keeps the fake so **ci-fast + SwiftUI
+     previews never touch `AlarmManager.shared`**. **Ordering invariant:** this MUST follow step 2 —
+     flipping first makes every create fail `.notAuthorized` (fail-closed guard in `scheduleFixed`) and
+     would make the UI falsely imply ringing (a #7 disclosure regression). Never set
+     `schedulesAlarmsInSystem = true` before the prompt is wired.
+  4. **Launch reconciliation** (WG-029) at app start — re-arm persisted alarms against the authority on
+     relaunch; opportunistic, never required for a critical alarm (#9).
+  5. **Notification delegate**: register the categories, schedule the pre-alarm notification, and route
+     tapped actions through `PreAlarmResponseRouter` (turn-off → `cancelOccurrence`; a critical change
+     stays #6-gated by the processor).
+  6. **BGTaskScheduler registration** → `PreAlarmBackgroundRunner` (opportunistic; #9).
+  7. **Feedback affordance** (WG-090 `record`) + change-time editor entry (WG-086).
+- **What ci can and can't verify.** Steps 3–6 exercise `AlarmManager.shared` /
+  `UNUserNotificationCenter` / `BGTaskScheduler`, which need a real device — they are **not** unit-
+  testable, so each carries a `RELEASE_CHECKLIST.md` device item. The deterministic core (adapters
+  behind ports, auth logic, routing, evidence) stays fully covered by `make ci-fast`.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)
