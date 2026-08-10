@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-124 (2026-08-10): Conservative sleep-debt estimate
+
+- **What.** `SleepDebt.estimate` over nightly asleep durations vs a configurable `SleepNeed` → a
+  `SleepDebtEstimate` (debt + counts + `wasCapped` + an `assumptions` explanation). Pure.
+- **Configurable need.** `SleepNeed` is user-set, clamped to a sane 4–12 h (default 8 h — a planning
+  assumption, **not** a prescription).
+- **Conservative.** A night's surplus offsets prior shortfall (recovery sleep counts); the total is
+  **floored at 0** (a well-rested stretch shows nothing) and **capped** at `need × maxNights`, so it can
+  never imply a dramatic accumulated deficit.
+- **Missing → unavailable.** A `nil` night is **excluded** (never assumed a shortfall or a full night);
+  no nights with data → the estimate is `nil`, never a fabricated `0`.
+- **Explains assumptions, no medical claim (#39).** `assumptions` names the need, the missing-night
+  exclusion, and the surplus offset, and closes with "a rough estimate … not a diagnosis or a medical
+  measure" (a test scans for claim language). Foundation-only, no alarm authority. `make ci-fast` green —
+  791. Feeds WG-125.
+
 ### WG-123 (2026-08-10): Sleep-duration and consistency calculator
 
 - **What.** `SleepMetrics` (pure) over WG-122's normalized samples: `asleepDuration`, `sleepMidpoint`,
