@@ -56,6 +56,38 @@ final class AlarmListViewModelTests: XCTestCase {
         XCTAssertFalse(reason.isEmpty, "the failure is user-displayable")
     }
 
+    func testReconcileRunsThroughTheProcessorThenReloads() async throws {
+        // WG-029: launch/foreground reconciles the system authority against saved alarms, then the
+        // list refreshes and the reconciling banner clears.
+        let repo = try makeRepo()
+        try await repo.save(makeAlarm(hour: 7))
+        let processor = FakeAlarmCommandProcessor()
+        let vm = AlarmListViewModel(
+            alarms: repo, clock: TestClock(now: now), processor: processor, deviceTimeZone: { .gmt }
+        )
+
+        await vm.reconcile()
+
+        XCTAssertEqual(processor.reconcileCount, 1, "reconciliation runs through the processor")
+        XCTAssertFalse(vm.isReconciling, "the reconciling banner clears when the pass finishes")
+        guard case .loaded = vm.state else {
+            return XCTFail("reconcile refreshes the list, got \(vm.state)")
+        }
+    }
+
+    func testReconcileWithoutProcessorStillReloads() async throws {
+        // A read-only context (WG-041 previews/tests) has no processor → reconcile just reloads safely.
+        let repo = try makeRepo()
+        try await repo.save(makeAlarm(hour: 7))
+        let vm = makeVM(repo)
+
+        await vm.reconcile()
+
+        guard case .loaded = vm.state else {
+            return XCTFail("reconcile with no processor still loads, got \(vm.state)")
+        }
+    }
+
     func testLoadedComputesNextAlarmSummaryAsSoonest() async throws {
         let repo = try makeRepo()
         let early = try makeAlarm(hour: 6, label: "early")

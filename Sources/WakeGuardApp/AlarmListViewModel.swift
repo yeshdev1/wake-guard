@@ -85,9 +85,22 @@ final class AlarmListViewModel {
         self.deviceTimeZone = deviceTimeZone
     }
 
-    /// Set by the reconcile trigger (WG-029 follow-on) to show/hide the reconciling banner.
+    /// Set by the reconcile trigger (WG-029) to show/hide the reconciling banner.
     func setReconciling(_ value: Bool) {
         isReconciling = value
+    }
+
+    /// Reconcile the system authority against saved alarms (WG-029), then refresh the list. Shows the
+    /// non-blocking reconciling banner while it runs — the last-known list stays visible, never a
+    /// blanking state. Safe on every launch/foreground: reconciliation is idempotent and fails safe
+    /// (#10), and is opportunistic — never required for a critical alarm to ring (#9). A read-only
+    /// context (no processor: WG-041 previews/tests) simply reloads.
+    func reconcile() async {
+        guard let processor else { return await load() }
+        setReconciling(true)
+        _ = await processor.reconcile()
+        setReconciling(false)
+        await load()
     }
 
     /// Re-reads the alarms and recomputes the list against the *current* time. Safe to call

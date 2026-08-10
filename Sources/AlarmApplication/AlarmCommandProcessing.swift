@@ -11,6 +11,12 @@ protocol AlarmCommandProcessing: Sendable {
         _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor,
         userConfirmed: Bool
     ) async -> CommandOutcome
+
+    /// Reconcile the system alarm authority against the persisted desired state (WG-029) — run at
+    /// launch and on every foreground. Idempotent and fails safe (#10): an unreadable ground-truth or
+    /// desired state repairs nothing, never drops an alarm. Opportunistic — never required for a
+    /// critical alarm to ring (#9).
+    func reconcile() async -> ReconciliationSummary
 }
 
 extension AlarmCommandProcessor: AlarmCommandProcessing {}

@@ -11,6 +11,7 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
         var unconfirmed: CommandOutcome
         var confirmed: CommandOutcome
         var seen: [AlarmCommand] = []
+        var reconcileCount = 0
     }
     private let state: Synchronized<State>
 
@@ -26,6 +27,9 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
 
     /// Every command the caller submitted, in order.
     var seen: [AlarmCommand] { state.get().seen }
+
+    /// How many times `reconcile()` was called — for the launch/foreground trigger tests (WG-029).
+    var reconcileCount: Int { state.get().reconcileCount }
 
     func setOutcome(_ outcome: CommandOutcome) {
         state.mutate {
@@ -45,5 +49,11 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
             store.seen.append(command)
             return userConfirmed ? store.confirmed : store.unconfirmed
         }
+    }
+
+    func reconcile() async -> ReconciliationSummary {
+        await Task.yield()
+        state.mutate { $0.reconcileCount += 1 }
+        return ReconciliationSummary()
     }
 }

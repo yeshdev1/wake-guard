@@ -64,11 +64,13 @@ private struct AlarmListScreen: View {
 
     var body: some View {
         stateContent
-            .task { await model.load() }
+            // Reconcile the system authority against saved alarms on launch and every foreground
+            // (WG-029), then refresh; `reconcile()` reloads the list when it finishes.
+            .task { await model.reconcile() }
             .task { await permission.refresh() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    Task { await model.load() }
+                    Task { await model.reconcile() }
                     Task { await permission.refresh() }
                 }
             }

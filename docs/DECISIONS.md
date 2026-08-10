@@ -2783,6 +2783,24 @@ decisions are recorded above using the ADR template.
 - **Handoff.** Steps 4–7: launch reconciliation (WG-029), notification delegate →
   `PreAlarmResponseRouter`, `BGTaskScheduler` → `PreAlarmBackgroundRunner`, feedback/edit UI.
 
+### Runs-on-a-phone step 4 (2026-08-10): launch/foreground reconciliation wired
+
+- **What.** The WG-029 reconciler existed but nothing triggered it. Added `reconcile()` to the
+  `AlarmCommandProcessing` protocol (the concrete actor already implemented it) and a
+  `AlarmListViewModel.reconcile()` that shows the non-blocking reconciling banner, runs
+  `processor.reconcile()`, then reloads. The alarm list calls it **on launch (`.task`) and every
+  foreground** (`scenePhase == .active`), replacing the bare `load()`.
+- **Why it's safe to run every foreground.** `reconcile()` is idempotent and **fails safe** (#10): an
+  unreadable ground-truth or desired state repairs nothing (`skipped`); each repair's uncertain/failed
+  outcome preserves the local alarm; and cancels are future-only, so a **currently ringing** alarm is
+  never cancelled (#24). It is **opportunistic** — never required for a critical alarm to ring (#9). A
+  read-only context (no processor: previews/tests) just reloads. With the real adapter now composed
+  (step 3), this is what re-arms saved alarms after relaunch and corrects drift.
+- **Tests.** `make ci-fast` green — 626. `AlarmListViewModelTests`: reconcile runs through the
+  processor then reloads + clears the banner; and a no-processor context still reloads safely. The
+  repair correctness itself is already covered by the WG-029 reconciler suite. Device verification
+  (real AlarmKit read-back incl. criticality) → `RELEASE_CHECKLIST.md`.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)
