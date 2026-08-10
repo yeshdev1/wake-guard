@@ -2895,6 +2895,21 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-160 (2026-08-10): LanguageModelProvider protocol + fake (E09 start)
+
+- **What.** The on-device language-model boundary: `LanguageModelProvider` (generate-only), a
+  prompt-only `LanguageModelRequest`, coarse typed `LanguageModelError`, and a scriptable fake.
+- **Typed result or typed failure.** `generate` uses **typed throws** (`throws(LanguageModelError)`), so a
+  call yields either a `String` or one of the enumerated failures — a compile-time guarantee, and each
+  failure maps to a deterministic fallback (#33). No raw provider error text is surfaced (#41).
+- **No alarm tools exposed (#1/#30/#31).** The request carries only prompts; the output is inert text. The
+  provider cannot call AlarmKit, mutate persistence, or set criticality — a proposal is decoded (WG-163),
+  validated (WG-165), and only `AlarmPolicyEngine` may authorize it. The model can *propose*, never *act*.
+- **Fake supports malformed + adversarial output.** `ScriptedLanguageModelProvider` ships `.malformed`
+  (non-JSON) and `.adversarial` (a prompt-injection / fake-`cancelAlarm` payload) so the decoder (163),
+  validator (165), and injection defenses (173) can be tested against hostile output. AIApplication is
+  Foundation-only (lint-enforced). `make ci-fast` green — 898. Feeds WG-161/162/163/174.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
