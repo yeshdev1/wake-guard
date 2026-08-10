@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-142 (2026-08-10): Upcoming-event adapter
+
+- **What.** `EventKitUpcomingEventAdapter` (real `EKEventStore`) behind the `UpcomingEventQuerying` port,
+  with a pure, testable mapping (`RawEventFields → CalendarEvent`).
+- **Bounded by time + selected calendars.** `EventQueryWindow` bounds `[start, start+horizon]` (horizon
+  clamped to 30 days); `CalendarSelection` scopes the `predicateForEvents` to the user's chosen calendars
+  (or all). A selection matching no calendar returns nothing.
+- **All-day + time-zone-aware map correctly.** The mapping keeps `start`/`end` as **absolute instants**
+  (so a cross-zone event is correct) and preserves `isAllDay` (the wake calculator skips all-day events);
+  `hasLocation` is a coarse bool from a non-empty location string (never the text, #41); a malformed
+  event is skipped.
+- **No raw titles in logs.** The title is carried in the **local** `CalendarEvent` only; the calendar code
+  **emits no logs at all** — a source scan pins that `CalendarInfrastructure`/`CalendarDomain` contain no
+  logging primitive, so a title can never reach a log. Foundation-only domain; no alarm authority.
+  `make ci-fast` green — 857. Feeds WG-143/145.
+
 ### WG-141 (2026-08-10): Contextual EventKit authorization
 
 - **What.** `CalendarAuthorizationCoordinator` (domain) + `EventKitAuthorizationAdapter` (the real
