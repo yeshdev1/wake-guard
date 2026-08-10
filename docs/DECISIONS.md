@@ -3453,6 +3453,15 @@ decisions are recorded above using the ADR template.
   **E11 (Accessibility, localization, visual quality) complete: WG-200–210.** `make ci-fast` green — 1148
   (+2).
 
+### WG-220 (2026-08-11): Coarse privacy-safe analytics (E12 start)
+
+- **What.** `AnalyticsEvent` (closed schema) + `AnalyticsSink`/`NoOpAnalyticsSink`/`GatedAnalytics`.
+- **Schema forbids sensitive payloads.** Closed enum + `AnalyticsValue` (flag/bucket/closed-enum category,
+  no free text) + no `record(name:dict:)` API ⇒ sensitive data is unrepresentable.
+- **Fully disableable / no SDK.** `GatedAnalytics` records nothing when off (off by default); the default
+  sink is a no-op needing no SDK; a real backend would go through the WG-181 redaction chokepoint. `make
+  ci-fast` green — 1153 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
