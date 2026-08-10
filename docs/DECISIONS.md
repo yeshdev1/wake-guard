@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-145 (2026-08-10): Latest-safe-wake calculator
+
+- **What.** `LatestSafeWakeCalculator.plan(for:profile:after:)` — the latest time the user can wake and
+  still be ready for their earliest relevant event. Pure, over the **redacted** `RedactedEventSummary`
+  (planning uses only coarse fields, WG-140) + the WG-144 profile.
+- **Pure + transparent.** `latestSafeWake == bindingEventStart − appliedLeadTime`, recomputable; the plan
+  exposes the binding event, the applied lead time, and the drivers.
+- **All-day + conflicts handled.** All-day events are excluded (no timed event → `nil`, unavailable); the
+  earliest deadline binds; overlapping events set `hasConflicts` (a single adjacent-after-sort pass, which
+  suffices for any-overlap detection).
+- **Results include uncertainty.** `WakePlanConfidence` is `.high` for a user-confirmed critical event,
+  `.moderate` for an inferred first event, and **downgrades a step** on a conflict — so a plan always
+  carries how much to trust it (buffers are user estimates, never precise).
+- **No alarm authority.** It produces a *recommendation*, never an alarm mutation — a critical alarm rings
+  regardless. Foundation-only. `make ci-fast` green — 877. Feeds WG-146.
+
 ### WG-144 (2026-08-10): Morning preparation profile
 
 - **What.** `MorningPreparationProfile` — three explicit, user-editable buffers (preparation, travel,
