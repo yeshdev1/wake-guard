@@ -2895,6 +2895,24 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-110 (2026-08-10): Travel real-device / manual simulation matrix (E06 capstone)
+
+- **What.** `docs/TRAVEL_TEST_MATRIX.md` — the manual, on-device / simulator pass for the whole travel
+  feature, covering all six required scenario classes: **manual** zone changes, **automatic** zone +
+  launch reconciliation, **DST** during travel, the **Date Line**, **location denied/disabled**, and
+  **stale/rapid** callbacks. Each row records the **expected alarm outcome**, the invariants it exercises,
+  and the automated test that pins its deterministic core.
+- **Docs-only, by design.** Every deterministic outcome the matrix asserts is **already unit-pinned** by
+  the E06 suites (verified: all 13 cited test files exist), so WG-110 adds no code — like WG-008's threat
+  model. The matrix's job is to verify the parts a unit test **can't** reach: real
+  `NSSystemTimeZoneDidChange` delivery, Core Location, launch reconciliation, and the actual AlarmKit
+  **ring**. "The unit tests prove the outcome logic; the matrix proves the device integration."
+- **Safety framing.** Universal expectations hold in every row — a critical alarm is never silently
+  moved/cancelled/lost (#6/#7/#16), a zone/movement signal never suppresses an alarm (#8/#9), no
+  coordinates are stored/logged (#41). The four **critical-alarm** rows are explicit release blockers.
+- Cross-referenced from `RELEASE_CHECKLIST.md` (Time section). `make ci-fast` green — 742. **E06
+  (time-zone / location / travel) is complete: 11/11 (WG-100–110).**
+
 ### WG-109 (2026-08-10): Location permission education and controls
 
 - **What.** The optional significant-location feature's user-facing education + control. `LocationEducation`

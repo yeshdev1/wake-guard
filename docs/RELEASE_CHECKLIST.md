@@ -35,6 +35,7 @@
 
 ## Time
 
+- [ ] **Travel matrix run (WG-110):** the full manual real-device / simulator matrix in `TRAVEL_TEST_MATRIX.md` is executed and signed off — manual & automatic zone changes, DST-during-travel, the Date Line, location denied, and stale/rapid callbacks, each with its **expected alarm outcome** recorded. Every **critical-alarm** row passes (a fail there blocks release). The rows below are the individual checks that matrix consolidates.
 - [ ] DST spring-forward cases pass.
 - [ ] DST fall-back cases pass.
 - [ ] Half-hour/45-minute zones pass.
