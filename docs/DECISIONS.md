@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-123 (2026-08-10): Sleep-duration and consistency calculator
+
+- **What.** `SleepMetrics` (pure) over WG-122's normalized samples: `asleepDuration`, `sleepMidpoint`,
+  `localSecondsOfDay(_:in:)`, and `consistency(ofLocalSeconds:)` → `SleepConsistency`.
+- **Transparent formulas.** Duration = the sum of `.asleep` interval durations (non-overlapping, so no
+  double-count). Consistency = the **circular mean + mean absolute deviation** of the nightly midpoints'
+  local time-of-day — reported as a typical midpoint + a "varies by N minutes" figure, descriptive only
+  (no opaque score; the readiness model, WG-125, interprets).
+- **Missing data → unavailable, never fabricated.** No asleep sample → `asleepDuration == nil` (not `0`);
+  fewer than 2 nights → `consistency == nil`.
+- **Time-zone changes are covered by design.** Durations are **absolute elapsed** time, so an asleep span
+  across a DST spring-forward is the real hour, not the 2 h wall-clock. Consistency is measured in each
+  night's **local** time-of-day (compute the midpoint's seconds in that night's zone), so a stable local
+  bedtime stays consistent across travel; **circular** statistics keep a near-midnight bedtime from being
+  treated as ~12 h off. Foundation-only, no alarm authority. `make ci-fast` green — 782. Feeds WG-124/125.
+
 ### WG-122 (2026-08-10): Sleep-analysis query adapter
 
 - **What.** The sleep query: a pure domain layer (`SleepCategory` + mapping, `SleepSample`,
