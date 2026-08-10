@@ -3139,6 +3139,23 @@ decisions are recorded above using the ADR template.
   (single-target build), not module-enforced. Composition wiring (the WG-166 `commit` seam, the
   Tomorrow-agent accept) is a follow-up. `make ci-fast` green — 1017 (+7). Feeds WG-173.
 
+### WG-173 (2026-08-10): Prompt-injection defenses
+
+- **What.** `PromptSafety` — delimit + minimize untrusted content — wired into the NL parser and journal
+  extractor, plus a red-team payload battery.
+- **Delimited + minimized + breakout-proof.** Untrusted text is wrapped in `<untrusted_data>` tags with a
+  preamble telling the model it is data, not instructions; the wrapper **strips any embedded delimiter** so
+  a payload can't close the block early or forge one. It is the only untrusted content in the prompt.
+- **Instructions can't alter policy (defense-in-depth + load-bearing).** Delimiting is best-effort. The
+  *real* guarantee is downstream and holds even if the model ignores the delimiters: calendar text is
+  text-free before any prompt (`RedactedEventSummary`, WG-140), and every model-output schema exposes no
+  cancel/criticality/command/tool field (Mirror-pinned), so a fooled model can't emit a policy-altering
+  value — it is then deterministically validated (WG-165/168) and policy-gated (WG-172/#30).
+- **Red-team.** A battery of injection payloads (instruction-override, fake SYSTEM/Assistant turns,
+  delimiter breakout, fake `cancelAlarm` tool call) is delimited and provably inert. The Tomorrow/
+  explanation prompts carry only minimized app-generated factors, so they need no delimiting.
+  `make ci-fast` green — 1024. Feeds WG-176.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
