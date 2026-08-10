@@ -258,11 +258,10 @@ actor AlarmCommandProcessor {
             try await external()
             if let entryID { try? await outbox.markApplied(entryID) }
             return .applied
-        } catch AlarmManagerError.uncertain {
-            if let entryID { try? await outbox.markUncertain(entryID) }
-            return .uncertain
-        } catch is CancellationError {
-            // A cancelled call may already have applied — reconcile, never assume not (#10).
+        } catch AlarmManagerError.uncertain, AlarmManagerError.notAuthorized, is CancellationError {
+            // All reconcile-later, never a hard failure (#10): `.uncertain` — or a cancelled call — may
+            // already have applied; `.notAuthorized` is a user-recoverable deferral (the authorization
+            // banner drives the grant; reconciliation places it). The alarm is saved locally either way.
             if let entryID { try? await outbox.markUncertain(entryID) }
             return .uncertain
         } catch {

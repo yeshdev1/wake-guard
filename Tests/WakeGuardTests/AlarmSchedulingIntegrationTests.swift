@@ -84,8 +84,29 @@ final class AlarmSchedulingIntegrationTests: XCTestCase {
 
     // MARK: - Injected-failure matrix on SCHEDULE
 
-    func testScheduleNotAuthorizedFailsAndPreservesLocalAlarm() async throws {
-        try await assertScheduleFailurePreservesLocal(.notAuthorized)
+    func testScheduleNotAuthorizedIsDeferredAndPreservesLocalAlarm() async throws {
+        // Not-authorized is a user-recoverable deferral, not a hard failure: the alarm is saved and
+        // reconciliation places it once permission is granted (via the authorization banner). So the
+        // outcome is `.uncertain` (deferred sync, like the interim adapter) — the local alarm is
+        // preserved and a first create before permission reports "saved", never "couldn't save" (#10).
+        let fixture = try makeFixture()
+        fixture.adapter.inject(.notAuthorized, on: .schedule)
+        let alarm = try makeAlarm()
+
+        let outcome = await fixture.processor.process(
+            .create(alarm), from: .userInterface, by: .user)
+
+        guard case .uncertain = outcome else {
+            return XCTFail("expected .uncertain (deferred) for .notAuthorized, got \(outcome)")
+        }
+        let stored = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertEqual(stored, alarm, "the locally-saved alarm is preserved (#10)")
+        XCTAssertTrue(
+            fixture.adapter.scheduledRequests.isEmpty, "not authorized → nothing placed system-side"
+        )
+        // The local save is audited succeeded; the deferral is not a terminal failure.
+        let events = try await fixture.audit.events(forAlarm: alarm.id)
+        XCTAssertEqual(events.map(\.outcome), [.succeeded])
     }
 
     func testScheduleUnavailableFailsAndPreservesLocalAlarm() async throws {
@@ -150,8 +171,23 @@ final class AlarmSchedulingIntegrationTests: XCTestCase {
         try await assertCancelFailureLeavesLocalDisabled(.failed(reason: "busy"))
     }
 
-    func testCancelNotAuthorizedLeavesLocalDisabled() async throws {
-        try await assertCancelFailureLeavesLocalDisabled(.notAuthorized)
+    func testCancelNotAuthorizedIsDeferredAndLeavesLocalDisabled() async throws {
+        // Not-authorized is a reconcile-later deferral, not a hard failure — in production only
+        // scheduling can be not-authorized (a cancel never is: with no authorization there is no
+        // system alarm to cancel). The local disabled intent is preserved either way (#10).
+        let fixture = try makeFixture()
+        let alarm = try makeAlarm()
+        _ = await fixture.processor.process(.create(alarm), from: .userInterface, by: .user)
+        fixture.adapter.inject(.notAuthorized, on: .cancel)
+
+        let outcome = await fixture.processor.process(
+            .disable(alarm.id), from: .userInterface, by: .user)
+
+        guard case .uncertain = outcome else {
+            return XCTFail("expected .uncertain (deferred) for .notAuthorized, got \(outcome)")
+        }
+        let stored = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertEqual(stored?.isEnabled, false, "the local disabled intent is preserved (#10)")
     }
 
     private func assertCancelFailureLeavesLocalDisabled(_ error: AlarmManagerError) async throws {

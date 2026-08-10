@@ -125,11 +125,15 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     }
 
     private static func map(_ state: AlarmManager.AuthorizationState) -> AlarmAuthorizationState {
+        // AlarmKit exposes only notDetermined/denied/authorized — there is no `.restricted`, so the
+        // domain's `.restricted` (and the permission UI's restricted branch) is defensive-only and
+        // unreachable in production; an unknown future state fails closed to `.denied` (recoverable),
+        // never to authorized.
         switch state {
         case .notDetermined: .notDetermined
         case .denied: .denied
         case .authorized: .authorized
-        @unknown default: .denied  // fail closed — never assume authorized
+        @unknown default: .denied
         }
     }
 

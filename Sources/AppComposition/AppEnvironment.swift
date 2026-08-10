@@ -29,11 +29,15 @@ struct AppEnvironment: Sendable {
     /// at most once per (alarm, occurrence). Persisted, so the de-dup survives relaunch. It holds no
     /// alarm authority — surfacing/suppressing a prompt never changes an alarm.
     let preAlarmPromptCoordinator: PreAlarmPromptCoordinator
-    /// Whether created alarms are actually placed in the system authority yet. `false` while
-    /// the interim `DeferredAlarmManagerAdapter` is composed (WG-042) — alarms are saved and
-    /// shown but **do not ring** until the real `SystemAlarmManagerAdapter` + authorization UI
-    /// land (WG-025 UI / WG-030). The UI discloses this so a saved alarm is never silently
-    /// implied to ring.
+    /// The AlarmKit authorization coordinator (WG-025): drives the permission explanation + system
+    /// prompt behind the alarm-list banner. Read-only with respect to alarms — a denial never drops a
+    /// scheduled alarm (#10); wired to the same adapter that schedules, so auth and scheduling agree.
+    let authorizationCoordinator: AlarmAuthorizationCoordinator
+    /// Whether this build places alarms in the system authority. `true` in production (the real
+    /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
+    /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
+    /// list surfaces the authorization banner until permission is granted — so a saved alarm is never
+    /// falsely implied to ring (#7).
     let schedulesAlarmsInSystem: Bool
 
     /// The production graph: durable on-disk Core Data and the live wall clock and
@@ -41,9 +45,15 @@ struct AppEnvironment: Sendable {
     /// unavailable) — the app surfaces that rather than running without persistence.
     static func production() throws -> AppEnvironment {
         let persistence = try PersistenceController(inMemory: false)
+        // The real AlarmKit adapter (so alarms ring) + the real Settings opener (denial recovery),
+        // and schedulesAlarmsInSystem: true — the list surfaces the authorization banner until
+        // permission is granted, never a false "it rings" (runs-on-a-phone steps 2–3).
         return make(
             persistence: persistence, clock: SystemClock(),
-            identifierGenerator: SystemIdentifierGenerator())
+            identifierGenerator: SystemIdentifierGenerator(),
+            wiring: SystemWiring(
+                alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
+                schedulesAlarmsInSystem: true))
     }
 
     /// The test/preview graph: an ephemeral in-memory store, with the clock and id
@@ -54,9 +64,14 @@ struct AppEnvironment: Sendable {
         identifierGenerator: any IdentifierGenerator = SystemIdentifierGenerator()
     ) throws -> AppEnvironment {
         let persistence = try PersistenceController(inMemory: true)
+        // Tests/previews never touch AlarmKit or a system navigation — the interim deferred adapter
+        // + a no-op Settings opener keep them hermetic and crash-free (schedulesAlarmsInSystem: false).
         return make(
             persistence: persistence, clock: clock,
-            identifierGenerator: identifierGenerator)
+            identifierGenerator: identifierGenerator,
+            wiring: SystemWiring(
+                alarmManager: DeferredAlarmManagerAdapter(), settingsOpener: NoopSettingsOpener(),
+                schedulesAlarmsInSystem: false))
     }
 
     /// A non-throwing in-memory graph for SwiftUI previews (the store is the fake;
@@ -71,14 +86,25 @@ struct AppEnvironment: Sendable {
         }
     }
 
-    /// Wires one persistence stack into all four repositories (so they share a store) and
-    /// composes the command processor over them — the policy engine (WG-028) + the interim
-    /// `DeferredAlarmManagerAdapter` (no AlarmKit yet; WG-042). Swapping in the real
-    /// `SystemAlarmManagerAdapter` is the AlarmKit-integration follow-on (WG-025 UI / WG-030).
+    /// Wires one persistence stack into all four repositories (so they share a store) and composes
+    /// the command processor + the authorization coordinator over the **same** injected
+    /// `AlarmManagerAdapter` — so authorization and scheduling always agree. `production()` passes the
+    /// real `SystemAlarmManagerAdapter`; `inMemory()` passes the interim `DeferredAlarmManagerAdapter`
+    /// so tests/previews never touch AlarmKit (runs-on-a-phone steps 2–3).
+    /// The system-integration wiring the two graphs differ on: which alarm authority + Settings opener
+    /// are composed, and whether this build places alarms in the system (drives the list disclosure).
+    /// Bundled so `make` stays within one responsibility (and the parameter budget).
+    private struct SystemWiring {
+        let alarmManager: any AlarmManagerAdapter
+        let settingsOpener: any SettingsOpener
+        let schedulesAlarmsInSystem: Bool
+    }
+
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
-        identifierGenerator: any IdentifierGenerator
+        identifierGenerator: any IdentifierGenerator,
+        wiring: SystemWiring
     ) -> AppEnvironment {
         let alarms = CoreDataAlarmRepository(persistence)
         let audit = CoreDataAuditRepository(persistence)
@@ -87,9 +113,11 @@ struct AppEnvironment: Sendable {
         let policy = DefaultAlarmPolicyEngine(alarms: alarms, clock: clock)
         let processor = AlarmCommandProcessor(
             policy: policy, alarms: alarms, audit: audit, outbox: outbox,
-            alarmManager: DeferredAlarmManagerAdapter(), clock: clock, ids: identifierGenerator)
+            alarmManager: wiring.alarmManager, clock: clock, ids: identifierGenerator)
         let promptCoordinator = PreAlarmPromptCoordinator(
             ledger: CoreDataPreAlarmPromptLedger(persistence))
+        let authorizationCoordinator = AlarmAuthorizationCoordinator(
+            adapter: wiring.alarmManager, settingsOpener: wiring.settingsOpener)
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -99,7 +127,7 @@ struct AppEnvironment: Sendable {
             settingsRepository: settings,
             alarmCommandProcessor: processor,
             preAlarmPromptCoordinator: promptCoordinator,
-            // The interim adapter does not touch AlarmKit yet, so nothing rings — disclosed.
-            schedulesAlarmsInSystem: false)
+            authorizationCoordinator: authorizationCoordinator,
+            schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

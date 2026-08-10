@@ -2747,6 +2747,42 @@ decisions are recorded above using the ADR template.
   testable, so each carries a `RELEASE_CHECKLIST.md` device item. The deterministic core (adapters
   behind ports, auth logic, routing, evidence) stays fully covered by `make ci-fast`.
 
+### Runs-on-a-phone steps 2–3 (2026-08-10): real AlarmKit adapter + authorization UI
+
+- **What.** `production()` now composes the real `SystemAlarmManagerAdapter` (so alarms ring) + a
+  `UIKitSettingsOpener` + `schedulesAlarmsInSystem: true`, bundled through a `SystemWiring` value;
+  `inMemory()` keeps the interim `DeferredAlarmManagerAdapter` + a `NoopSettingsOpener` so **ci-fast and
+  SwiftUI previews never touch `AlarmManager.shared`**. The `AlarmAuthorizationCoordinator` (WG-025) is
+  built over the **same** adapter the processor schedules through (auth and scheduling can never
+  disagree) and surfaced by a new alarm-list `AlarmPermissionBanner` + explanation sheet.
+- **Honest disclosure (#7).** The static "won't ring here" banner is replaced by an authorization-aware
+  one: authorized → no banner (it rings); notDetermined → "Turn on alarms…" → explanation → system
+  prompt; denied → "…needs permission" + Open Settings; restricted → informational; unknown → keep-safe
+  retry. The explanation always precedes the system dialog (WG-025). The permission path is read-only
+  with respect to alarms — a denial/interruption never drops one (#10).
+- **Not-authorized is a deferral, not a failure (review fix).** With the real adapter, a create *before*
+  permission would persist locally (source of truth) but `scheduleFixed` throws `.notAuthorized`, which
+  previously surfaced as "Couldn't save alarm" — dishonest (it WAS saved) and duplicate-prone on retry.
+  Now `callExternal` maps `AlarmManagerError.notAuthorized` → `.uncertain` (reconcile-later, folded into
+  the existing uncertain/cancelled catch), so create reports **`.created`/"saved"**, the banner drives
+  the grant, and reconciliation places it once authorized. In production only *scheduling* can be
+  not-authorized (the real `cancel`/`stopRing` never throw it); #10 holds — the local alarm is always
+  preserved. Pinned by `testScheduleNotAuthorizedIsDeferredAndPreservesLocalAlarm` +
+  `testCancelNotAuthorizedIsDeferredAndLeavesLocalDisabled`.
+- **Reviews.** `alarm-safety-reviewer` (read-only): hermeticity, no-alarm-drop, and same-adapter
+  consistency all **pass**; it caught the not-authorized-create honesty gap (fixed above). NIT:
+  AlarmKit has no `.restricted` state (the domain's `.restricted` / the restricted banner branch are
+  defensive-only; `@unknown default` fails closed to `.denied`) — documented at the map site.
+  `ux-accessibility-reviewer` (read-only): applied — the banner message is a combined labeled element
+  while the button stays independently actionable, each action carries a consequence hint, and the
+  footnote font override (which shrank the tap target + undercut filled-label contrast) is dropped for
+  `.controlSize(.small)`. The explanation body's line-wrapped string concatenation is consistent with
+  existing app copy and is deferred to **E11** (localization) with the rest of the strings.
+- **Device-only.** Alarms actually ringing + the real system prompt need a device (not unit-testable);
+  each has a `RELEASE_CHECKLIST.md` item. `make ci-fast` green — 624 tests.
+- **Handoff.** Steps 4–7: launch reconciliation (WG-029), notification delegate →
+  `PreAlarmResponseRouter`, `BGTaskScheduler` → `PreAlarmBackgroundRunner`, feedback/edit UI.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)

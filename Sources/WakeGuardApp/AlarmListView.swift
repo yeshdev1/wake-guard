@@ -21,7 +21,8 @@ struct AlarmListView: View {
             AlarmListScreen(
                 alarms: environment.alarmRepository, clock: environment.clock,
                 processor: environment.alarmCommandProcessor, ids: environment.identifierGenerator,
-                schedulesInSystem: environment.schedulesAlarmsInSystem)
+                schedulesInSystem: environment.schedulesAlarmsInSystem,
+                authorizationCoordinator: environment.authorizationCoordinator)
         } else {
             AlarmListMessageView(
                 systemImage: "externaldrive.badge.exclamationmark", title: "Alarms unavailable",
@@ -37,6 +38,7 @@ struct AlarmListView: View {
 private struct AlarmListScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AlarmListViewModel
+    @State private var permission: AlarmPermissionModel
     @State private var showingCreate = false
     @State private var editingAlarm: Alarm?
     private let processor: any AlarmCommandProcessing
@@ -46,10 +48,14 @@ private struct AlarmListScreen: View {
 
     init(
         alarms: any AlarmRepository, clock: any WallClock,
-        processor: any AlarmCommandProcessing, ids: any IdentifierGenerator, schedulesInSystem: Bool
+        processor: any AlarmCommandProcessing, ids: any IdentifierGenerator,
+        schedulesInSystem: Bool,
+        authorizationCoordinator: AlarmAuthorizationCoordinator
     ) {
         _model = State(
             wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock, processor: processor))
+        _permission = State(
+            wrappedValue: AlarmPermissionModel(coordinator: authorizationCoordinator))
         self.processor = processor
         self.clock = clock
         self.ids = ids
@@ -59,8 +65,12 @@ private struct AlarmListScreen: View {
     var body: some View {
         stateContent
             .task { await model.load() }
+            .task { await permission.refresh() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await model.load() } }
+                if phase == .active {
+                    Task { await model.load() }
+                    Task { await permission.refresh() }
+                }
             }
             .safeAreaInset(edge: .top) {
                 if model.isReconciling { ReconcilingBanner() }
@@ -81,7 +91,11 @@ private struct AlarmListScreen: View {
                 content: { CreateAlarmView(processor: processor, clock: clock, ids: ids) }
             )
             .safeAreaInset(edge: .bottom) {
-                if !schedulesInSystem { SchedulingDisabledBanner() }
+                if schedulesInSystem {
+                    AlarmPermissionBanner(model: permission)
+                } else {
+                    SchedulingDisabledBanner()
+                }
             }
             .sheet(
                 item: $editingAlarm,

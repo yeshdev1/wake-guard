@@ -110,6 +110,24 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertTrue(env.identifierGenerator is SystemIdentifierGenerator)
     }
 
+    func testInMemoryGraphDoesNotScheduleInSystem() throws {
+        // The in-memory (test/preview) graph composes the interim deferred adapter, so it never claims
+        // to place alarms in the system authority — the list shows the "won't ring here" banner.
+        let env = try AppEnvironment.inMemory()
+        XCTAssertFalse(env.schedulesAlarmsInSystem)
+    }
+
+    func testAuthorizationCoordinatorIsWiredAndReadsStateWithoutMutatingAlarms() async throws {
+        // The coordinator is composed over the same adapter the processor uses; the deferred adapter
+        // reports `.notDetermined`, so the step routes through the explanation first — and reading it
+        // never creates or mutates an alarm (#10).
+        let env = try AppEnvironment.inMemory()
+        let step = await env.authorizationCoordinator.currentStep()
+        XCTAssertEqual(step, .explainThenRequest)
+        let alarms = try await env.alarmRepository.allAlarms()
+        XCTAssertTrue(alarms.isEmpty, "reading authorization never creates or mutates an alarm")
+    }
+
     func testAppEnvironmentIsSendable() {
         // Compile-time guard: the container is delivered through the SwiftUI
         // environment across isolation, so it must stay Sendable. If a future port
