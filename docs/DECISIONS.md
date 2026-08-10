@@ -2895,6 +2895,21 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-101 (2026-08-10): Travel context domain model
+
+- **What.** `TravelContext` = the confirmed WG-100 `TimeZoneChange` (always present) + `detectedAt` +
+  an **optional** coarse `LocationContext` + a computed `TravelCertainty`. It separates the **fact** (the
+  device zone changed) from the **inference** (the user travelled).
+- **VPN/network is never mistaken for location.** A zone change alone is `.zoneChangeOnly` — ambiguous,
+  because a VPN or a manual clock change moves the system zone too. Certainty rises to
+  `.corroboratedByLocation` **only** when a genuine significant-location change (WG-102) accompanies it;
+  location that reports *no* movement stays `.zoneChangeOnly`. So no travel action can be driven by a
+  VPN-induced zone change alone (WG-104 enforces the policy).
+- **Privacy.** `LocationContext` is **coarse** — a movement bool + a timestamp, **no coordinates**
+  (#41), sourced from significant-location only (never continuous GPS). Pinned by a reflection test.
+- **No authority.** The context holds no alarm authority and re-anchors nothing (#8/#11). `make ci-fast`
+  green — 673. Consumes WG-100; the location input arrives with WG-102; the prompt is WG-105.
+
 ### WG-100 (2026-08-10): System time-zone observer (E06 start)
 
 - **What.** The **no-GPS travel signal** (CLAUDE.md forbids continuous GPS for travel detection): watch
