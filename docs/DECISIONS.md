@@ -3505,6 +3505,14 @@ decisions are recorded above using the ADR template.
   update (all persist), and 10 concurrent duplicate creates stay idempotent (stored once). Real in-memory
   Core Data. `make ci-fast` green — 1174 (+2).
 
+### WG-227 (2026-08-11): Persistence corruption & recovery
+
+- **What.** `CorruptionRecoveryTests`.
+- Unreadable desired state ⇒ reconcile `skipped: true`, cancels nothing, live (critical) alarm stays
+  scheduled (#10); a readable-but-lost schedule is re-scheduled (recoverable data preserved) and audited as
+  `.systemReconciliation`. Store-level corruption is covered by `MigrationTests`. `make ci-fast` green —
+  1176 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
