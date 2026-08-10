@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-141 (2026-08-10): Contextual EventKit authorization
+
+- **What.** `CalendarAuthorizationCoordinator` (domain) + `EventKitAuthorizationAdapter` (the real
+  `EKEventStore` behind the port). Mirrors the reviewed WG-121 HealthKit pattern.
+- **Full read access requested only on opt-in.** `currentState()` reads the status **without prompting**
+  (for the banner); `requestAccessForPlanning()` is the **sole** request path, called only from the
+  enable-calendar-planning action — never automatically.
+- **Read-only.** The adapter calls `requestFullAccessToEvents` (read); it never requests write. An
+  errored request fails closed to `.denied` with no raw error text (#41).
+- **Denied is useful.** `writeOnly` (can add but not read) and denied/restricted all map to the coarse
+  `denied` state; planning is available only for `granted`, and every other state leaves the app fully
+  functional (#38).
+- **Specific purpose string.** `NSCalendarsFullAccessUsageDescription` names the wake-planning purpose and
+  discloses that event titles stay on the device and are never sent or modelled (ties to WG-140).
+  Holds no alarm authority. `make ci-fast` green — 849. Feeds WG-142.
+
 ### WG-140 (2026-08-10): Calendar data minimization & redaction (E08 start)
 
 - **What.** The calendar counterpart of WG-120: a typed `CalendarDataMinimizationPlan`, a local
