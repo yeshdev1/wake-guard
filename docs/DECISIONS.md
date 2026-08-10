@@ -3061,6 +3061,19 @@ decisions are recorded above using the ADR template.
 - **Critical ⇒ confirmation (#6).** A change targeting a critical alarm sets `requiresConfirmation`; the
   proposal never silently alters a critical alarm. `make ci-fast` green — 978 (+11). Feeds WG-172.
 
+### WG-169 (2026-08-10): Explanation generator grounded in factor IDs
+
+- **What.** `ExplanationGenerator` + a **claim-structured** schema (`AIExplanationClaims` =
+  `[{factorID, claim}]`). Generic over `ExplanationFactor` (id + coarse value).
+- **Claim-level grounding (#32).** Structuring the model output as one factor-ID-per-claim (not a prose
+  blob) lets the deterministic step drop *individual* ungrounded claims — a claim citing an ID not in the
+  known set never reaches the user, and one bad citation doesn't poison the rest.
+- **Deterministic template fallback (#33).** When the model is unavailable/refused, or **every** claim is
+  ungrounded, a pure template builds one grounded statement per factor. So the feature always yields a
+  safe, grounded explanation — it never shows an ungrounded AI claim and never shows nothing-because-error.
+- **No medical claims (#39).** The prompt forbids diagnostic/medical statements; claim text is inert
+  display text. `make ci-fast` green — 985 (+7). Feeds WG-172.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

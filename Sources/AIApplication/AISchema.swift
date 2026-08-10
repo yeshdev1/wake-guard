@@ -21,4 +21,5 @@ extension AIAlarmParse: AISchema {}
 extension AITomorrowPlanProposal: AISchema {}
 extension AIJournalExtraction: AISchema {}
 extension AIExplanationDraft: AISchema {}
+extension AIExplanationClaims: AISchema {}
 extension AIPolicyPreference: AISchema {}
