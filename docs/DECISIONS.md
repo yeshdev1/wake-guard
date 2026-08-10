@@ -2895,6 +2895,23 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-140 (2026-08-10): Calendar data minimization & redaction (E08 start)
+
+- **What.** The calendar counterpart of WG-120: a typed `CalendarDataMinimizationPlan`, a local
+  `CalendarEvent`, and a text-free `RedactedEventSummary` + `CalendarRedaction` (new `CalendarDomain`,
+  Foundation-only, lint-enforced).
+- **Only wake-planning fields retained.** `{start, end, isAllDay, hasLocation, title}` — nothing else
+  (no notes/attendees/URL, no location string/coordinates; `hasLocation` is a bool, #41). The EventKit
+  adapter (WG-142) maps only these.
+- **Titles/notes remain local.** `title` is `localOnly` — retained only to show the user (WG-143),
+  untrusted (#28), never modelled; notes aren't retained at all.
+- **Model-facing summaries are redacted — structurally.** `RedactedEventSummary` =
+  `{start, end, isAllDay, hasLocation, isConfirmedImportant}` carries **no free text**, so a title/notes
+  can never be summarized to a model (a malicious title can't inject, #28; no full calendar text to the
+  cloud, #35). A test encodes a summary of a sensitive title and confirms none of it survives.
+- **Enforcement.** `CalendarDomain` added to `domain_no_apple_frameworks`, so the domain can't import
+  EventKit. Doc + `THREAT_MODEL.md` row added. `make ci-fast` green — 843. Feeds WG-141/142.
+
 ### WG-130 (2026-08-10): Partial/denied/revoked HealthKit access (E07 complete)
 
 - **What.** The health pipeline's degradation across every access state, plus the glue that made it

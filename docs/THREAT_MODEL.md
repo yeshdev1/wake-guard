@@ -67,6 +67,7 @@ persisted, logged, or transmitted.
 | Data used for advertising / off-device processing | On-device processing + data minimization; no third-party SDK without a written assessment. | design + `RELEASE_CHECKLIST.md` privacy section |
 | Structured logs include sensitive value types | The privacy-safe logger's `Redacted` carries **only a category, never the raw value** — so raw health/location/calendar/journal/prompt/sample values are structurally impossible to log, in every build (#41). | `PrivacyLogTests` |
 | Raw HealthKit sleep samples persisted or sent to the cloud | A typed **data-minimization plan** (WG-120) fixes the requested types (sleep only, read-only), **compute-and-discard** raw retention, and **on-device-only** processing — cloud processing and writes are *structurally* unrepresentable (single-case enums), not merely policy (#35/#43). | `WellnessDataMinimizationPlanTests`, `WELLNESS_DATA_MINIMIZATION.md` |
+| An event title (incl. a prompt-injection payload) reaches the model / leaves the device | A calendar **data-minimization plan + redaction** (WG-140): the title is **local-only**, notes aren't retained, and the **only** model-facing projection (`RedactedEventSummary`) carries **no free text** — a title/notes/location string is *structurally* unrepresentable in it, so a malicious title can't reach the model (#28/#35). | `CalendarDataMinimizationTests` (incl. a title-never-survives-redaction JSON scan), `CALENDAR_DATA_MINIMIZATION.md` |
 
 ## 5. Data corruption (High)
 

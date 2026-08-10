@@ -62,7 +62,7 @@ custom_rules:
   domain_no_apple_frameworks:
     name: "Domain purity"
     message: "Domain/Application modules must not import Apple UI/hardware frameworks (ARCHITECTURE §1, ADR-003). Use an Infrastructure adapter behind a protocol."
-    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication)/.*\.swift'
+    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|CalendarDomain|AlarmApplication|AIApplication)/.*\.swift'
     # Tolerates leading attributes (@_exported, @preconcurrency(...)) and
     # submodule/kind imports (import struct CoreLocation.CLLocation).
     regex: '^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|func|let|var)\s+)?(AlarmKit|CoreMotion|CoreLocation|HealthKit|EventKit|UserNotifications|FoundationModels|UIKit|SwiftUI|AppKit|WidgetKit)\b'
@@ -70,7 +70,7 @@ custom_rules:
   domain_no_apple_framework_canimport:
     name: "Domain purity (canImport)"
     message: "Domain/Application modules must not conditionally import Apple UI/hardware frameworks (ARCHITECTURE §1, ADR-003)."
-    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|AlarmApplication|AIApplication)/.*\.swift'
+    included: '.*/(AlarmDomain|MotionDomain|TravelDomain|HealthDomain|CalendarDomain|AlarmApplication|AIApplication)/.*\.swift'
     regex: 'canImport\(\s*(AlarmKit|CoreMotion|CoreLocation|HealthKit|EventKit|UserNotifications|FoundationModels|UIKit|SwiftUI|AppKit|WidgetKit)\s*\)'
     severity: error
   domain_no_composition_root:
