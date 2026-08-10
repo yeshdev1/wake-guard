@@ -3263,6 +3263,20 @@ decisions are recorded above using the ADR template.
 - **Composition seam.** Category payloads come from repositories via an injected async provider; import is
   out of scope. `make ci-fast` green — 1066 (+6).
 
+### WG-184 (2026-08-10): Accountless local deletion / reset
+
+- **What.** `DeletableScope` / `OptionalDataCategory` / `DeletionPolicy` / `DataEraser` /
+  `DeletionCoordinator` (PrivacyDomain) + a `DataDeletionModel` + `DataDeletionView`.
+- **Optional vs full reset.** Deleting optional categories (motion, recommendations, journal,
+  health-derived) is safe and needs no confirmation; a full reset also removes alarms.
+- **Alarm consequences explicitly confirmed (#9).** Only `.allData` affects alarms; the coordinator refuses
+  to erase (`needsAlarmConsequenceConfirmation`) until `userConfirmedAlarmConsequences`, and the UI arms a
+  destructive dialog that states alarms will be cancelled. Optional deletion never touches alarms
+  (test-pinned). Nothing is deleted merely by opening the dialog.
+- **Complete + tested.** A confirmed full reset empties every store (`isCompletelyEmpty`); the pure
+  policy/coordinator are unit-pinned. The real eraser (Core Data + AlarmKit cancellation) is composition and
+  should be release-verified. `make ci-fast` green — 1073 (+7).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
