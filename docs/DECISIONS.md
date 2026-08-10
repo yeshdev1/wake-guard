@@ -2979,6 +2979,22 @@ decisions are recorded above using the ADR template.
   `LanguageModelRequest` (prompt-in-memory retention). `make ci-fast` green — 932 (+12). Feeds
   WG-164/165/167–171.
 
+### WG-164 (2026-08-10): Natural-language alarm parser
+
+- **What.** `AIAlarmParse` (a richer extraction schema that records ambiguity) + `NaturalLanguageAlarmParser`
+  (`AlarmDraftPreview` / `AlarmClarification` / `AlarmParseOutcome`). The model extracts; the parser decides.
+- **Ambiguity is deterministic.** The model records *what the user did not say* (`timeSpecified`,
+  `meridiemSpecified`); the pure `interpret(_:)` turns a missing time into a "give me a time" prompt and an
+  unstated AM/PM into **bounded** morning/evening choices — never a silent guess. This keeps the safety
+  decision (ask vs. commit) out of the model.
+- **Never critical (#31).** Neither the parse schema nor the draft has a criticality field (Mirror-pinned);
+  a parsed draft is inert data. Only the user/policy can raise criticality later.
+- **Preview precedes save.** The parser depends only on a `StructuredGenerator` — no repository, alarm
+  manager, or policy engine (source-scan pinned) — so it can *only* produce a preview; saving is a
+  separate, explicit step. A model failure ⇒ `.unavailable` ⇒ manual entry (#33).
+- Prompt frames the user text as *data, not instructions* (first-line injection resistance; WG-173
+  hardens). `make ci-fast` green — 941 (+9). Feeds WG-165/166.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

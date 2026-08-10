@@ -17,6 +17,7 @@ extension AISchema {
 // The five model-facing schemas (WG-161). Those with numeric bounds provide their own `validate()`; the
 // rest use the no-op default.
 extension AIAlarmIntent: AISchema {}
+extension AIAlarmParse: AISchema {}
 extension AITomorrowPlanProposal: AISchema {}
 extension AIJournalExtraction: AISchema {}
 extension AIExplanationDraft: AISchema {}
