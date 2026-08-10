@@ -3490,6 +3490,14 @@ decisions are recorded above using the ADR template.
   challenge stream and `stopUpdates()` on `onTermination`, so it runs only when needed; pass-latency target
   documented. `make ci-fast` green — 1168 (+3).
 
+### WG-225 (2026-08-11): Location & background scheduling
+
+- **What.** `docs/BACKGROUND_SCHEDULING.md` + `BackgroundSchedulingTests`.
+- No continuous GPS (significant-location only); BG requests bounded (`minimumReschedule` ≥ 60, default 900,
+  clamped); travel survives throttling — significant-location wakes independent of BG budget, the runner
+  reschedules-first and holds no alarm authority (scan-pinned), so a critical alarm never needs a BG run.
+  `make ci-fast` green — 1172 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
