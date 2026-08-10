@@ -2895,6 +2895,37 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-104 (2026-08-10): Travel policy evaluator
+
+- **What.** `TravelPolicyEvaluator.evaluate(travel:behavior:anchorZone:)` turns a detected travel event
+  (`TravelContext`, WG-101) into a deterministic, advisory `TravelPolicyDecision` for one alarm, per its
+  `TravelBehavior`. Pure — no clock, I/O, or mutation. The decision is a `ScheduleZoneResolution`
+  (`followDeviceZone` / `keepAnchorZone`) delivered as either `.resolved` (apply silently — the user's
+  pre-chosen behavior) or `.prompt(standing:alternative:)` (askOnChange), plus an explanation + evidence.
+- **Location can never silently override the system zone (the core safety property).** The decision's
+  `outcome` is a function of the user's `TravelBehavior` and the **confirmed system zone change** (WG-100)
+  **only**. `TravelContext.location` / `certainty` is read *solely* to word the explanation, never to
+  select a zone. So location can neither **force** a re-anchor (a VPN-suspected `zoneChangeOnly` still
+  applies the behavior) nor **block** one (denied location doesn't stop follow-local on a real trip). A
+  full-domain test sweep (location absent / present-but-unmoved / genuine move) × all five behaviors pins
+  that `outcome` **and** `evidence` are invariant to location.
+- **askOnChange preserves the safe default (#7/#16).** The prompt's `standing` (no-response) resolution is
+  **always** `keepAnchorZone`; follow-local is only the offered `alternative`, never applied without an
+  explicit choice — a change is never silently made, and no response leaves the alarm on its documented
+  default.
+- **Consistent with the scheduler.** The zone mapping (followLocal→device, stayFixed & askOnChange→anchor,
+  regionRule→`safeFallback`) matches `AlarmSchedulingEngine+TravelBehavior.schedulingTimeZone` exactly, so
+  the decision and the actual ring computation can never disagree.
+- **Explainable, no coordinate leak (#32/#41).** The explanation is built only from the two zone
+  identifiers, the behavior, and a **coarse** corroboration sentence; evidence is exactly
+  `[.timeZoneChange, .userPreference]`. There is no location `EvidenceKind`, so a coordinate is
+  structurally impossible.
+- **No alarm authority.** The decision carries `{outcome, explanation, evidence}` — no `AlarmCommand`,
+  criticality, or mutation (a `Mirror` test pins it). Re-anchoring is the policy engine's job (gated by
+  confirmation); the prompt UI is WG-105. `alarm-safety-reviewer`: **CORRECT AND SAFE, no
+  BLOCKER/SHOULD-FIX** — the two test NITs it raised were closed. `make ci-fast` green — 701. Feeds
+  WG-105/106/107.
+
 ### WG-103 (2026-08-10): Optional region-monitoring rules
 
 - **What.** A pure, advisory debounce mechanic for optional geofence-style regions: `RegionDebouncer`
