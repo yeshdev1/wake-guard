@@ -3462,6 +3462,13 @@ decisions are recorded above using the ADR template.
   sink is a no-op needing no SDK; a real backend would go through the WG-181 redaction chokepoint. `make
   ci-fast` green — 1153 (+5).
 
+### WG-221 (2026-08-11): Crash diagnostics redaction
+
+- **What.** `CrashBreadcrumb` (closed enums + optional `CorrelationID`) + `CrashDiagnostics` port + gated/no-op.
+- Breadcrumbs are structurally redacted (no free-text field; only `category.action`); a `CorrelationID`
+  (UUID) links a crash to the local audit without embedding data. Opt-in only — `crashDiagnosticsEnabled`
+  (off by default, back-compat decode); disabled ⇒ no breadcrumb. `make ci-fast` green — 1160 (+7).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

@@ -19,6 +19,9 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
     /// **Separate, explicit** consent to send minimized data to an optional cloud model (WG-174) — distinct
     /// from `cloudAIEnabled`. Cloud use requires **both** the feature flag *and* this consent; default off.
     var cloudAIConsented: Bool
+    /// Opt-in to leave **redacted** crash breadcrumbs (WG-221). Off by default; even when on, breadcrumbs
+    /// carry no raw sensitive data (only coarse categories + audit correlation IDs).
+    var crashDiagnosticsEnabled: Bool
 
     static let `default` = AppSettings(
         preAlarmPromptEnabled: false,
@@ -30,7 +33,8 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
         analyticsEnabled: false,
         smartFeaturesKillSwitch: false,
         agentPermissionMode: .recommendOnly,
-        cloudAIConsented: false)
+        cloudAIConsented: false,
+        crashDiagnosticsEnabled: false)
 }
 
 extension AppSettings {
@@ -54,5 +58,7 @@ extension AppSettings {
             ?? .recommendOnly
         cloudAIConsented =
             try container.decodeIfPresent(Bool.self, forKey: .cloudAIConsented) ?? false
+        crashDiagnosticsEnabled =
+            try container.decodeIfPresent(Bool.self, forKey: .crashDiagnosticsEnabled) ?? false
     }
 }
