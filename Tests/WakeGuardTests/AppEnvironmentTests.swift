@@ -128,6 +128,16 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertTrue(alarms.isEmpty, "reading authorization never creates or mutates an alarm")
     }
 
+    func testInMemoryGraphComposesAPreAlarmResponderThatIgnoresACorruptPayload() async throws {
+        // The graph wires the notification responder (over the no-op scheduler + the processor); a
+        // corrupt payload is ignored — never mis-applied to an alarm (#7).
+        let env = try AppEnvironment.inMemory()
+        let effect = await env.preAlarmResponder.handle(
+            actionIdentifier: "prealarm.action.turnOffToday", userInfo: [:],
+            now: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(effect, PreAlarmResponseEffect.none)
+    }
+
     func testAppEnvironmentIsSendable() {
         // Compile-time guard: the container is delivered through the SwiftUI
         // environment across isolation, so it must stay Sendable. If a future port

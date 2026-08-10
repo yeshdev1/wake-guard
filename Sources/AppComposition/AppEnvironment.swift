@@ -33,6 +33,14 @@ struct AppEnvironment: Sendable {
     /// prompt behind the alarm-list banner. Read-only with respect to alarms — a denial never drops a
     /// scheduled alarm (#10); wired to the same adapter that schedules, so auth and scheduling agree.
     let authorizationCoordinator: AlarmAuthorizationCoordinator
+    /// The pre-alarm notification surface (runs-on-a-phone step 5): registers the prompt category and
+    /// posts / cancels the advisory prompt (production uses `SystemPreAlarmNotificationScheduler`; the
+    /// in-memory graph a no-op). Holds no alarm authority (#7/#8).
+    let preAlarmNotifications: any PreAlarmNotificationScheduling
+    /// Executes a tapped pre-alarm notification action (runs-on-a-phone step 5): routes it to a decision
+    /// and submits the resulting command through the processor (a critical/imminent turn-off is
+    /// confirmation-gated, #6). The app's `UNUserNotificationCenterDelegate` forwards to this.
+    let preAlarmResponder: PreAlarmNotificationResponder
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -53,7 +61,8 @@ struct AppEnvironment: Sendable {
             identifierGenerator: SystemIdentifierGenerator(),
             wiring: SystemWiring(
                 alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
-                schedulesAlarmsInSystem: true))
+                schedulesAlarmsInSystem: true,
+                preAlarmNotifications: SystemPreAlarmNotificationScheduler()))
     }
 
     /// The test/preview graph: an ephemeral in-memory store, with the clock and id
@@ -71,7 +80,8 @@ struct AppEnvironment: Sendable {
             identifierGenerator: identifierGenerator,
             wiring: SystemWiring(
                 alarmManager: DeferredAlarmManagerAdapter(), settingsOpener: NoopSettingsOpener(),
-                schedulesAlarmsInSystem: false))
+                schedulesAlarmsInSystem: false,
+                preAlarmNotifications: NoopPreAlarmNotificationScheduler()))
     }
 
     /// A non-throwing in-memory graph for SwiftUI previews (the store is the fake;
@@ -98,6 +108,7 @@ struct AppEnvironment: Sendable {
         let alarmManager: any AlarmManagerAdapter
         let settingsOpener: any SettingsOpener
         let schedulesAlarmsInSystem: Bool
+        let preAlarmNotifications: any PreAlarmNotificationScheduling
     }
 
     private static func make(
@@ -118,6 +129,8 @@ struct AppEnvironment: Sendable {
             ledger: CoreDataPreAlarmPromptLedger(persistence))
         let authorizationCoordinator = AlarmAuthorizationCoordinator(
             adapter: wiring.alarmManager, settingsOpener: wiring.settingsOpener)
+        let preAlarmResponder = PreAlarmNotificationResponder(
+            processor: processor, notifications: wiring.preAlarmNotifications)
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -128,6 +141,8 @@ struct AppEnvironment: Sendable {
             alarmCommandProcessor: processor,
             preAlarmPromptCoordinator: promptCoordinator,
             authorizationCoordinator: authorizationCoordinator,
+            preAlarmNotifications: wiring.preAlarmNotifications,
+            preAlarmResponder: preAlarmResponder,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

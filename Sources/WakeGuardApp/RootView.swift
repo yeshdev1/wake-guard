@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 /// The app's root view. Hosts the alarm list (WG-041), which reads its ports from the
 /// composed `\.appEnvironment` injected above it (WG-018) and renders an explicit safe
@@ -7,10 +8,12 @@ import SwiftUI
 struct RootView: View {
     @Environment(\.appEnvironment) private var environment
     @State private var deepLink = DeepLinkModel()
+    @State private var notificationDelegate: PreAlarmNotificationDelegate?
 
     var body: some View {
         @Bindable var deepLink = deepLink
         AlarmListView()
+            .task { await setUpPreAlarmNotifications() }
             .onOpenURL { url in
                 let route = DeepLinkParser.route(for: url)
                 Task { await deepLink.open(route, using: environment) }
@@ -30,6 +33,22 @@ struct RootView: View {
             } message: { message in
                 Text(message)
             }
+    }
+
+    /// Register the pre-alarm prompt category + install the notification delegate on launch — only in
+    /// the production graph (`schedulesAlarmsInSystem`), so previews / UI tests never touch
+    /// `UserNotifications`. Installed once; the delegate routes a tapped prompt action to the processor
+    /// (runs-on-a-phone step 5). `UNUserNotificationCenter` holds the delegate weakly, so `@State`
+    /// retains it for the app's lifetime.
+    @MainActor
+    private func setUpPreAlarmNotifications() async {
+        guard let environment, environment.schedulesAlarmsInSystem, notificationDelegate == nil
+        else { return }
+        let delegate = PreAlarmNotificationDelegate(
+            responder: environment.preAlarmResponder, now: { environment.clock.now })
+        notificationDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
+        await environment.preAlarmNotifications.registerPromptCategory()
     }
 
     private var deepLinkErrorPresented: Binding<Bool> {

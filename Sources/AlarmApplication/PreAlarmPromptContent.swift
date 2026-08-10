@@ -75,6 +75,21 @@ struct PreAlarmPromptContent: Sendable, Equatable {
         }
         return PreAlarmPromptContent(buttons: buttons, titleKey: titleKey, warningKey: warningKey)
     }
+
+    /// The full-action content used to **register** the notification category (WG-08x). iOS categories
+    /// are static, so the registered category carries every action any prompt might show; a specific
+    /// alarm's policy subset is honored by the in-app prompt, and the policy engine still gates the
+    /// resulting command (registering the union is an MVP simplification — DECISIONS runs-on-a-phone
+    /// step 5). `keep` stays first (the #7 safe default); no button confirms at the category level (the
+    /// #6 confirmation is enforced by the processor when the response is handled).
+    static var forCategoryRegistration: PreAlarmPromptContent {
+        let buttons = presentationOrder.map { action in
+            PreAlarmPromptButton(
+                action: action, titleKey: action.titleKey, isDestructive: action.isDestructive,
+                requiresConfirmation: false, opensApp: action.opensApp)
+        }
+        return PreAlarmPromptContent(buttons: buttons, titleKey: titleKey, warningKey: warningKey)
+    }
 }
 
 /// Development-language (English) copy for the pre-alarm prompt (WG-083). Localization-ready: the

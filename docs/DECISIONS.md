@@ -2801,6 +2801,44 @@ decisions are recorded above using the ADR template.
   repair correctness itself is already covered by the WG-029 reconciler suite. Device verification
   (real AlarmKit read-back incl. criticality) → `RELEASE_CHECKLIST.md`.
 
+### Runs-on-a-phone step 5 (2026-08-10): pre-alarm notification response runtime
+
+- **What.** When a user taps an action on a pre-alarm prompt notification, the app decodes the
+  notification's `userInfo` → routes it (the tested `PreAlarmResponseRouter`) → executes it. New:
+  `PreAlarmNotificationPayload` (userInfo ↔ context, **fail-closed** decode), a
+  `PreAlarmNotificationScheduling` port (register / post / cancel — UserNotifications wrapped),
+  `PreAlarmResponseEffect` + `PreAlarmNotificationResponder` (the routing+execution), the real
+  `SystemPreAlarmNotificationScheduler` (calendar-triggered, whole-second id), a
+  `NoopPreAlarmNotificationScheduler` (test/preview), the `UNUserNotificationCenterDelegate`, and launch
+  registration in `RootView` (gated on `schedulesAlarmsInSystem` so ci/previews never touch the
+  framework).
+- **Safety (alarm-safety review: SOUND, no blocker).** A **critical** turn-off tapped from a
+  notification cannot mutate the alarm: the responder submits through `AlarmCommandProcessor` with
+  **`userConfirmed: false`**, so the policy engine returns `.needsConfirmation` and nothing is
+  persisted/scheduled (#6) — verified end-to-end. The `userInfo` decode is strictly fail-closed (every
+  field validated; any miss → ignored), so a corrupt/foreign notification never mis-routes to the wrong
+  alarm/occurrence (#7). The category is registered with the **union** of actions (iOS categories are
+  static) — safe because the processor re-authorizes every routed command against the current alarm's
+  policy, so a shown-but-forbidden action can't bypass authorization (MVP simplification; the in-app
+  prompt still shows the exact policy subset). remind-later only re-posts the advisory prompt (never the
+  alarm, #7/#8). The prompt is a UserNotifications-only surface; the real alarm is AlarmKit — a
+  missed/failed/duplicate prompt can't suppress the ring.
+- **Applied review fix.** A turn-off that took effect now **reaps any pending re-prompt** for that
+  occurrence (`cancelPrompt`), so a remind-later scheduled earlier never re-prompts about an alarm
+  already turned off.
+- **Documented follow-ups (both prompt-only — no alarm-safety impact).** (1) *Persist `remindersUsed`
+  in the ledger*: the reminder count currently self-propagates in the notification's `userInfo`, so a
+  stale/duplicate notification tap could reset it and exceed the cap (an annoyance vector, never an
+  alarm change). Gating `.reschedulePrompt` on the persisted `PreAlarmPromptCoordinator` belongs with
+  **step 6's** posting infrastructure. (2) *Foreground the confirmation / change-time picker*: the
+  responder returns `.needsConfirmation` / `.presentChangeTimeUI` but the delegate doesn't yet surface
+  a screen — the alarm is never wrongly changed in the meantime (fail-safe #6/#7), but the user's intent
+  isn't yet visibly acted on. Both are the UI/navigation follow-up.
+- **Scope.** Step 5 = the response side + category registration. Step 6 = the BG task runs the pipeline
+  and **posts** the initial prompt (+ notification authorization). `make ci-fast` green — 635 tests
+  (payload round-trip/fail-closed + responder routing incl. the #6 critical-gate). Device-only: the
+  real tap→route and the system prompt → `RELEASE_CHECKLIST.md`.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)
