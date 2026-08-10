@@ -2895,6 +2895,29 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-128 (2026-08-10): Wellness disclaimers and safety copy
+
+- **What.** `WellnessSafetyCopy` (scope / estimates / medical-emergency / mental-health-crisis strings) +
+  `UrgentSymptomPolicy` (a deterministic pre-filter) + a thin `WellnessDisclaimerView`.
+- **Wellness, not medical, scope (#39).** The scope copy states the app is not medical advice and does
+  not diagnose/treat/prevent; figures are described as rough device estimates, not clinical measurements.
+- **Urgent symptoms are not handled by the AI.** `UrgentSymptomPolicy.scope(of:)` routes text mentioning a
+  crisis or emergency indicator to `.referral(...)` (never `.wellness`). It **errs toward referral**,
+  matches lowercased substrings (catching inflections), checks the **crisis** list first, and is **not**
+  triage. The **crisis path has its own warmer, non-dismissive copy** pointing to a crisis line, distinct
+  from the medical-emergency copy.
+- **Review-driven hardening.** `privacy-security-reviewer` found no BLOCKER; the SHOULD-FIX (crisis
+  false-negative gaps — indirect ideation like "don't want to be here"/"want to die"/"hurt myself" — and a
+  non-distinct crisis path) was fixed by widening the indicator lists (incl. third-party emergencies
+  "not breathing"/"passed out"/"collapsed") and adding the crisis referral. A "dead tired" negative case
+  is pinned so the gate isn't over-broad.
+- **Honest layering + forward-references.** The gate is documented as a *first line*, not complete
+  detection (the model's own instructions are the second layer). It is **not yet load-bearing** — so:
+  (a) **E09 (WG-172/WG-173) must** call `UrgentSymptomPolicy` on every free-text input before the model
+  and **never** invoke the provider for a `.referral`, with a test asserting that; (b) a locale-correct
+  crisis-line **number** is an **E11** localization follow-up (the copy is locale-neutral today).
+  Foundation-only; no alarm authority. `make ci-fast` green — 822. Feeds WG-129.
+
 ### WG-127 (2026-08-10): Evidence-based habit suggestion library
 
 - **What.** `HabitLibrary.curated` — a **static, curated** set of sleep-hygiene tips, each mapped to a
