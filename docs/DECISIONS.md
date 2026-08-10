@@ -3406,6 +3406,14 @@ decisions are recorded above using the ADR template.
   alone. Status views pair an SF Symbol with text. Dark/light contrast is the manual checklist. `make
   ci-fast` green — 1129 (+4).
 
+### WG-205 (2026-08-11): 12/24-hour & locale-aware formatting
+
+- **What.** `TimeFormatting.string(for:locale:calendar:)` + tests.
+- **Locale-driven display, locale-independent storage.** Display uses `Date.FormatStyle(.shortened)` (12h
+  AM/PM for en_US, 24h for fr_FR); `TimeOfDay` stores numeric hour/minute and is unchanged across locales
+  (encode/decode identical). Tests cover en_US/fr_FR/ja_JP + Gregorian/Japanese calendars. `make ci-fast`
+  green — 1134 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
