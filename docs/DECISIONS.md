@@ -2910,6 +2910,30 @@ decisions are recorded above using the ADR template.
   validator (165), and injection defenses (173) can be tested against hostile output. AIApplication is
   Foundation-only (lint-enforced). `make ci-fast` green — 898. Feeds WG-161/162/163/174.
 
+### WG-161 (2026-08-10): Structured schemas for AI use cases
+
+- **What.** The five model-facing DTOs the on-device model decodes into: `AIAlarmIntent`,
+  `AITomorrowPlanProposal`, `AIExplanationDraft`, `AIJournalExtraction`, `AIPolicyPreference`
+  (pure Foundation `Codable` in AIApplication).
+- **Structural vs semantic.** These schemas enforce only **structural** constraints — enum membership and
+  numeric bounds. **Semantic** validation (past dates, IANA-zone resolution, unsupported recurrence,
+  turning a valid intent into an authorizable proposal) is the deterministic WG-165 validator. Kept
+  separate so the schema layer stays a dumb, testable shape and the safety gate stays single-sourced.
+- **Enums constrained, fail-closed (#27).** Categorical fields are String-raw enums. Where a safe default
+  exists (`AISleepQualityBand`, `AIChallengeDifficulty`) an unrecognized value decodes to `.unknown`
+  rather than fabricating a band/level. Where none exists (`AIWeekday`) an unknown value **rejects the
+  decode**, failing the whole intent closed.
+- **Numeric bounds constrained.** `validate()` rejects hour ∉ `0…23`, minute ∉ `0…59`, month ∉ `1…12`,
+  day ∉ `1…31`, and journal minutes ∉ `0..<1440`. An out-of-range value from the model → decode/validate
+  failure → deterministic fallback (#33), never a clamped-and-accepted alarm.
+- **Unknown fields ignored safely.** Synthesized `Codable` drops any key not on the schema, so a hostile
+  payload with an injected `criticality`/`tool:cancelAlarm`/`instruction` key decodes to only the declared
+  fields — the extras never reach policy.
+- **No criticality anywhere (#31).** No schema carries a `criticality` field (Mirror-pinned for
+  `AIAlarmIntent` and `AIPolicyPreference`) and none carries an `AlarmCommand` — the model proposes; only
+  the user/policy set criticality and only `AlarmPolicyEngine` authorizes. `make ci-fast` green — 910
+  (+12). Feeds WG-163/165/175.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
