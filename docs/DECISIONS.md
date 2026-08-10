@@ -3388,6 +3388,16 @@ decisions are recorded above using the ADR template.
   scrollable so controls stay reachable. Pixel-level AX5 pass is the manual checklist. `make ci-fast` green
   — 1120 (+3).
 
+### WG-203 (2026-08-11): Reduce Motion & haptic alternatives
+
+- **What.** `MotionPreference` (animation resolution + textual progress) + `ReduceMotionTests`; the challenge
+  views already gate motion on `accessibilityReduceMotion` (WG-071).
+- **Motion removed under Reduce Motion** (nil animation); opacity cross-fade allowed. A scan pins every
+  animated view is Reduce-Motion-gated and none uses unconditional `withAnimation`.
+- **Haptics supplementary** — the challenge haptic is state-derived and the screen shows visible progress;
+  `challengeProgressText` gives an understandable "N of M" without motion/haptics. `make ci-fast` green —
+  1125 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
