@@ -63,6 +63,7 @@ persisted, logged, or transmitted.
 | Raw pedometer/motion samples written to a log | Adapters **never log raw samples or framework error text** — a failure surfaces only as a coarse state (#41). | `HistoricalPedometerTests`, `LivePedometerTests`, `MotionTraceRecorderTests` |
 | Pre-alarm feedback stores sleep-revealing data | Feedback is an **aggregate two-counter tally** — no id, occurrence/fire time, timestamp, or sample (#41); a recursive no-PII scan pins it. | `PreAlarmFeedbackTests`, `CoreDataPreAlarmFeedbackStoreTests` |
 | An AlarmKit error leaks the alarm title | Errors map to a **coarse** typed reason, never raw error text (#41). | `SystemAlarmManagerAdapterTests` (redaction), `AlarmManagerAdapterTests` |
+| Location tracked continuously / coordinates stored | **Low-power significant-location only** (`startMonitoringSignificantLocationChanges` — never continuous GPS); stores **only a coarse movement timestamp, never coordinates** (#41); a denied permission preserves time-zone travel detection. | `SignificantLocationTests` (WG-102) |
 | Data used for advertising / off-device processing | On-device processing + data minimization; no third-party SDK without a written assessment. | design + `RELEASE_CHECKLIST.md` privacy section |
 | Structured logs include sensitive value types | The privacy-safe logger's `Redacted` carries **only a category, never the raw value** — so raw health/location/calendar/journal/prompt/sample values are structurally impossible to log, in every build (#41). | `PrivacyLogTests` |
 

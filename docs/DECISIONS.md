@@ -2895,6 +2895,23 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-102 (2026-08-10): Low-power significant-location adapter
+
+- **No continuous GPS.** The adapter uses **only** `startMonitoringSignificantLocationChanges`
+  (cell / Wi-Fi based, battery-frugal) — `startUpdatingLocation` is never called. Significant-location
+  corroborates real travel (WG-101) without the drain/precision of GPS.
+- **Coarse, no coordinates (#41).** It records **only the timestamp** of a fresh significant change,
+  never coordinates — so it reveals *that* the device moved, never *where*.
+- **Cached-sample rejection.** Core Location delivers a **cached** location first; the pure
+  `SignificantLocationFilter.isFresh(_:now:maxAge:)` rejects any sample older than a few minutes (and
+  future-dated glitches), so a stale fix is never mistaken for a fresh move.
+- **Optional — denied preserves time-zone detection.** Denied / restricted → the adapter monitors
+  nothing and reports no change; the WG-100 time-zone observer has **no location dependency**, so travel
+  detection simply degrades to `.zoneChangeOnly` (WG-101), never breaks. Pinned by test.
+- **Permission.** Added `NSLocationWhenInUseUsageDescription` (both build configs), naming the
+  travel-detection purpose and disclaiming continuous GPS + storing location. `make ci-fast` green — 680.
+  Advisory, coarse, tested → no adversarial review (threat-model privacy row updated). Feeds WG-104/105.
+
 ### WG-101 (2026-08-10): Travel context domain model
 
 - **What.** `TravelContext` = the confirmed WG-100 `TimeZoneChange` (always present) + `detectedAt` +

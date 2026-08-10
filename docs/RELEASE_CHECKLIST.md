@@ -43,6 +43,7 @@
 - [ ] Stale travel prompts are harmless.
 - [ ] Manual clock/time-zone changes are tested.
 - [ ] Time-zone observer on device (**manual travel sim**, WG-100): changing the device time zone (Settings, or flying) records the **previous → current** IANA zone; relaunching after a zone change that happened **while the app was closed** catches it **once** (launch reconciliation); repeated/no-op zone notifications don't re-fire; a fixed-offset/non-geographic device zone is skipped without a crash (#11). Detecting a change **never re-anchors an alarm** on its own — the travel prompt is WG-104/105.
+- [ ] Significant-location adapter on device (**manual travel sim + battery**, WG-102): the app requests **When In Use** location **in context** (travel-detection purpose), and travel corroboration uses **low-power significant-location only** — confirm **no continuous-GPS battery drain** (no location arrow persisting); a real time-zone move is corroborated; **denying** location leaves time-zone-based travel detection working (degrades to zone-only, never breaks); and **no coordinates** are stored or logged (#41).
 
 ## Lifecycle and reliability
 
