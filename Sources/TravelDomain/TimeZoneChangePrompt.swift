@@ -11,6 +11,11 @@ struct TimeZoneChangePromptOption: Sendable, Equatable, Hashable {
     /// The IANA zone this option interprets the schedule in — the anchor for keep, the device's new zone
     /// for follow-local. Lets the UI render the ring time in the relevant wall clock (#11).
     let zone: IANATimeZone
+    /// How the previewed ring resolved against a DST transition **in `zone`** (WG-106) — `nil` when it
+    /// won't ring. Travel and DST compose here: a follow-local preview at the destination surfaces a
+    /// skipped (spring-gap → gap-end) / duplicated (fall-back → earlier) / date-line-shifted local time,
+    /// so the prompt can explain it (e.g. "2:30 is skipped at your destination; it rings at 3:00").
+    let dstResolution: DSTResolution?
 }
 
 /// What the user chose (or didn't) at a time-zone-change prompt (WG-105).
@@ -109,9 +114,12 @@ struct TimeZoneChangePromptBuilder: Sendable {
     ) -> TimeZoneChangePromptOption {
         let zone =
             resolution == .followDeviceZone ? zoneChange.current : alarm.schedule.anchorTimeZone
+        // Compose travel-zone selection with the WG-022/023 DST/IDL policy (WG-106): resolve the ring in
+        // `zone` and carry how it landed, so a destination-zone gap/duplicate/date-line shift is surfaced.
+        let resolved = engine.resolvedNextOccurrence(
+            of: alarm.schedule, after: now, in: zone.timeZone)
         return TimeZoneChangePromptOption(
-            resolution: resolution,
-            nextRing: engine.nextOccurrence(of: alarm.schedule, after: now, in: zone.timeZone),
-            zone: zone)
+            resolution: resolution, nextRing: resolved?.date, zone: zone,
+            dstResolution: resolved?.resolution)
     }
 }

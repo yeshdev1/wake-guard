@@ -2895,6 +2895,29 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-106 (2026-08-10): DST transition during travel
+
+- **What.** Compose travel-zone selection (WG-021/104) with the explicit DST policy (WG-022) and
+  **surface** the resulting ambiguity. Added `dstResolution: DSTResolution?` to
+  `TimeZoneChangePromptOption` and switched the WG-105 builder to `AlarmSchedulingEngine`
+  `.resolvedNextOccurrence` (the same ring instant, now carrying how it resolved against DST in that
+  option's zone).
+- **They already composed; WG-106 exposes it.** `resolvedNextOccurrence(of:after:in:)` applies the WG-022
+  gap / fall-back / IDL policy in **whatever** zone `schedulingTimeZone(for:anchor:deviceTimeZone:)`
+  selects. So a follow-local alarm resolves DST in the **destination** zone, a stay-fixed alarm in the
+  **anchor** zone — no new calculation, just the resolution surfaced at the travel layer.
+- **Ambiguity is surfaced.** A follow-local preview at the destination now reports a skipped
+  (spring-gap → gap-end) / duplicated (fall-back → earlier) / date-line-shifted local time, so the WG-105
+  prompt can say "2:30 is skipped at your destination; it rings at 3:00."
+- **The alarm always fires (unchanged).** The safety property is WG-022's and untouched — a gap fires at
+  the gap's **end**, never skipped; a duplicate fires at the **earlier** instant. WG-106 adds **no**
+  alarm-authority surface, only a descriptive flag.
+- **Matrix.** `TravelDSTCompositionTests` pins follow-local spring-gap → gap-end, follow-local fall-back →
+  earlier, stay-fixed-in-anchor vs follow-local-in-DST-free-device (the same 02:30 is a gap under one and
+  exact under the other), exact non-transition day, and the prompt surfacing the destination gap while
+  the anchor stays exact. Composition of already-reviewed WG-022 + WG-104/105 primitives → no separate
+  adversarial review. `make ci-fast` green — 715. Feeds WG-107 (IDL travel).
+
 ### WG-105 (2026-08-10): Time-zone change prompt
 
 - **What.** `TimeZoneChangePromptBuilder.makePrompt(for:decision:zoneChange:now:)` turns a WG-104
