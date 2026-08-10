@@ -3398,6 +3398,14 @@ decisions are recorded above using the ADR template.
   `challengeProgressText` gives an understandable "N of M" without motion/haptics. `make ci-fast` green —
   1125 (+5).
 
+### WG-204 (2026-08-11): Contrast & non-color status audit
+
+- **What.** `NonColorStatusTests` over the existing `AlarmStatusStyle` (label + icon + tint, WG-040).
+- **Text/icon redundancy.** Every status has a non-empty label and icon; the four are distinguishable by
+  label and icon alone (unique), and the critical status uses an `exclamationmark` glyph — never a red tint
+  alone. Status views pair an SF Symbol with text. Dark/light contrast is the manual checklist. `make
+  ci-fast` green — 1129 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
