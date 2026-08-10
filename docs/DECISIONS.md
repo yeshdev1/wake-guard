@@ -3325,6 +3325,19 @@ decisions are recorded above using the ADR template.
 - **Contact path.** `privacy@wakeguard.app`. Publishing/linking is a release step. `make ci-fast` green —
   1091 (+5).
 
+### WG-189 (2026-08-11): Static security & dependency audit
+
+- **What.** `docs/SECURITY_AUDIT.md` + `SecurityAuditTests` — dependency, network-endpoint, and entitlement
+  inventories, plus a triage table.
+- **Dependencies.** Zero third-party ⇒ no known-vulnerable deps; re-asserted from `project.yml`.
+- **Network.** The shipped app has **no outbound network**: no `URLSession`/`http(s)://` in `Sources/`; the
+  only `URL(string:)` opens the Settings app; the cloud transport is an abstract protocol. Entitlements:
+  exactly `com.apple.developer.healthkit`.
+- **Triage.** The WG-181 redaction-vocabulary finding is **Accepted** — `CloudSafeText` is the single wired
+  transmit chokepoint, `Cleared` a general primitive, `Redacted` the log boundary; unify later by deriving
+  `CloudSafeText` from `Cleared`. This closes the WG-181/185 follow-up. The `Cleared` identity-transform
+  hazard is Accepted + test-pinned. `make ci-fast` green — 1095 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
