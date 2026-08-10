@@ -3469,6 +3469,13 @@ decisions are recorded above using the ADR template.
   (UUID) links a crash to the local audit without embedding data. Opt-in only — `crashDiagnosticsEnabled`
   (off by default, back-compat decode); disabled ⇒ no breadcrumb. `make ci-fast` green — 1160 (+7).
 
+### WG-222 (2026-08-11): Cold-launch & reconciliation performance
+
+- **What.** `docs/PERFORMANCE.md` (budgets/conditions) + `PerformanceTests`.
+- Documented cold-launch/reconciliation/next-occurrence budgets; a large-history test (2,000 rules) asserts
+  a CI-safe bound (linear cost, launch can't degrade), and `measure {}` records the hot-path baseline for
+  regression detection. Device numbers via Instruments. `make ci-fast` green — 1163 (+3).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
