@@ -3476,6 +3476,13 @@ decisions are recorded above using the ADR template.
   a CI-safe bound (linear cost, launch can't degrade), and `measure {}` records the hot-path baseline for
   regression detection. Device numbers via Instruments. `make ci-fast` green — 1163 (+3).
 
+### WG-223 (2026-08-11): Overnight battery baseline
+
+- **What.** `docs/BATTERY.md` (budget + off/on) + `BatteryBaselineTests`.
+- A comment-stripped scan pins location sensing stays significant-location only (no continuous-drain API),
+  so a continuous-sensing regression fails CI before a battery run; motion runs only during the challenge.
+  Budget/off-on/conditions documented; absolute drain on the device matrix. `make ci-fast` green — 1165 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
