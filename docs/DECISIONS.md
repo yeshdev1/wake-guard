@@ -3237,6 +3237,20 @@ decisions are recorded above using the ADR template.
   no real sensitive field is wrapped in `Sensitive` yet, so today's leak-surface reduction is prospective
   (WG-190 scans for residue). `make ci-fast` green — 1060 (+9 incl. review pins).
 
+### WG-182 (2026-08-10): Local data retention controls
+
+- **What.** `RetentionPolicy` / `RetentionCategory` / `RetentionRecord` / `RetentionCleanup` in PrivacyDomain
+  — per-category local-data retention with a deterministic, tested cleanup.
+- **Separate per category.** Derived motion, audit, recommendations, and journal each have their own window
+  (defaults 14 / 180 / 30 / 365 days) as explicit struct fields (can't forget a category); a mixed batch is
+  cleaned independently.
+- **Critical-audit floor, documented.** `criticalAuditMinimum = 365 days` is a floor, not a cap: a
+  critical-alarm audit event is retained at least a year even if the general audit window is shortened —
+  safety-relevant history can't be purged early.
+- **Pure, tested cleanup.** `RetentionCleanup.expired(records, policy, now)` is total and side-effect-free;
+  the real Core Data purge is a thin sweep over its output (composition). User-facing controls + deletion
+  are WG-184. `make ci-fast` green — 1057 (+6).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
