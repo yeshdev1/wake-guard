@@ -3045,6 +3045,22 @@ decisions are recorded above using the ADR template.
   cite; an AI claim referencing an ID not in the context is dropped downstream. No alarm authority.
   `make ci-fast` green — 967 (+7). Feeds WG-168/169.
 
+### WG-168 (2026-08-10): Tomorrow Agent proposal generation
+
+- **What.** `TomorrowProposalGenerator` → `TomorrowProposal` / `TomorrowProposalOutcome`. The model suggests
+  a wake time from the WG-167 context; a deterministic `interpret` enforces the safety envelope.
+- **A proposal, not a command (#30/#31).** `TomorrowProposal` has no `AlarmCommand`, no criticality, no
+  authority (Mirror-pinned). It is advisory — applied only if the user accepts and `AlarmPolicyEngine`
+  authorizes (WG-172). The generator holds no repository/policy dependency.
+- **Grounded in real factors (#32).** Citations are filtered to factor IDs actually present in the context;
+  fabricated or real-but-absent citations are dropped, and a proposal with none is refused. So every
+  surfaced reason traces to a recorded factor.
+- **Bounded envelope.** A suggestion later than the deterministic `latestSafeWake` is refused (you can't be
+  nudged to oversleep an obligation), as is an out-of-range time or a model failure — all collapse to
+  `.noProposal` (no-op; the existing alarm is unchanged, #33).
+- **Critical ⇒ confirmation (#6).** A change targeting a critical alarm sets `requiresConfirmation`; the
+  proposal never silently alters a critical alarm. `make ci-fast` green — 978 (+11). Feeds WG-172.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
