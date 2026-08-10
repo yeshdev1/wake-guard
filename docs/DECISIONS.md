@@ -3498,6 +3498,13 @@ decisions are recorded above using the ADR template.
   reschedules-first and holds no alarm authority (scan-pinned), so a critical alarm never needs a BG run.
   `make ci-fast` green — 1172 (+4).
 
+### WG-226 (2026-08-11): Alarm command concurrency stress
+
+- **What.** `AlarmCommandConcurrencyTests` — hammers the processor with concurrent commands.
+- 50 concurrent creates interleaved with reconciles serialize safely (no data race under Swift 6), no lost
+  update (all persist), and 10 concurrent duplicate creates stay idempotent (stored once). Real in-memory
+  Core Data. `make ci-fast` green — 1174 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
