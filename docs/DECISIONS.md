@@ -2895,6 +2895,28 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-120 (2026-08-10): Wellness data-minimization plan (E07 start)
+
+- **What.** A typed, Foundation-only registry (`WellnessDataMinimizationPlan.mvp`) + a plan doc
+  (`WELLNESS_DATA_MINIMIZATION.md`) defining the **complete, minimal** set of HealthKit types WakeGuard
+  reads, each with a user-facing purpose, retention, and processing locality. It is the **single source of
+  truth** contextual authorization (WG-121) consumes — the app requests exactly `plan.requestedTypes`.
+- **Minimal set.** MVP reads **sleep analysis only**, read-only. Readiness (WG-125) is derived from that
+  sleep data via transparent formulas, not from heart rate / HRV / workouts, so nothing else is requested.
+  The app never writes to HealthKit.
+- **Retention + local processing defined.** Raw samples are **compute-and-discard** (never persisted);
+  only coarse derived aggregates persist, under explicit/configurable retention + the WG-129 export/delete
+  controls (#42/#43). All processing is **on-device**.
+- **Cloud exclusion is structural, not just policy.** The key rules are made unrepresentable at the type
+  level: `ProcessingLocality` = `onDeviceOnly` only (no cloud value can be constructed, #35),
+  `WellnessAccessMode` = `read` only, `WellnessRetention` = `computeAndDiscard` only. A cloud wellness
+  feature, if ever offered, is a separate opt-in consent (#34) requiring a new entry + review — never
+  implicit.
+- **No medical claim (#39).** Purposes are framed as *estimates* with a "never a diagnosis" disclaimer; a
+  test scans for claim language. Health features stay optional (#36), requested in context (#37), and the
+  app is fully functional without them (#38). Cross-referenced from `THREAT_MODEL.md`. `make ci-fast`
+  green — 752. Feeds WG-121 (auth) / WG-129 (export/delete).
+
 ### WG-110 (2026-08-10): Travel real-device / manual simulation matrix (E06 capstone)
 
 - **What.** `docs/TRAVEL_TEST_MATRIX.md` — the manual, on-device / simulator pass for the whole travel

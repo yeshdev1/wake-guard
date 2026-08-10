@@ -66,6 +66,7 @@ persisted, logged, or transmitted.
 | Location tracked continuously / coordinates stored | **Low-power significant-location only** (`startMonitoringSignificantLocationChanges` — never continuous GPS); stores **only a coarse movement timestamp, never coordinates** (#41); a denied permission preserves time-zone travel detection. | `SignificantLocationTests` (WG-102) |
 | Data used for advertising / off-device processing | On-device processing + data minimization; no third-party SDK without a written assessment. | design + `RELEASE_CHECKLIST.md` privacy section |
 | Structured logs include sensitive value types | The privacy-safe logger's `Redacted` carries **only a category, never the raw value** — so raw health/location/calendar/journal/prompt/sample values are structurally impossible to log, in every build (#41). | `PrivacyLogTests` |
+| Raw HealthKit sleep samples persisted or sent to the cloud | A typed **data-minimization plan** (WG-120) fixes the requested types (sleep only, read-only), **compute-and-discard** raw retention, and **on-device-only** processing — cloud processing and writes are *structurally* unrepresentable (single-case enums), not merely policy (#35/#43). | `WellnessDataMinimizationPlanTests`, `WELLNESS_DATA_MINIMIZATION.md` |
 
 ## 5. Data corruption (High)
 
