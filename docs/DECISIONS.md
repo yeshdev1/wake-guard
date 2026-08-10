@@ -3338,6 +3338,18 @@ decisions are recorded above using the ADR template.
   `CloudSafeText` from `Cleared`. This closes the WG-181/185 follow-up. The `Cleared` identity-transform
   hazard is Accepted + test-pinned. `make ci-fast` green — 1095 (+4).
 
+### WG-190 (2026-08-11): Privacy leak scan for logs & analytics
+
+- **What.** `PrivacyLeakScanTests` (in `ci-fast`) — the CI regression against log/analytics leaks.
+- **Fixtures for all six categories.** Names/titles/coordinates/health/journal/prompts each go through
+  `Sensitive` and the structured logger; the raw value never appears (only `<redacted>`/`<redacted:cat>`).
+  A test asserts every `Redacted.Category` is exercised.
+- **No release leak remains.** Whole-`Sources/` scans: no ad-hoc logging, the single `os.Logger` sink is
+  confined to Observability, and no analytics/crash SDK is imported. Redaction is structural — the log
+  message is a `StaticString`, sensitive fields are category-only `Redacted`.
+- **Precision.** SDK detection matches `import <SDK>` (substrings like "Adjust" appear in `autoAdjust`);
+  zero packages already precludes third-party imports. `make ci-fast` green — 1100 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
