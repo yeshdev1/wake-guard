@@ -3313,6 +3313,18 @@ decisions are recorded above using the ADR template.
 - **Matches behavior.** A consistency test ties the mapping to the WG-186 manifest (no default collection ⇒
   empty collected-data types). `make ci-fast` green — 1086 (+4).
 
+### WG-188 (2026-08-10): Privacy-policy requirements
+
+- **What.** `docs/PRIVACY_POLICY.md` — the versioned source of truth for the in-app + web policy — with
+  `PrivacyPolicyRequirementsTests` asserting each required section is present.
+- **Explicit sections.** Collection, use, sharing (no third parties / no ad networks / zero SDKs),
+  retention (WG-182), deletion (WG-184), and AI providers (on-device default; cloud off-by-default, separate
+  consent, redacted) each have a dedicated, keyword-pinned section.
+- **Health/motion advertising prohibition.** Stated explicitly ("never used for advertising"), plus the
+  no-diagnosis stance (#39).
+- **Contact path.** `privacy@wakeguard.app`. Publishing/linking is a release step. `make ci-fast` green —
+  1091 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
