@@ -191,17 +191,19 @@ final class AlarmSchedulingEngineTests: XCTestCase {
     }
 
     func testSpringForwardOneTimeResolvesForwardNotSkipped() throws {
-        // Same nonexistent 02:30; one-time resolves to 03:30 (a documented divergence
-        // from weekly's 03:00 — WG-022 converges them). The point: it does not skip.
+        // Same nonexistent 02:30; WG-022 **converges** one-time onto weekly's explicit policy: both
+        // resolve a spring-forward gap to the gap's end (03:00), not the old 03:30. The point: never
+        // skipped, and one-time == weekly.
         let newYork = "America/New_York"
         let before = try makeDate(year: 2026, month: 3, day: 1, hour: 0, minute: 0, in: newYork)
         let rule = try oneTime(2026, 3, 8, at: 2, 30, zone: newYork)
         let result = try XCTUnwrap(
-            engine.nextOccurrence(of: rule, after: before, in: try zone(newYork)))
-        let comps = try calendar(newYork).dateComponents([.day, .hour, .minute], from: result)
+            engine.resolvedNextOccurrence(of: rule, after: before, in: try zone(newYork)))
+        let comps = try calendar(newYork).dateComponents([.day, .hour, .minute], from: result.date)
         XCTAssertEqual(comps.day, 8)
         XCTAssertEqual(comps.hour, 3)
-        XCTAssertEqual(comps.minute, 30)
+        XCTAssertEqual(comps.minute, 0, "gap end — converged with weekly (was 03:30)")
+        XCTAssertEqual(result.resolution, .skippedToGapEnd, "user-visible resolution")
     }
 
     func testFallBackWeeklyReturnsEarlierInstant() throws {
@@ -219,5 +221,99 @@ final class AlarmSchedulingEngineTests: XCTestCase {
         XCTAssertEqual(
             try zone(newYork).secondsFromGMT(for: result), -4 * 3_600,
             "earlier (EDT) instant of the repeated hour")
+    }
+
+    // MARK: WG-022 — explicit DST policy across London, New York, and Lord Howe (incl. 30-min DST)
+
+    func testLondonSpringForwardOneTimeFiresAtGapEnd() throws {
+        // 2026-03-29 01:30 Europe/London does not exist (01:00 → 02:00 BST). It fires at the gap end.
+        let london = "Europe/London"
+        let before = try makeDate(year: 2026, month: 3, day: 1, hour: 0, minute: 0, in: london)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try oneTime(2026, 3, 29, at: 1, 30, zone: london), after: before,
+                in: try zone(london)))
+        let comps = try calendar(london).dateComponents([.hour, .minute], from: result.date)
+        XCTAssertEqual(comps.hour, 2)
+        XCTAssertEqual(comps.minute, 0, "the alarm rings at the gap's end, never skipped")
+        XCTAssertEqual(result.resolution, .skippedToGapEnd)
+    }
+
+    func testLondonFallBackOneTimeFiresAtTheEarlierInstant() throws {
+        // 2026-10-25 01:30 Europe/London happens twice (02:00 BST → 01:00 GMT). Fires at the first (BST).
+        let london = "Europe/London"
+        let before = try makeDate(year: 2026, month: 10, day: 1, hour: 0, minute: 0, in: london)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try oneTime(2026, 10, 25, at: 1, 30, zone: london), after: before,
+                in: try zone(london)))
+        let comps = try calendar(london).dateComponents([.hour, .minute], from: result.date)
+        XCTAssertEqual(comps.hour, 1)
+        XCTAssertEqual(comps.minute, 30)
+        XCTAssertEqual(result.resolution, .ambiguousUsedFirst)
+        XCTAssertEqual(
+            try zone(london).secondsFromGMT(for: result.date), 3_600, "earlier (BST) instant")
+    }
+
+    func testLordHoweThirtyMinuteSpringForwardFiresAtGapEnd() throws {
+        // Lord Howe has a 30-minute DST shift: 2026-10-04 02:00 (+10:30) → 02:30 (+11:00). A 02:15
+        // one-time is inside the 30-minute gap → it fires at 02:30.
+        let lordHowe = "Australia/Lord_Howe"
+        let before = try makeDate(year: 2026, month: 10, day: 1, hour: 0, minute: 0, in: lordHowe)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try oneTime(2026, 10, 4, at: 2, 15, zone: lordHowe), after: before,
+                in: try zone(lordHowe)))
+        let comps = try calendar(lordHowe).dateComponents([.hour, .minute], from: result.date)
+        XCTAssertEqual(comps.hour, 2)
+        XCTAssertEqual(comps.minute, 30, "the 30-minute gap resolves to its end")
+        XCTAssertEqual(result.resolution, .skippedToGapEnd)
+    }
+
+    func testLordHoweThirtyMinuteFallBackFiresAtTheEarlierInstant() throws {
+        // Lord Howe fall back: 2026-04-05 02:00 (+11:00) → 01:30 (+10:30). A 01:45 one-time happens
+        // twice → it fires at the first (+11:00) instant.
+        let lordHowe = "Australia/Lord_Howe"
+        let before = try makeDate(year: 2026, month: 4, day: 1, hour: 0, minute: 0, in: lordHowe)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try oneTime(2026, 4, 5, at: 1, 45, zone: lordHowe), after: before,
+                in: try zone(lordHowe)))
+        let comps = try calendar(lordHowe).dateComponents([.hour, .minute], from: result.date)
+        XCTAssertEqual(comps.hour, 1)
+        XCTAssertEqual(comps.minute, 45)
+        XCTAssertEqual(result.resolution, .ambiguousUsedFirst)
+        XCTAssertEqual(
+            try zone(lordHowe).secondsFromGMT(for: result.date), 11 * 3_600,
+            "earlier (+11:00) instant")
+    }
+
+    func testLordHoweWeeklySpringForwardFiresAtGapEndNotNextWeek() throws {
+        // The safety pin (WG-022 review BLOCKER): a WEEKLY Sunday 02:15 in Lord Howe's 30-minute
+        // spring-forward gap must fire at that Sunday's gap end (2026-10-04 02:30), NOT silently roll to
+        // the next week (which a bare time-of-day `.nextTime` match does, losing the wake-up for 7 days).
+        let lordHowe = "Australia/Lord_Howe"
+        let before = try makeDate(year: 2026, month: 10, day: 1, hour: 0, minute: 0, in: lordHowe)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try weekly([.sunday], at: 2, 15, zone: lordHowe), after: before,
+                in: try zone(lordHowe)))
+        let comps = try calendar(lordHowe).dateComponents(
+            [.month, .day, .hour, .minute], from: result.date)
+        XCTAssertEqual(comps.month, 10)
+        XCTAssertEqual(comps.day, 4, "the transition Sunday — never skipped to next week")
+        XCTAssertEqual(comps.hour, 2)
+        XCTAssertEqual(comps.minute, 30)
+        XCTAssertEqual(result.resolution, .skippedToGapEnd)
+    }
+
+    func testUnambiguousTimeReportsExactResolution() throws {
+        let london = "Europe/London"
+        let before = try makeDate(year: 2026, month: 6, day: 1, hour: 0, minute: 0, in: london)
+        let result = try XCTUnwrap(
+            engine.resolvedNextOccurrence(
+                of: try oneTime(2026, 6, 15, at: 7, 0, zone: london), after: before,
+                in: try zone(london)))
+        XCTAssertEqual(result.resolution, .exact, "a normal time needs no DST adjustment")
     }
 }

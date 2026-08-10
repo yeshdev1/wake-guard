@@ -2895,6 +2895,37 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-022 (2026-08-10): Explicit DST policy for skipped and duplicated local times
+
+- **Policy.** A **spring-forward** wall-clock time (a *gap* — it never happens) fires at the gap's
+  **end** — the DST transition instant — so an alarm is **never silently skipped**. A **fall-back**
+  wall-clock time (a *duplicate* — it happens twice) fires at the **first / earlier** instant, so a
+  wake alarm rings at the soonest valid moment. This policy is now **explicit and identical for one-time
+  and weekly** rules, and exposed as a **user-visible** `DSTResolution`
+  (`exact`/`skippedToGapEnd`/`ambiguousUsedFirst`) via `resolvedNextOccurrence` (a UI can explain "2:30
+  doesn't happen that night; your alarm rings at 3:00"; the copy itself is E11).
+- **Mechanism.** Both rule kinds resolve a specific calendar day + wall-clock through one `resolveDay`.
+  A gap is detected **on the intended day** (Foundation's `date(from:)` never skips but shifts a gap's
+  wall-clock) and resolved to `timeZone.nextDaylightSavingTimeTransition` — robust for **any** DST delta,
+  including **Lord Howe's 30-minute** shift. Ambiguity is classified via the transition's **offset drop**
+  (a fall-back has `delta > 0`; the instant sits within `delta` of the transition), which likewise
+  handles the 30-min case. A naive time-of-day roll is deliberately **not** used for gaps — with only
+  02:00–02:29 missing it would jump to the next day/week (see the review BLOCKER below).
+- **Convergence.** One-time previously diverged from weekly on a gap (NY 02:30 → 03:30 vs 03:00); both
+  now resolve to the gap end (03:00).
+- **Review (alarm-safety-reviewer, read-only).** Found a **[BLOCKER]**: the *weekly* path silently
+  rolled a **sub-hour (30-min) gap to the next week** — a ~7-day skip of a wake alarm, reported as
+  `.exact` (invisible), with no horizon clamp downstream to catch it. **Fixed**: `earliestWeekly` now
+  iterates weekdays through `resolveDay`, so the gap policy applies uniformly; pinned by
+  `testLordHoweWeeklySpringForwardFiresAtGapEndNotNextWeek`. A **[SHOULD-FIX]** — an International Date
+  Line *whole-day* skip (e.g. `Pacific/Apia` 2011-12-30) currently mis-resolves as `.exact` — is out of
+  WG-022 scope but marked `KNOWN-GAP WG-023` in `resolveDay` so it isn't mistaken for correct; **WG-023
+  fixes it**. All other paths were verified sound (one-time gap→transition robust incl. a 2-hour
+  `Antarctica/Troll` gap; classify edge cases; first/earlier on both paths; no `nextOccurrence`
+  regressions — past→nil, exactly-now→nil, boundaries unchanged).
+- **Tests.** `make ci-fast` green — 649. London / New York / Lord Howe spring + fall (one-time **and**
+  weekly), plus convergence + `.exact`. Device: a manual DST-boundary check → `RELEASE_CHECKLIST.md`.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)
