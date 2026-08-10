@@ -2995,6 +2995,24 @@ decisions are recorded above using the ADR template.
 - Prompt frames the user text as *data, not instructions* (first-line injection resistance; WG-173
   hardens). `make ci-fast` green — 941 (+9). Feeds WG-165/166.
 
+### WG-165 (2026-08-10): Deterministic alarm intent validator
+
+- **What.** `AlarmIntentValidator` — a pure `(draft, zoneID, now) → valid | rejected` function, with
+  `ValidatedAlarmIntent` / `ValidatedRecurrence` / `AlarmIntentRejection`.
+- **Rejection rules.** Invalid zone (non-IANA / GMT-family / injection string), out-of-range time, past
+  one-time alarm (passed-today or negative offset, or a resolved `fireDate ≤ now`), unsupported recurrence
+  (weekly + a one-time offset), unsafe value (offset beyond the 366-day horizon). Each maps to a specific,
+  honest reason.
+- **Single-sourced with the domain.** Reuses the existing `IANATimeZone` (which already enforces #11 —
+  reject the fixed-offset GMT family) and `TimeOfDay`, so AI-path validation and hand-entry validation use
+  the *same* rules. No duplicated, drifting zone/time logic.
+- **Independent of the model.** No provider/generator dependency (source-scan pinned); it is a total
+  function that treats a *parsed* intent and a *hand-entered* one identically — the model cannot influence
+  the safety gate.
+- **No criticality (#31).** `ValidatedAlarmIntent` has no criticality; wiring to the command/policy path
+  (where only `AlarmPolicyEngine` authorizes) is WG-172. Adversarial zone strings are test-pinned as
+  rejected. `make ci-fast` green — 951 (+10). Feeds WG-166/172.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
