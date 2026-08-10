@@ -3277,6 +3277,20 @@ decisions are recorded above using the ADR template.
   policy/coordinator are unit-pinned. The real eraser (Core Data + AlarmKit cancellation) is composition and
   should be release-verified. `make ci-fast` green — 1073 (+7).
 
+### WG-185 (2026-08-10): Keychain & secret-handling audit
+
+- **Audit result: clean.** No hardcoded secrets in `Sources/`, no secrets in `UserDefaults` (the only
+  `UserDefaults` use is time-zone state), and no token handling existed to leak.
+- **Regression pins.** Source-scans lock "no hardcoded secret pattern" and "no `UserDefaults` file mentions
+  a secret word" so a future key can't slip in unnoticed.
+- **Revocable, Keychain-backed, log-proof token.** Added a `CloudTokenStore` port (with `revoke()`), an
+  in-memory impl (tested), and a `KeychainCloudTokenStore` that stores the token this-device-only in the
+  Keychain (`SecItem*`, never `UserDefaults`), returns it wrapped in `Sensitive` (so it can't be logged),
+  and performs no logging. This also advances the WG-181 adoption follow-up (the cloud token is now
+  `Sensitive`).
+- The redaction-vocabulary reconciliation (WG-181 review) is still open for WG-189. `make ci-fast` green —
+  1078 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
