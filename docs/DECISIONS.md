@@ -3221,12 +3221,21 @@ decisions are recorded above using the ADR template.
   `dump`/`Mirror` (it is `CustomReflectable`), so an accidental `print`/`log`/`dump` cannot leak the value;
   the raw value is reachable only via an explicit, greppable `reveal()`. It is intentionally not `Codable`,
   so it can't be silently serialized either.
-- **Redact-to-transmit (#35).** `Cleared` has a `fileprivate` init and is produced *only* by
-  `Redaction.redact(_:using:)` — an explicit transform that strips the sensitive parts. Cloud-bound builders
-  take `Cleared<…>`, so raw/`Sensitive` data cannot reach a transmit path; the type system enforces it.
+- **Redact-to-transmit chokepoint (#35).** `Cleared` has a `fileprivate` init and is produced *only* by
+  `Redaction.redact(_:using:)`, so a `Cleared` provably went through a single, auditable chokepoint and
+  cloud-bound builders take `Cleared<…>`. **It does not by itself guarantee the content is safe** — the
+  transform is caller-supplied, so an identity/weak transform passes raw content through (test-pinned as a
+  known-unsafe hazard). The value of the type is keeping the *reviewable surface* to the few redact sites,
+  not magic stripping.
 - **Naming.** Renamed from `Redacted` to `Cleared` to avoid clashing with the existing Observability
-  `Redacted` privacy-log marker. These are the primitives; migrating existing sensitive fields onto them is
-  incremental (WG-190 scans for residual leaks). `make ci-fast` green — 1051 (+6).
+  `Redacted` privacy-log marker.
+- **Review (privacy-security).** `Sensitive` log-proofing confirmed clean (no bypass through
+  reflecting/dump/Mirror/Codable/os_log/nesting; added regression pins). Corrected the overstated `Cleared`
+  claim. **Two follow-ups (WG-185/189):** (a) reconcile the three redaction vocabularies — `Cleared`, the
+  *wired* WG-174 `CloudSafeText` transmit boundary, and the Observability `Redacted` log marker — into one
+  documented transmit chokepoint (e.g. derive `CloudSafeText` from a `Cleared`); (b) drive **adoption** —
+  no real sensitive field is wrapped in `Sensitive` yet, so today's leak-surface reduction is prospective
+  (WG-190 scans for residue). `make ci-fast` green — 1060 (+9 incl. review pins).
 
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 

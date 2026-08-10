@@ -58,6 +58,34 @@ final class SensitiveDataTests: XCTestCase {
         let payload = CloudBoundText(cleared)
         XCTAssertEqual(payload.value, "quality:poor")
     }
+
+    /// Pins the reviewer-found limitation so it is visible in the suite, not implied-safe: `Cleared`
+    /// guarantees the redaction chokepoint was used, NOT that the content is safe. A weak (identity)
+    /// transform passes raw content through — which is why redact call sites must be reviewed.
+    func testIdentityTransformIsAKnownUnsafeHazard() {
+        let cleared = Redaction.redact(Sensitive(secret)) { $0 }
+        XCTAssertEqual(
+            cleared.value, secret, "an identity transform does NOT strip content by itself")
+    }
+
+    // MARK: log-proofing holds through reflecting + nesting (regression pins)
+
+    func testSensitiveRedactsThroughStringReflecting() {
+        XCTAssertEqual(String(reflecting: Sensitive(secret)), "<redacted>")
+    }
+
+    func testSensitiveRedactsWhenNestedInContainers() {
+        // The highest-value leak vectors: an Optional, an Array, and a wrapping struct.
+        let optional: Sensitive<String>? = Sensitive(secret)
+        XCTAssertFalse("\(optional as Any)".contains("52.5200"))
+        XCTAssertFalse("\([Sensitive(secret)])".contains("52.5200"))
+
+        struct Holder { let field: Sensitive<String> }
+        var dumped = ""
+        dump(Holder(field: Sensitive(secret)), to: &dumped)
+        XCTAssertFalse(dumped.contains("52.5200"), "nested dump must not leak")
+        XCTAssertTrue(dumped.contains("<redacted>"))
+    }
 }
 
 /// A cloud-bound payload builder used to prove the compiler boundary: it accepts **only** a

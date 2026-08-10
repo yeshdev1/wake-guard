@@ -26,11 +26,19 @@ struct Sensitive<Value: Sendable>: Sendable, CustomStringConvertible, CustomDebu
 extension Sensitive: Equatable where Value: Equatable {}
 extension Sensitive: Hashable where Value: Hashable {}
 
-/// A value that has been **cleared** (redacted) for external (e.g. cloud) use (WG-181). It is constructible
-/// **only** through `Redaction.redact(_:using:)` — its initializer is `fileprivate` — so a raw or
-/// `Sensitive` value can never masquerade as cleared. A compiler boundary: functions that transmit data
-/// off-device take `Cleared<…>`, and there is no way to hand them un-redacted data. (Distinct from the
-/// privacy-log `Redacted` marker in Observability.)
+/// A value that has passed through the **redaction chokepoint** (WG-181). Its initializer is `fileprivate`,
+/// so the **only** way to obtain a `Cleared` is `Redaction.redact(_:using:)` — a single, auditable call
+/// site. It therefore proves *"a redaction step was invoked"*, **not** *"this content is safe"*: the
+/// transform's correctness is the caller's responsibility (an identity/weak transform yields a `Cleared`
+/// that still carries sensitive content — pinned by a test). Cloud-bound builders take `Cleared<…>` so
+/// every transmitted value provably went through the chokepoint, keeping the *reviewable surface* to the
+/// few redact sites.
+///
+/// NOTE: the **wired** cloud transmit boundary today is WG-174's `CloudSafeText`/`CloudSafeRequest`, not
+/// `Cleared`; and the Observability `Redacted` marker is the log boundary. Reconciling the three into one
+/// documented transmit chokepoint (e.g. deriving `CloudSafeText` from a `Cleared`) is a follow-up (WG-185/
+/// 189). `Sensitive` is also not yet adopted at data sources — that migration is what shrinks the real
+/// leak surface (WG-190 scans for residue).
 struct Cleared<Value: Sendable>: Sendable {
     let value: Value
 
@@ -39,11 +47,12 @@ struct Cleared<Value: Sendable>: Sendable {
     }
 }
 
-/// The redaction boundary (WG-181): the sole factory for `Cleared` values.
+/// The redaction chokepoint (WG-181): the sole factory for `Cleared` values.
 enum Redaction {
-    /// Produce a `Cleared` projection of a sensitive value by applying an explicit `transform` that strips
-    /// the sensitive parts. The transform is where redaction happens; its output is what may leave the
-    /// device.
+    /// Route a sensitive value through the chokepoint — apply `transform` to the revealed value and wrap the
+    /// result as `Cleared`. The transform is where redaction **must** happen; `Cleared` guarantees the
+    /// chokepoint was used, **not** that the output is safe, so redact call sites are deliberately few and
+    /// reviewed. An identity transform is a known-unsafe pattern (test-pinned).
     static func redact<Source, Projection: Sendable>(
         _ sensitive: Sensitive<Source>, using transform: (Source) -> Projection
     ) -> Cleared<Projection> {
