@@ -2895,6 +2895,32 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-122 (2026-08-10): Sleep-analysis query adapter
+
+- **What.** The sleep query: a pure domain layer (`SleepCategory` + mapping, `SleepSample`,
+  `SleepTimeline.normalize`, `SleepQueryWindow`, `SleepSampleQuerying` port) + a device-only
+  `HealthKitSleepQueryAdapter` behind the port.
+- **Category mapping lives in the domain, on purpose.** `SleepCategory.init?(healthKitSleepValue: Int)`
+  encodes the **stable** `HKCategoryValueSleepAnalysis` raw ints (0=inBed, 1=asleepUnspecified, 2=awake,
+  3=core, 4=deep, 5=REM) as plain `Int`, so the mapping is pure and unit-testable **without importing
+  HealthKit** (the domain stays Foundation-only, lint-enforced). The adapter just passes `sample.value`.
+  The granular asleep stages collapse to `.asleep` (the estimate needs time-asleep, not stages).
+- **Fail-closed on unknown.** An unrecognized/future raw value maps to `nil` and is **skipped** — never
+  silently miscounted.
+- **Overlap resolution.** `SleepTimeline.normalize` is a sweep-line over boundary instants; each slice
+  takes the highest-priority covering category (`awake > asleep > inBed`), adjacent equal runs merge, so
+  multi-source overlaps union without double-counting. The tie-break is a **total order**
+  (`(priority, rawValue)`) and a test enforces distinct priorities, so determinism doesn't rest on an
+  accidental invariant (ios-architect SHOULD-FIX).
+- **Bounded + cancelable.** `SleepQueryWindow` clamps to a 14-day lookback (empty when start ≥ end → no
+  query). The adapter uses a **strict-start** predicate (a stale multi-day straggler overlapping the edge
+  is excluded — the safe choice for a recent-nights estimate; the port doc says so). Cancellation is
+  bridged through a `Mutex<QueryState>` **single-resume** guard that stops the `HKSampleQuery` on cancel;
+  `resumed` is flipped under the lock, `stop`/`resume` run outside it (so a synchronous stop-callback
+  re-locks without deadlock and no-ops) — no leak, no double-resume, verified correct across all four
+  orderings by review. The HKHealthStore bridge is **device-only** (not unit-tested); the pure layer is.
+  `make ci-fast` green — 773. Feeds WG-123.
+
 ### WG-121 (2026-08-10): Contextual HealthKit authorization
 
 - **What.** `HealthAuthorizationCoordinator` (domain) requests HealthKit **read** access to **exactly**
