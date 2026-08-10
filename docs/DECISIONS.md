@@ -3350,6 +3350,18 @@ decisions are recorded above using the ADR template.
 - **Precision.** SDK detection matches `import <SDK>` (substrings like "Adjust" appear in `autoAdjust`);
   zero packages already precludes third-party imports. `make ci-fast` green — 1100 (+5).
 
+### WG-191 (2026-08-11): App Review notes & demo mode (E10 complete)
+
+- **What.** `docs/APP_REVIEW_NOTES.md` + `ReviewDemoContent` + `AppReviewNotesTests`.
+- **Reviewer can test.** Notes walk creating alarms (incl. critical + walk challenge + NL preview) and show
+  every capability is optional with the app working when denied.
+- **Safety explained; no fake capabilities.** The notes state the deterministic-core / advisory-AI /
+  policy-gated model, and claim only real capabilities (on-device AI, cloud off by default, no medical
+  claims, no analytics/tracking, zero SDKs) — all keyword-pinned.
+- **Honest demo.** `ReviewDemoContent.sampleAlarms` is real alarm data (a critical + non-critical example),
+  not simulated behavior — test-pinned. **E10 (Privacy, security, compliance) complete: WG-180–191.**
+  `make ci-fast` green — 1105 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
