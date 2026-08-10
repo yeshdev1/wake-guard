@@ -2895,6 +2895,19 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-146 (2026-08-10): Tomorrow-plan recommendation screen
+
+- **What.** `TomorrowPlanPresenter.present` (pure) + `TomorrowPlanView` (thin SwiftUI) present the WG-145
+  plan. (Also added `bindingHasLocation` to `LatestSafeWakePlan` so the buffer breakdown can show travel.)
+- **Existing alarm remains visible.** `existingAlarmRing` is always exposed and shown — even with no
+  recommendation — so a suggestion can never hide the current alarm.
+- **Reason + buffers.** The recommendation states *why* (confirmed-important vs inferred, + a confidence
+  note) and a buffer breakdown (getting-ready / travel-if-located / safety, in minutes).
+- **Apply requires explicit action.** The presentation is display-only (a `Mirror` pin: no apply/mutation
+  field); applying is solely the view's **"Use this wake time"** button → `onApply`, wired by composition
+  to the policy engine (#6-gated for a critical change). The screen holds no alarm authority.
+- Design-system only, no color-only, a11y IDs. `make ci-fast` green — 883. Feeds WG-147/148.
+
 ### WG-145 (2026-08-10): Latest-safe-wake calculator
 
 - **What.** `LatestSafeWakeCalculator.plan(for:profile:after:)` — the latest time the user can wake and

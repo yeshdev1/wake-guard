@@ -30,6 +30,9 @@ struct LatestSafeWakePlan: Sendable, Equatable, Hashable {
     let drivenByConfirmedImportant: Bool
     /// The lead time applied to the binding event (prep + safety, + travel if it had a location).
     let appliedLeadTime: TimeInterval
+    /// Whether the binding event had a location (so the travel buffer was included) — lets the UI show the
+    /// buffer breakdown (WG-146).
+    let bindingHasLocation: Bool
     let confidence: WakePlanConfidence
     /// How many timed events were considered.
     let consideredEventCount: Int
@@ -70,6 +73,7 @@ enum LatestSafeWakeCalculator {
             bindingEventStart: binding.start,
             drivenByConfirmedImportant: !critical.isEmpty,
             appliedLeadTime: profile.leadTime(forEventWithLocation: binding.hasLocation),
+            bindingHasLocation: binding.hasLocation,
             confidence: confidence,
             consideredEventCount: timed.count,
             hasConflicts: hasConflicts)
