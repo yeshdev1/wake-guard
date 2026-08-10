@@ -3483,6 +3483,13 @@ decisions are recorded above using the ADR template.
   so a continuous-sensing regression fails CI before a battery run; motion runs only during the challenge.
   Budget/off-on/conditions documented; absolute drain on the device matrix. `make ci-fast` green — 1165 (+2).
 
+### WG-224 (2026-08-11): Motion challenge battery & responsiveness
+
+- **What.** `docs/MOTION_CHALLENGE_PERF.md` + `MotionChallengeSensorTests`.
+- Cumulative `CMPedometer` (no high-frequency inertial sampling — scan-pinned); the sensor starts with the
+  challenge stream and `stopUpdates()` on `onTermination`, so it runs only when needed; pass-latency target
+  documented. `make ci-fast` green — 1168 (+3).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
