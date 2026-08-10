@@ -2704,6 +2704,40 @@ decisions are recorded above using the ADR template.
   mapping (turn-off → `cancelOccurrence`, not pre-confirmed) is directly tested and the processor's #6
   gate is intact.
 
+### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
+
+- **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)
+  pinning the canonical false-positive trap for movement-based awake detection: the sleeper takes a few
+  steps to the bathroom and returns to bed. **No production code** — the WG-080 model, WG-082
+  evaluator, and the pipeline already handle it; the test locks the *contract* so a future change can't
+  regress it silently.
+- **What it pins.** (1) *Brief movement is conservative* — a few steps reach exactly `.weak` (one
+  uncorroborated signal), and once movement is stale (back in bed) the evaluator declines with reason
+  `.insufficientEvidence` (asserted **by reason**, so it can't pass for the wrong reason). (2) *No
+  auto-cancel (#8)* — a substantial recent trip reads `.likely` (WG-080's **documented, tolerated
+  residual**: the aggregate-history path carries no episode timeline, so it can't tell a bathroom trip
+  from a real wake-up walk), but the recommendation carries no command/adapter/alarm-id — the strongest
+  outcome is an advisory prompt whose safe default is `keep` (#7). (3) *Fail-closed sensing* — a source
+  that reports steps **while unavailable** still declines as `.sourceUnavailable` (never
+  `.insufficientEvidence`): couldn't-observe ≠ confirmed-still. (4) *Let it ring in the final stretch* —
+  a `.likely` trip at the imminence cutoff (critical 120 s / standard 60 s, strict `>`) does **not**
+  prompt. (5) *#6 into the button* — a critical turn-off carries the confirmation flag into the
+  destructive button; `keep` never confirms. (6) *No trap* — a saturated (`Int.max`) step count still
+  only prompts. (7) *Repeated trips* in one occurrence are de-duped by the per-(alarm, occurrence)
+  ledger, **not** by evidence decay.
+- **Why advisory-is-enough.** The residual false `.likely` is acceptable precisely because the whole
+  path is advisory: suppression is *structurally* impossible (the recommendation holds no mutation
+  authority), so the worst case is an unnecessary prompt the user dismisses — the alarm still rings.
+- **Review.** `motion-red-team` (read-only) judged the initial 6-case draft *adequate but thin*: no
+  variant produced an unsafe outcome (suppression is structurally impossible), but two axes could
+  regress a *reason* undetected. Its **[BLOCKER]** (untested source-unavailable) + four **[SHOULD-FIX]**
+  (assert exact `.weak` bucket, assert decline *reasons*, imminence-boundary case, saturation through
+  the pipeline) + two **[NIT]** (thread #6 into the button; frame repeated-trip de-dup) were **all
+  applied**, growing the suite 6 → 10. No production change — the exposure was purely test adequacy.
+- **Handoff.** On-device UAT: a real bathroom trip in the pre-alarm window at most prompts (keep
+  default) and never cancels; back in bed / sensor unavailable → no prompt → `RELEASE_CHECKLIST.md`.
+- **Completes E05** (Pre-alarm smart wake): WG-080…WG-091 all Complete.
+
 ### WG-089 (2026-08-09): Foreground fallback — pre-alarm prompt de-dup ledger
 
 - **What it is.** An **idempotency-key prompt-suppression ledger** so a pre-alarm prompt surfaces at
