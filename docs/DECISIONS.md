@@ -2953,6 +2953,32 @@ decisions are recorded above using the ADR template.
   stays framework-free); it is `#if canImport`-guarded and fails closed to `.modelNotReady` when the SDK
   lacks it. `make ci-fast` green — 920 (+10). Feeds WG-163/168.
 
+### WG-163 (2026-08-10): On-device structured generation adapter
+
+- **What.** `AISchema` (the schemas the model may emit), `StructuredGenerator` (the tested decode/validate
+  core over a `LanguageModelProvider`), and `FoundationModelsLanguageModelProvider` (the real on-device
+  `LanguageModelSession` binding). Uses the exact iOS 26.5 SDK API (verified from the `.swiftinterface`).
+- **Structured output ⇒ validated DTO, fail closed (#33/#27).** The generator decodes model text as JSON
+  into an `AISchema`, then calls structural `validate()`. Malformed / empty / adversarial / out-of-bounds
+  output all collapse to `.malformedOutput` — decode and validate share one `do`, so a partial or
+  unvalidated DTO can never be returned. Injected extra keys are dropped by the schema decode.
+- **Cancellation & refusal handled.** Provider-typed `.refused`/`.cancelled`/`.unavailable` propagate;
+  cooperative `Task.isCancelled` checks bracket the call so a task cancelled mid-generation yields
+  `.cancelled` even if the provider returns valid JSON. The real provider maps a guardrail/`.refusal` ⇒
+  `.refused`, `.assetsUnavailable` ⇒ `.unavailable`, else ⇒ `.generationFailed` — no raw error text
+  escapes (#41).
+- **On-device only, no logging.** The session runs on device with no `tools:` and no network; a recursive
+  source-scan over both AI module trees pins that no logging/persistence/network sink token appears in any
+  AI-module file (#41/#34/#35).
+- **No alarm authority.** The decoded DTO is inert — no `AlarmCommand`, no criticality; WG-165 will
+  semantically validate and translate to a proposal, and only `AlarmPolicyEngine` authorizes.
+- **Review.** Two adversarial reviewers: alarm-safety found **zero defects** (ran the suite 12/12);
+  privacy confirmed a clean data path and flagged the initial 3-file scan as shallow — hardened to a
+  recursive, broadened-sink scan. Deferred to WG-172 (composition root): a behavioral spy-`PrivacyLog`
+  test across all branches, and an ADR note not to cache results keyed by the `Hashable`
+  `LanguageModelRequest` (prompt-in-memory retention). `make ci-fast` green — 932 (+12). Feeds
+  WG-164/165/167–171.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
