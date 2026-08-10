@@ -3370,6 +3370,16 @@ decisions are recorded above using the ADR template.
 - **Skip stays useful.** Only the first-alarm step is skippable; skipping still reaches `.ready` (a usable
   app), and welcome/ready can't be skipped. `make ci-fast` green — 1112 (+7).
 
+### WG-201 (2026-08-11): VoiceOver announcements
+
+- **What.** `AlarmVoiceOver` (status + destructive-consequence announcements) + `DestructiveAction`, plus
+  `docs/ACCESSIBILITY_CHECKLIST.md` (manual on-device audit).
+- **Status announced.** Every `AlarmStatusStyle` has a spoken label; `statusAnnouncement` adds the next ring
+  time — the alarm state is understandable eyes-free.
+- **Consequences announced.** Every destructive action speaks its outcome; alarm-affecting ones always say
+  whether the alarm still rings, so a screen-reader user isn't surprised. Automated pins + a manual audit
+  checklist. `make ci-fast` green — 1117 (+5).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
