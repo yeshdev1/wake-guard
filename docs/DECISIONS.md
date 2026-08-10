@@ -2895,6 +2895,20 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-143 (2026-08-10): User-confirmed critical event marking
+
+- **What.** `CriticalEventMarking` — the user marks a calendar event as a hard wake deadline (for WG-145),
+  reversibly, over a `CriticalEventStore` + `CriticalEventAuditing`.
+- **The user, not the LLM, confirms criticality (#31).** `CriticalEventActor` has the single case `user`
+  and the API takes **no actor argument**, so there is no path for a model to set criticality — a mark is
+  always a user action. (Mirrors WG-031 "only the user/policy assigns criticality".)
+- **Reversible.** `unmarkCritical` flips it back; `isCritical` reflects the current state.
+- **Evidence audited.** Every mark/unmark writes a `CriticalEventAuditRecord` (event, action, actor, when)
+  to an append-only sink — the evidence for why an event is treated as critical.
+- Foundation-only; no alarm authority. The Core Data store + marking UI are the persistence/UI follow-on;
+  the marking drives `RedactedEventSummary.isConfirmedImportant` and the WG-145 hard deadline. `make
+  ci-fast` green — 862. Feeds WG-145.
+
 ### WG-142 (2026-08-10): Upcoming-event adapter
 
 - **What.** `EventKitUpcomingEventAdapter` (real `EKEventStore`) behind the `UpcomingEventQuerying` port,
