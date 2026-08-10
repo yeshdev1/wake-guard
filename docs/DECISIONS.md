@@ -3445,6 +3445,14 @@ decisions are recorded above using the ADR template.
   WG-202/203/204; visual hierarchy documented. Before/after screenshots are a manual PR review. `make
   ci-fast` green — 1146 (+2).
 
+### WG-210 (2026-08-11): Device-size & orientation visual regression (E11 complete)
+
+- **What.** `VisualRegressionTests` + `docs/VISUAL_REGRESSION.md`.
+- No fixed widths (adaptive layout ⇒ smallest device doesn't clip); landscape reflows via ScrollView;
+  iPhone+iPad family. Device matrix + screenshot-diff triage documented; the snapshot suite runs on-device.
+  **E11 (Accessibility, localization, visual quality) complete: WG-200–210.** `make ci-fast` green — 1148
+  (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
