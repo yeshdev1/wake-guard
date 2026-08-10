@@ -2895,6 +2895,23 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-126 (2026-08-10): Readiness explanation UI
+
+- **What.** `ReadinessExplanation.from(_ assessment:)` (pure) turns a WG-125 `ReadinessAssessment` into a
+  gentle, grounded explanation; `ReadinessCardView` (thin SwiftUI) renders it.
+- **Every statement maps to a recorded factor (#32).** Each `ReadinessStatement` carries a
+  `ReadinessFactorKind` drawn from the assessment's factors, so the UI structurally can't show a claim
+  that isn't grounded in a recorded factor; the statement set is disjoint from the missing-inputs set.
+- **Uncertainty + missing inputs display.** The `certaintyNote` reflects the certainty (with a no-data
+  "add a few nights" invite), and `missingInputs` names exactly the factors with no data — surfaced, not
+  silently dropped.
+- **Nonjudgmental copy (#39).** Gentle summaries and soft factor observations; a test scans every
+  producible string for judgemental (`bad/poor/fail/lazy/should/guilt/shame`) and medical
+  (`diagnose/disorder/treatment/deprivation`) language and finds none. The card always shows a
+  "not a diagnosis" note. The full disclaimers/safety copy are WG-128.
+- Design-system only, **no color-only** signal, stable a11y IDs; holds no alarm authority. Device a11y
+  (Dynamic Type / VoiceOver / dark mode) → RELEASE_CHECKLIST. `make ci-fast` green — 805. Feeds WG-127/128.
+
 ### WG-125 (2026-08-10): Readiness factor model
 
 - **What.** `ReadinessModel.assess(ReadinessInputs) -> ReadinessAssessment` — a **deterministic**,
