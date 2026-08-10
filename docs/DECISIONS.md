@@ -3302,6 +3302,17 @@ decisions are recorded above using the ADR template.
   empty collected-data types (on-device build). The optional-cloud transmitted-data accounting is WG-187.
   `make ci-fast` green — 1082 (+4).
 
+### WG-187 (2026-08-10): App Privacy nutrition-label mapping
+
+- **What.** A *structured* `PrivacyNutritionLabel` mapping + `docs/PRIVACY_NUTRITION_LABEL.md`, test-checked
+  against behavior and the manifest.
+- **Every type accounted for.** Health, coarse location, calendar, user content, diagnostics, and cloud
+  derived summaries each have a row; all raw types are **not collected** (on device).
+- **Only optional, redacted transmission.** The sole transmitted category is cloud derived summaries —
+  optional (off by default) and redacted; nothing is linked to identity or used for tracking.
+- **Matches behavior.** A consistency test ties the mapping to the WG-186 manifest (no default collection ⇒
+  empty collected-data types). `make ci-fast` green — 1086 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
