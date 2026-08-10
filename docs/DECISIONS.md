@@ -3060,6 +3060,13 @@ decisions are recorded above using the ADR template.
   `.noProposal` (no-op; the existing alarm is unchanged, #33).
 - **Critical ⇒ confirmation (#6).** A change targeting a critical alarm sets `requiresConfirmation`; the
   proposal never silently alters a critical alarm. `make ci-fast` green — 978 (+11). Feeds WG-172.
+- **Review fix — envelope never falls open.** The alarm-safety review (background) confirmed points 1/2/3/5
+  clean and found one real defect: the late-wake bound was skipped when the `latestSafeWake` factor was
+  **absent** (calendar not granted, or an empty day) or unparseable, so a grounded late suggestion (e.g.
+  23:59) could surface unbounded — silently defeating the task's core guarantee. **Fixed:** `interpret`
+  now always applies an upper bound — the calendar-derived latest-safe-wake when present/parseable, else a
+  caller-supplied conservative `maxWake` cap; an unparseable value fails **closed** to the cap, never open.
+  Added tests for absent + within-cap + unparseable. `make ci-fast` green — 988.
 
 ### WG-169 (2026-08-10): Explanation generator grounded in factor IDs
 

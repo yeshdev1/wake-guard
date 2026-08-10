@@ -36,7 +36,7 @@ struct TomorrowProposalGenerator: Sendable {
     }
 
     func propose(
-        from context: TomorrowContext, targetIsCritical: Bool
+        from context: TomorrowContext, targetIsCritical: Bool, maxWake: TimeOfDay
     ) async -> TomorrowProposalOutcome {
         let draft: AITomorrowPlanProposal
         do {
@@ -45,12 +45,18 @@ struct TomorrowProposalGenerator: Sendable {
         } catch {
             return .noProposal
         }
-        return Self.interpret(draft, context: context, targetIsCritical: targetIsCritical)
+        return Self.interpret(
+            draft, context: context, targetIsCritical: targetIsCritical, maxWake: maxWake)
     }
 
-    /// Deterministic safety envelope over the model's draft. Pure and fully testable.
+    /// Deterministic safety envelope over the model's draft. Pure and fully testable. The upper bound is
+    /// **always present**: the deterministic latest-safe-wake when the context has it, otherwise the
+    /// conservative `maxWake` cap — so a proposal can never nudge the user to wake later than is safe, even
+    /// when there is no calendar obligation (calendar not granted, or an empty day). An unparseable
+    /// latest-safe-wake value fails **closed** to the cap, never open.
     static func interpret(
-        _ draft: AITomorrowPlanProposal, context: TomorrowContext, targetIsCritical: Bool
+        _ draft: AITomorrowPlanProposal, context: TomorrowContext, targetIsCritical: Bool,
+        maxWake: TimeOfDay
     ) -> TomorrowProposalOutcome {
         guard
             let wake = try? TimeOfDay(
@@ -64,12 +70,11 @@ struct TomorrowProposalGenerator: Sendable {
             .filter { context.factorIDs.contains($0) && seen.insert($0).inserted }
         guard !grounded.isEmpty else { return .noProposal }
 
-        // Never propose waking later than the deterministic latest-safe-wake.
-        if let latestText = context.value(for: .latestSafeWake),
-            let latest = Self.time(fromHHmm: latestText), wake > latest
-        {
-            return .noProposal
-        }
+        // Never propose waking later than the upper bound — the calendar-derived latest-safe-wake if
+        // present and parseable, else the conservative `maxWake` cap (so the bound is never absent).
+        let latestFromContext = context.value(for: .latestSafeWake).flatMap(Self.time(fromHHmm:))
+        let upperBound = latestFromContext ?? maxWake
+        guard wake <= upperBound else { return .noProposal }
 
         return .proposal(
             TomorrowProposal(
