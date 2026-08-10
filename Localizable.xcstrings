@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Continue" : {
+      "comment" : "Primary action to proceed (onboarding, dialogs)."
+    },
+    "Delete all data" : {
+      "comment" : "Destructive full-reset action."
+    },
+    "Prepare export" : {
+      "comment" : "Starts a user-initiated local data export."
+    },
+    "Skip for now" : {
+      "comment" : "Skips an optional onboarding step; the app stays usable."
+    }
+  },
+  "version" : "1.0"
+}

@@ -3414,6 +3414,15 @@ decisions are recorded above using the ADR template.
   (encode/decode identical). Tests cover en_US/fr_FR/ja_JP + Gregorian/Japanese calendars. `make ci-fast`
   green — 1134 (+5).
 
+### WG-206 (2026-08-11): Externalize & localize strings
+
+- **What.** `Localizable.xcstrings` (String Catalog) + `LocalizedText` + `docs/LOCALIZATION.md` + tests.
+- **Already externalized.** SwiftUI `Text` literals are `LocalizedStringKey`s; the only `Text(verbatim:)`
+  is `EventTitleText` (untrusted titles, intentionally not localized) — pinned.
+- **Safe counts.** `LocalizedText.alarmCount` formats numbers via `IntegerFormatStyle` (locale grouping),
+  not `String(count)`; plural rules live in the catalog. Permission usage strings are present (base) and
+  localized per market via `InfoPlist.xcstrings` (release step). `make ci-fast` green — 1138 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

@@ -29,6 +29,7 @@ targets:
     sources:
       - path: Sources           # single app target, feature folders (ADR-003)
       - path: PrivacyInfo.xcprivacy   # Apple privacy manifest (WG-186), bundled as a resource
+      - path: Localizable.xcstrings   # String Catalog (WG-206); Xcode extracts LocalizedStringKeys
     entitlements:
       path: WakeGuard.entitlements
       properties:
