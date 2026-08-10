@@ -3513,6 +3513,13 @@ decisions are recorded above using the ADR template.
   `.systemReconciliation`. Store-level corruption is covered by `MigrationTests`. `make ci-fast` green —
   1176 (+2).
 
+### WG-228 (2026-08-11): 100-cycle alarm/challenge soak
+
+- **What.** `SoakTests` + `docs/SOAK_TEST.md`.
+- 100 consecutive challenge cycles each pass cleanly from idle (no stale state / over-count); 100 duplicate
+  tap callbacks at one instant debounce to one (no accumulation). Full-device soak on the matrix. `make
+  ci-fast` green — 1179 (+3).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
