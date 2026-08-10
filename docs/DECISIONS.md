@@ -3095,6 +3095,24 @@ decisions are recorded above using the ADR template.
   to association language and forbidden from causal terms — and from medical claims (#39). WakeGuard shows
   patterns without implying cause. `make ci-fast` green — 996 (+8). Feeds WG-172.
 
+### WG-171 (2026-08-10): Agent permission settings (E09 Phase 3 complete)
+
+- **What.** `AgentPermissionMode` (recommend-only / ask-before-acting / auto-adjust) + `AgentActionPolicy`,
+  persisted in `AppSettings`, with a Settings section + view-model.
+- **Modes.** The MVP offers **recommend-only** and **ask-before-acting**; both keep the user in the loop.
+- **Auto-adjust disabled for the MVP (ADR).** `autoAdjust` exists in the type for a future,
+  tightly-bounded ADR but is **not selectable** (the UI can never enable it, the view-model rejects it) and
+  is bounded by the policy to `.requestConfirmation` — it never applies silently. Crucially, `AgentAction`
+  has **no auto-apply case at all**, so silent auto-adjustment is structurally impossible, not just
+  disabled by config.
+- **Critical immutable without confirmation (#6).** The policy returns only recommend-or-ask; for a
+  critical target every acting mode must confirm and recommend-only only recommends — verified across all
+  modes. The permission setting can loosen *suggestion* behavior, never the critical-alarm guardrail.
+- **Backward-compatible persistence.** `AppSettings` gained `agentPermissionMode` (default recommend-only)
+  with a custom `init(from:)` that `decodeIfPresent`s the new key, so a pre-WG-171 stored blob decodes to
+  the safe default rather than throwing (existing settings survive the upgrade). `make ci-fast` green —
+  1010 (+14). Feeds WG-172 (gate the accept→apply path on the policy).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
