@@ -3527,6 +3527,14 @@ decisions are recorded above using the ADR template.
   `.uncertain` (never a silent apply); `reconcile()` repairs the uncertainty by scheduling the desired
   alarm. `make ci-fast` green — 1181 (+2).
 
+### WG-230 (2026-08-11): Operational diagnostics screen (E12 complete)
+
+- **What.** `DiagnosticsSnapshot`/`DiagnosticsProviding`/`DiagnosticsRenderer` + `DiagnosticsModel` + view.
+- Shows permission status, reconcile counts, last safe sync, and redacted error breadcrumbs; no sensitive
+  raw data (coarse statuses + closed-enum breadcrumbs); export is user-initiated (nothing exports until the
+  explicit tap; content is the redacted report). **E12 (Reliability, performance, battery, observability)
+  complete: WG-220–230.** `make ci-fast` green — 1185 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
