@@ -2895,6 +2895,24 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-130 (2026-08-10): Partial/denied/revoked HealthKit access (E07 complete)
+
+- **What.** The health pipeline's degradation across every access state, plus the glue that made it
+  testable: `ReadinessComputer` (pure — window of samples → nights → readiness) and `ReadinessViewModel`
+  (`@MainActor`, queries → computes → holds the assessment).
+- **Every permission state has expected UI.** `granted`/`partial` → an available readiness;
+  `unavailable`/`notDetermined`/`denied` → `isReadinessAvailable` false and (via an empty query) an
+  assessment with no factors → the honest "not enough data" card.
+- **Revocation does not crash calculations.** A denied/revoked query returns no samples (or throws); the
+  view model catches and degrades to the unavailable assessment, and every calculator returns nil/empty on
+  empty input. No crash.
+- **No stale claims remain.** `ReadinessViewModel.refresh` **recomputes** each time, so a revocation
+  (data → empty) replaces any prior assessment — the previously-shown readiness is cleared, not left stale.
+- **Night grouping.** `ReadinessComputer` segments samples into nights by a >6 h gap (robust to
+  midnight-spanning sleep), so consistency/debt are per-night; a single night degrades to duration+debt
+  (moderate certainty). Foundation-only computer; no alarm authority. `make ci-fast` green — 836.
+  **E07 (HealthKit + wellness intelligence) complete: 11/11 (WG-120–130).**
+
 ### WG-129 (2026-08-10): Health data export/delete controls
 
 - **What.** `WellnessDataControls` — `export(now:)` and `deleteAllDerivedData(now:actor:)` over a
