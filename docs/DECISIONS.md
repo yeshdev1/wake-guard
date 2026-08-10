@@ -2895,6 +2895,23 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-125 (2026-08-10): Readiness factor model
+
+- **What.** `ReadinessModel.assess(ReadinessInputs) -> ReadinessAssessment` — a **deterministic**,
+  transparent blend of sleep-derived factors (duration, consistency, debt) into a readiness estimate.
+- **Deterministic, explainable factors.** Each factor's contribution is a documented pure formula
+  (met-fraction of need; `1 − deviation/120min`; `1 − debt/(3×need)`), exposed on the assessment; the
+  overall `weightedScore` is a weight-normalized blend of the **available** factors and is **recomputable**
+  from them (a test recomputes it) — **no black box**.
+- **Missing factors reduce certainty, not the score.** Re-normalizing by present weight means a missing
+  factor lowers `certainty` (3→high, 2→moderate, ≤1→low) rather than dragging readiness toward 0. No
+  factor available → `weightedScore`/`level` are `nil` (unavailable, never fabricated).
+- **No black-box diagnosis / no competitive score (#39).** The output is a **neutral qualitative**
+  `ReadinessLevel` (low/moderate/good) from fixed thresholds — deliberately not a "score out of 100", per
+  the product's no-guilt/no-competitive-score guidance; WG-126 supplies gentle copy + disclaimers. Holds
+  no medical authority — an estimate, never a diagnosis. Foundation-only. `make ci-fast` green — 799.
+  Feeds WG-126/127.
+
 ### WG-124 (2026-08-10): Conservative sleep-debt estimate
 
 - **What.** `SleepDebt.estimate` over nightly asleep durations vs a configurable `SleepNeed` → a
