@@ -3291,6 +3291,17 @@ decisions are recorded above using the ADR template.
 - The redaction-vocabulary reconciliation (WG-181 review) is still open for WG-189. `make ci-fast` green —
   1078 (+5).
 
+### WG-186 (2026-08-10): Privacy manifest & SDK inventory
+
+- **What.** `PrivacyInfo.xcprivacy` (bundled), `docs/PRIVACY.md`, and `PrivacyManifestTests`.
+- **Required-reason APIs documented.** Only `UserDefaults` (reason `CA92.1`, the last-known time zone) is
+  used and declared; a consistency test ties the manifest to the code so neither drifts.
+- **Zero third-party SDKs.** First-party + Apple frameworks only; a test asserts `project.yml` declares no
+  external package. Nothing unused to remove; any future SDK needs a written assessment first.
+- **No tracking / no collection by default.** Manifest declares tracking false, empty tracking domains, and
+  empty collected-data types (on-device build). The optional-cloud transmitted-data accounting is WG-187.
+  `make ci-fast` green — 1082 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
