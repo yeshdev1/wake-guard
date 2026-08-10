@@ -3172,6 +3172,18 @@ decisions are recorded above using the ADR template.
   are ever cloud-eligible is WG-181's job; WG-174 guarantees only that nothing reaches the transport except
   an explicitly-cleared request. `make ci-fast` green — 1030 (+6).
 
+### WG-175 (2026-08-10): AI evaluation corpus
+
+- **What.** `EvaluationCorpus` — a versioned set of synthetic `EvaluationCase`s (typed input + expected
+  result) across ambiguous dates, time zones, critical events, manipulative prompts, and missing context.
+- **Versioned expectations.** `EvaluationCorpus.version` tags the case set; each case pairs a typed input
+  with an `ExpectedResult` so results are attributable and WG-176 can run each through the matching
+  deterministic component.
+- **No real personal data.** Inputs are synthetic — generic times, placeholder zones (`Mars/Olympus`),
+  adversarial strings — and a test scans every string for PII markers.
+- **Placement.** It is QA tooling consumed by the WG-176 test, so it lives in `Tests/TestSupport`, not the
+  shipped app. `make ci-fast` green — 1035 (+5). Feeds WG-176.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
