@@ -3430,6 +3430,13 @@ decisions are recorded above using the ADR template.
   alignment/padding/edges (none present) and that core rows use semantic edges. Directional SF Symbols
   auto-mirror; icon review is the manual checklist. `make ci-fast` green — 1140 (+2).
 
+### WG-208 (2026-08-11): Sleep-inertia usability review
+
+- **What.** `SleepInertiaGuidelines` (max actions/copy) + `docs/SLEEP_INERTIA_REVIEW.md` + `SleepInertiaTests`.
+- Wake/challenge screens have ≤ 3 controls, short copy (≤ 48 chars), and **no destructive action** — the
+  alarm stops only by completing the challenge, so a groggy stray tap can't cancel/snooze/delete it.
+  Bounds prevent regressions. `make ci-fast` green — 1144 (+4).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
