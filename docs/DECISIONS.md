@@ -2895,6 +2895,24 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-129 (2026-08-10): Health data export/delete controls
+
+- **What.** `WellnessDataControls` — `export(now:)` and `deleteAllDerivedData(now:actor:)` over a
+  `DerivedWellnessStore` port, plus a content-free `WellnessDeletionReceipt` to a `WellnessDeletionAuditing`
+  sink. Acts **only** on the app's derived aggregates.
+- **Local derived data can be deleted (#42).** `deleteAllDerivedData` empties the store and returns the
+  count; even a no-op delete is audited.
+- **HealthKit source not represented as owned.** The export payload carries explicit **provenance** — the
+  data is "WakeGuard's own" on-device estimates, "not your Apple Health" records (which stay in Health,
+  owned by the user), and deleting in-app "does not change anything in Apple Health". The app stores no raw
+  HealthKit samples (compute-and-discard, WG-120), so there is nothing of the source to export or claim.
+- **Deletion audited without retaining content (#41/#46).** The receipt is exactly
+  `{deletedAt, recordCount, actor}` — a count, not the values (a `Mirror` test pins it); `DerivedWellnessRecord`
+  is a coarse `{date, asleepDuration}` aggregate, never a raw sample.
+- Foundation-only; no alarm authority. The Core Data derived-store impl + the settings UI (with a
+  **confirmed destructive delete**) are the persistence/UI follow-on. `make ci-fast` green — 829. Feeds
+  WG-130 and E10 (WG-183/184).
+
 ### WG-128 (2026-08-10): Wellness disclaimers and safety copy
 
 - **What.** `WellnessSafetyCopy` (scope / estimates / medical-emergency / mental-health-crisis strings) +
