@@ -3113,6 +3113,24 @@ decisions are recorded above using the ADR template.
   the safe default rather than throwing (existing settings survive the upgrade). `make ci-fast` green —
   1010 (+14). Feeds WG-172 (gate the accept→apply path on the policy).
 
+### WG-172 (2026-08-10): AgentOrchestrator and policy handoff (E09 Phase 4 start)
+
+- **What.** `AgentOrchestrator` — the thin, powerless coordinator that turns an *accepted* agent proposal
+  into an alarm change, plus `AgentHandoffResult`.
+- **No direct authority (#1/#2/#3).** It depends only on the `AlarmCommandProcessing` boundary and
+  `AgentActionPolicy` — a source-scan pins it never names AlarmKit / a repository / the policy engine /
+  Core Data. It reaches alarms *only* through the audited, policy-authorized command boundary.
+- **Everything passes policy.** Every submission goes through `processor.process(...)` (which runs
+  `AlarmPolicyEngine`); there is no bypass. The command it forwards was already schema-validated upstream.
+- **Audit distinguishes AI from user (#46).** It always submits `from: .agentProposal, by:
+  .approvedAgentProposal` — never `.user` — reusing attribution vocabulary that already existed, so the
+  audit trail is unambiguous about who changed an alarm.
+- **Permission-gated, critical-safe (#6, WG-171).** Recommend-only never submits; an acting mode submits
+  only after the user confirms; a critical change without confirmation returns `.needsUserConfirmation` and
+  is never submitted. This is where the WG-171 policy actually gates the command path. Composition wiring
+  (the WG-166 `commit` seam, the Tomorrow-agent accept) is a follow-up. `make ci-fast` green — 1017 (+7).
+  Feeds WG-173.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
