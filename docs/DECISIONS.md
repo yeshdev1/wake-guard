@@ -3013,6 +3013,21 @@ decisions are recorded above using the ADR template.
   (where only `AlarmPolicyEngine` authorizes) is WG-172. Adversarial zone strings are test-pinned as
   rejected. `make ci-fast` green — 951 (+10). Feeds WG-166/172.
 
+### WG-166 (2026-08-10): Conversational alarm creation UI (E09 Phase 2 complete)
+
+- **What.** `ConversationalAlarmViewModel` + `ConversationalAlarmView` + `ParsedScheduleSummary` — the
+  flow that turns a typed request into a reviewed, confirmed alarm.
+- **Preview precedes save, structurally.** Parsing/validation move to `.preview(summary)`; scheduling
+  happens *only* in `confirm()` via an injected `commit` seam. A spy proves zero commits before confirm and
+  exactly one after — so "nothing schedules before confirmation" is a test invariant, not a convention.
+- **User sees schedule + assumptions.** The summary carries resolved time/recurrence/zone plus *structured*
+  assumptions (current-time-zone, the concrete one-time date, the weekly days) — structured so the view
+  localizes them and honours the 12/24-hour setting; the app never shows an un-localizable AI string.
+- **Manual editor one tap away.** Every state exposes "Enter manually" (`requestManualEditor()` →
+  `CreateAlarmView`); a model failure routes straight there (#33). Never sets criticality (#31).
+- **Seam to scheduling.** `commit` is wired to the real `AlarmCommandProcessing` path in WG-172; keeping it
+  injected here let WG-166 stay UI-focused and fully deterministic. `make ci-fast` green — 960 (+9).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
