@@ -2895,6 +2895,18 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-144 (2026-08-10): Morning preparation profile
+
+- **What.** `MorningPreparationProfile` — three explicit, user-editable buffers (preparation, travel,
+  safety) feeding the latest-safe-wake calc (WG-145).
+- **Explicit + editable.** Named `TimeInterval` fields, sensible defaults (45/30/10 min), each clamped to
+  a non-negative ≤6 h range so an edit can't produce an absurd value.
+- **No location or calendar permission required.** It is pure user config: the travel buffer is a user
+  **default**, never derived from GPS/a route, and `leadTime(forEventWithLocation:)` takes only a
+  **boolean** — no coordinates, no permission (#41). A `Mirror` pin confirms the type holds only the three
+  buffers.
+- Foundation-only; no alarm authority. `make ci-fast` green — 868. Feeds WG-145/146.
+
 ### WG-143 (2026-08-10): User-confirmed critical event marking
 
 - **What.** `CriticalEventMarking` — the user marks a calendar event as a hard wake deadline (for WG-145),
