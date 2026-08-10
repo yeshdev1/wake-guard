@@ -11,6 +11,12 @@ struct SystemPreAlarmNotificationScheduler: PreAlarmNotificationScheduling {
 
     private var center: UNUserNotificationCenter { .current() }
 
+    func requestAuthorization() async {
+        // A denial is not an error here — it just means no advisory prompt appears; the alarm (a
+        // separate AlarmKit surface) still rings (#7/#8).
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+    }
+
     func registerPromptCategory() async {
         center.setNotificationCategories([
             PreAlarmNotificationCategoryFactory.category(for: .forCategoryRegistration)

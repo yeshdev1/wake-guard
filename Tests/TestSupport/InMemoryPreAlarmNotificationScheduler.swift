@@ -22,6 +22,8 @@ final class InMemoryPreAlarmNotificationScheduler: PreAlarmNotificationSchedulin
     var posts: [Post] { state.get().posts }
     var cancels: [AlarmID] { state.get().cancels }
 
+    func requestAuthorization() async {}
+
     func registerPromptCategory() async {
         state.mutate { $0.registeredCount += 1 }
     }

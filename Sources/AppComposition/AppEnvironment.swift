@@ -41,6 +41,11 @@ struct AppEnvironment: Sendable {
     /// and submits the resulting command through the processor (a critical/imminent turn-off is
     /// confirmation-gated, #6). The app's `UNUserNotificationCenterDelegate` forwards to this.
     let preAlarmResponder: PreAlarmNotificationResponder
+    /// The pre-alarm evaluation work (runs-on-a-phone step 6): the foreground-fallback / background
+    /// opportunity that evaluates upcoming alarms and posts the advisory prompt. Holds no alarm
+    /// authority (#7/#8/#9); production drives it with the real Core Motion pipeline, the in-memory
+    /// graph with an unavailable source (so it never posts).
+    let preAlarmWork: PreAlarmBackgroundWork
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -62,7 +67,8 @@ struct AppEnvironment: Sendable {
             wiring: SystemWiring(
                 alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
                 schedulesAlarmsInSystem: true,
-                preAlarmNotifications: SystemPreAlarmNotificationScheduler()))
+                preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
+                pedometerSource: CoreMotionHistoricalPedometerAdapter()))
     }
 
     /// The test/preview graph: an ephemeral in-memory store, with the clock and id
@@ -81,7 +87,8 @@ struct AppEnvironment: Sendable {
             wiring: SystemWiring(
                 alarmManager: DeferredAlarmManagerAdapter(), settingsOpener: NoopSettingsOpener(),
                 schedulesAlarmsInSystem: false,
-                preAlarmNotifications: NoopPreAlarmNotificationScheduler()))
+                preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
+                pedometerSource: UnavailablePedometerSource()))
     }
 
     /// A non-throwing in-memory graph for SwiftUI previews (the store is the fake;
@@ -109,6 +116,7 @@ struct AppEnvironment: Sendable {
         let settingsOpener: any SettingsOpener
         let schedulesAlarmsInSystem: Bool
         let preAlarmNotifications: any PreAlarmNotificationScheduling
+        let pedometerSource: any HistoricalPedometerSource
     }
 
     private static func make(
@@ -131,6 +139,12 @@ struct AppEnvironment: Sendable {
             adapter: wiring.alarmManager, settingsOpener: wiring.settingsOpener)
         let preAlarmResponder = PreAlarmNotificationResponder(
             processor: processor, notifications: wiring.preAlarmNotifications)
+        let preAlarmWork = PreAlarmBackgroundWork(
+            alarms: alarms,
+            pipeline: PreAlarmPipeline(
+                movementQuery: RecentMovementQuery(source: wiring.pedometerSource),
+                coordinator: promptCoordinator),
+            notifications: wiring.preAlarmNotifications, deviceTimeZone: { .current })
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -143,6 +157,7 @@ struct AppEnvironment: Sendable {
             authorizationCoordinator: authorizationCoordinator,
             preAlarmNotifications: wiring.preAlarmNotifications,
             preAlarmResponder: preAlarmResponder,
+            preAlarmWork: preAlarmWork,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

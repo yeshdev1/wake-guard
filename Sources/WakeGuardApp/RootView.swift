@@ -9,11 +9,15 @@ struct RootView: View {
     @Environment(\.appEnvironment) private var environment
     @State private var deepLink = DeepLinkModel()
     @State private var notificationDelegate: PreAlarmNotificationDelegate?
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var deepLink = deepLink
         AlarmListView()
             .task { await setUpPreAlarmNotifications() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await runPreAlarmWork() } }
+            }
             .onOpenURL { url in
                 let route = DeepLinkParser.route(for: url)
                 Task { await deepLink.open(route, using: environment) }
@@ -49,6 +53,18 @@ struct RootView: View {
         notificationDelegate = delegate
         UNUserNotificationCenter.current().delegate = delegate
         await environment.preAlarmNotifications.registerPromptCategory()
+        await environment.preAlarmNotifications.requestAuthorization()
+        // Foreground fallback (WG-089 / step 6): evaluate upcoming alarms now, so a prompt can surface
+        // when the app is open near an alarm even if no background opportunity ran.
+        await environment.preAlarmWork.run(now: environment.clock.now)
+    }
+
+    /// Re-run the pre-alarm evaluation on every foreground (production only) — advisory, de-duped, and
+    /// holds no alarm authority (#7/#8/#9), so it never affects whether an alarm rings.
+    @MainActor
+    private func runPreAlarmWork() async {
+        guard let environment, environment.schedulesAlarmsInSystem else { return }
+        await environment.preAlarmWork.run(now: environment.clock.now)
     }
 
     private var deepLinkErrorPresented: Binding<Bool> {

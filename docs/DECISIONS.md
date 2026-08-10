@@ -2839,6 +2839,37 @@ decisions are recorded above using the ADR template.
   (payload round-trip/fail-closed + responder routing incl. the #6 critical-gate). Device-only: the
   real tap→route and the system prompt → `RELEASE_CHECKLIST.md`.
 
+### Runs-on-a-phone step 6 (2026-08-10): pre-alarm evaluation work + foreground delivery
+
+- **What.** `PreAlarmBackgroundWork` — the advisory `work` that finds each enabled alarm whose next
+  occurrence is inside its pre-alarm lead window, runs the `PreAlarmPipeline` (movement → awake evidence
+  → prompt policy → de-dup), and **posts** the advisory notification when a prompt is recommended.
+  Composed in `AppEnvironment` (production: the real Core Motion pipeline; the in-memory graph: an
+  `UnavailablePedometerSource`, so it never posts). `RootView` runs it on **launch and every foreground**
+  (the WG-089 foreground fallback) and requests notification authorization, both gated on
+  `schedulesAlarmsInSystem` so ci/previews never touch the frameworks.
+- **Safety.** The work holds **no alarm authority** (#7/#8/#9): it only reads alarms + posts a
+  notification. Fail-safe — an unreadable repository posts nothing; de-duped by the persisted
+  coordinator (at most one prompt per occurrence); only inside the lead window; the pipeline applies the
+  evidence + imminence gates. A failed/skipped pass changes no alarm, and a critical alarm rings
+  regardless (#9). Cooperatively cancellable (checks `Task.isCancelled`) for a background expiry.
+- **Foreground is the delivery; background is opportunistic.** Per the architecture rule — *"treat
+  background execution as opportunistic; never require a `BGTaskScheduler` run to preserve a critical
+  alarm"* (#9) — the **foreground path wired here is the reliable delivery** (a prompt appears when the
+  app is open near an alarm). The opportunistic `BGTaskScheduler` trigger (running the same `work`
+  through the already-built, tested `PreAlarmBackgroundRunner`, WG-088) is the **remaining device
+  follow-up**: it needs the Info.plist `BGTaskSchedulerPermittedIdentifiers` + `UIBackgroundModes` and
+  on-device verification, and is **never required** for correctness (the foreground path + the alarm
+  itself deliver without it). Deferred deliberately rather than shipping unverifiable BG registration +
+  a possibly-wrong Info.plist.
+- **Carried-forward follow-up (from step 5).** The initial prompt posts `remindersUsed: 0`; persisting
+  the reminder count in the ledger (so a stale/duplicate notification tap can't exceed the cap) rides
+  with this posting infrastructure — still a prompt-only concern (no alarm-safety impact).
+- **Tests.** `make ci-fast` green — 640. `PreAlarmBackgroundWorkTests` (6): posts once for an alarm in
+  the lead window with recent movement; **de-dups** a second pass; posts nothing outside the window, for
+  a disabled pre-alarm policy, or when the repo is unreadable (fail-safe #9). Device-only: the real
+  foreground prompt + the notification-permission prompt → `RELEASE_CHECKLIST.md`.
+
 ### WG-091 (2026-08-10): Adversarial test — bathroom-return-to-bed scenario
 
 - **What it is.** A pure adversarial **scenario test** (`BathroomReturnToBedScenarioTests`, 10 cases)

@@ -42,6 +42,9 @@ enum PreAlarmNotificationPayload {
 /// the runtime is testable and only one adapter touches the framework. Posting / re-posting / cancelling
 /// a prompt never touches the alarm — the prompt is the advisory surface only (#7/#8).
 protocol PreAlarmNotificationScheduling: Sendable {
+    /// Request notification authorization (alert + sound) so prompts can be delivered — idempotent, and
+    /// a denial simply means no prompt appears (the alarm still rings; advisory-only, #7/#8).
+    func requestAuthorization() async
     /// Register the prompt category + its actions (idempotent; safe to call every launch).
     func registerPromptCategory() async
     /// Post (or re-post, for remind-later) the prompt for this occurrence, firing at `date`.

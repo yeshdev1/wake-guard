@@ -4,6 +4,7 @@ import Foundation
 /// tests must never touch `UserNotifications`, so nothing is registered, posted, or cancelled. The
 /// production graph composes `SystemPreAlarmNotificationScheduler`.
 struct NoopPreAlarmNotificationScheduler: PreAlarmNotificationScheduling {
+    func requestAuthorization() async {}
     func registerPromptCategory() async {}
     func postPrompt(_ context: PreAlarmResponseContext, at date: Date) async {}
     func cancelPrompt(alarmID: AlarmID, occurrence: Date) async {}
