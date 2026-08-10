@@ -62,15 +62,31 @@ final class PersistenceController: @unchecked Sendable {
         // notification is deferred to when a reader exists — see DECISIONS.)
     }
 
-    /// The programmatic managed-object model. Uses generic `NSManagedObject` with
+    /// Entity builders in schema-version order (v1 `SettingsRecord` … v6 `PreAlarmFeedbackRecord`). Each
+    /// version **adds** one entity — additive inferred-lightweight migration — so the schema as of
+    /// version N is simply the first N of these. Exposed (via `makeModel(throughVersion:)`) so the WG-017
+    /// migration harness can materialize any historical schema and prove it migrates to the latest.
+    private static let versionedEntityBuilders: [@Sendable () -> NSEntityDescription] = [
+        makeSettingsEntity, makeAlarmEntity, makeAuditEntity, makeOutboxEntity,
+        makePreAlarmPromptEntity, makePreAlarmFeedbackEntity,
+    ]
+
+    /// The latest schema version (the number of additive versions).
+    static var latestSchemaVersion: Int { versionedEntityBuilders.count }
+
+    /// The programmatic managed-object model (the latest schema). Uses generic `NSManagedObject` with
     /// KVC access, so no code-generated subclasses are needed.
     static func makeModel() -> NSManagedObjectModel {
+        makeModel(throughVersion: latestSchemaVersion)
+    }
+
+    /// The model as of schema `version` (1…latest) — the first `version` entities. The WG-017 harness
+    /// builds old-version stores from this to test migration forward to the latest model.
+    static func makeModel(throughVersion version: Int) -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
-        model.entities = [
-            makeSettingsEntity(), makeAlarmEntity(), makeAuditEntity(), makeOutboxEntity(),
-            makePreAlarmPromptEntity(), makePreAlarmFeedbackEntity(),
-        ]
-        model.versionIdentifiers = [schemaVersion]
+        let count = max(1, min(version, versionedEntityBuilders.count))
+        model.entities = versionedEntityBuilders.prefix(count).map { $0() }
+        model.versionIdentifiers = [String(count)]
         return model
     }
 

@@ -2895,6 +2895,23 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-017 (2026-08-10): Schema-migration test harness
+
+- **What.** A CI harness proving the Core Data schema migrates safely. Since every version **adds** one
+  entity (additive inferred-lightweight migration — v1 `SettingsRecord` … v6 `PreAlarmFeedbackRecord`),
+  the schema at version N is simply the first N entity builders. Exposed `makeModel(throughVersion:)` +
+  `latestSchemaVersion`; `makeModel()` now delegates to it (behavior-identical for the full model — all
+  Core Data repository tests still pass).
+- **Tests (`MigrationTests`, on-disk temp stores, in CI).** (1) A store created at **every** historical
+  version (v1…v5) migrates forward to the latest **preserving its data** (a `SettingsRecord` fixture
+  survives each hop) and the migrated store carries the newest entity. (2) An **incompatible** open (an
+  older model, migration off) **fails cleanly** — never silently discarding — and the data is still
+  **recoverable** with the correct model (#10).
+- **Why no adversarial review.** The real migrations are strictly additive, so they cannot lose or
+  reshape data; the incompatible-open test is the safety net for the day a **non-additive** change is
+  introduced (it must fail loudly and leave the store recoverable, not corrupt it). Device/TestFlight
+  app-update migration on a populated store → `RELEASE_CHECKLIST.md`.
+
 ### WG-023 (2026-08-10): International Date Line + unusual/extreme offsets
 
 - **Whole-day IDL skip.** When a zone crosses the Date Line it can skip an entire calendar day (e.g.
