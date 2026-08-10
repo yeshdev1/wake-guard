@@ -2895,6 +2895,22 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-127 (2026-08-10): Evidence-based habit suggestion library
+
+- **What.** `HabitLibrary.curated` — a **static, curated** set of sleep-hygiene tips, each mapped to a
+  readiness factor (WG-125), plus factor/assessment accessors.
+- **Static/curated, never AI-generated.** The list is fixed behavioural guidance (steady schedule,
+  morning daylight, wind-down, cool/dark room, protect wake time, ease evening screens).
+- **Contraindication-sensitive excluded — structurally.** `HabitSafety` tags each entry; only
+  `.generallySafe` behavioural tips are curated (no supplements, medication, intense exercise, fasting —
+  anything needing medical judgement). The accessors additionally **filter** out any
+  `.contraindicationSensitive` entry, and a content scan proves the curated text references no such topic.
+- **No treatment claims (#39).** Tips are framed as gentle support ("can help you settle"), never
+  treatment/cure/prevention; a scan finds no medical/treatment language.
+- **Relevant + non-nagging.** `suggestions(for: assessment)` offers tips only for **below-par** factors,
+  so a rested user is nudged with nothing. Foundation-only; no alarm authority. `make ci-fast` green —
+  813. Feeds WG-128.
+
 ### WG-126 (2026-08-10): Readiness explanation UI
 
 - **What.** `ReadinessExplanation.from(_ assessment:)` (pure) turns a WG-125 `ReadinessAssessment` into a
