@@ -3423,6 +3423,13 @@ decisions are recorded above using the ADR template.
   not `String(count)`; plural rules live in the catalog. Permission usage strings are present (base) and
   localized per market via `InfoPlist.xcstrings` (release step). `make ci-fast` green — 1138 (+4).
 
+### WG-207 (2026-08-11): Right-to-left layout
+
+- **What.** `RTLLayoutTests` — pins RTL-correct layout.
+- SwiftUI mirrors leading/trailing automatically; a scan pins no absolute `left`/`right`
+  alignment/padding/edges (none present) and that core rows use semantic edges. Directional SF Symbols
+  auto-mirror; icon review is the manual checklist. `make ci-fast` green — 1140 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
