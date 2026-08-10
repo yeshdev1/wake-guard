@@ -2895,6 +2895,29 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-107 (2026-08-10): International Date Line travel
+
+- **What.** Compose the WG-023 whole-day IDL skip with travel-zone selection (WG-104) and the WG-105/106
+  prompt, and pin the three acceptance criteria. **No new production code** — the mechanisms already
+  exist and compose; WG-107 is a matrix + explicit documentation (like WG-106).
+- **Occurrences do not duplicate.** A crossing yields exactly **one** strictly-future, deterministic
+  instant — absolute-instant, strictly-after-`now` semantics can't re-fire a past occurrence, and
+  re-resolving is idempotent. (A weekly alarm firing on each of two lived instances of a repeated weekday
+  is correct, not an unexpected duplicate.)
+- **User sees date as well as time.** A follow-local ring on the nonexistent day fires at the same
+  wall-clock on the **next existing day** (2011-12-30 → Dec 31 in Pacific/Apia), flagged
+  `.skippedAcrossDateLine` (surfaced by WG-106). Because the preview carries the actual resolved instant +
+  zone, the shifted **date** is available and correct — the prompt previews both option dates (Dec 31
+  Apia vs Dec 30 Tokyo). The `.skippedAcrossDateLine` flag tells the UI to show the date, not just time.
+- **Stay-fixed vs follow-local.** The IDL is resolved in whichever zone travel selects: the **anchor** for
+  stay-fixed (Apia → Dec 31), the **device** for follow-local (Tokyo → Dec 30, exact) — the same alarm,
+  two zones, the composition contrast.
+- **Critical behavior is explicit (#6/#7).** A critical alarm across the line is **never lost** (both
+  prompt options resolve a real future instant); a critical shift **confirms** (`.needsConfirmation`
+  until confirmed, #6); no response **keeps the anchor** (#7). Deterministic for follow-local/stay-fixed.
+  Composition of already-reviewed WG-023 + WG-104/105/106 primitives → no separate adversarial review.
+  `make ci-fast` green — 720.
+
 ### WG-106 (2026-08-10): DST transition during travel
 
 - **What.** Compose travel-zone selection (WG-021/104) with the explicit DST policy (WG-022) and
