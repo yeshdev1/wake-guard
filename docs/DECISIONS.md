@@ -3251,6 +3251,18 @@ decisions are recorded above using the ADR template.
   the real Core Data purge is a thin sweep over its output (composition). User-facing controls + deletion
   are WG-184. `make ci-fast` green — 1057 (+6).
 
+### WG-183 (2026-08-10): Full local export
+
+- **What.** `ExportBundle` / `ExportCategory` / `ShareableExport` / `ExportBuilder` (PrivacyDomain) + a
+  `DataExportModel` + `DataExportView`.
+- **Versioned + labeled.** The bundle carries `schemaVersion` and a human label + `exportedAt`, encoded as
+  pretty ISO-8601 JSON so an importer can detect the version; it round-trips.
+- **User-initiated, system-share-protected.** The export is built only on an explicit button tap, written to
+  a protected temp file, and offered via `ShareLink` — the OS + user choose the destination. A source-scan
+  pins the builder has no network API, so the export is never auto-transmitted.
+- **Composition seam.** Category payloads come from repositories via an injected async provider; import is
+  out of scope. `make ci-fast` green — 1066 (+6).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
