@@ -3520,6 +3520,13 @@ decisions are recorded above using the ADR template.
   tap callbacks at one instant debounce to one (no accumulation). Full-device soak on the matrix. `make
   ci-fast` green — 1179 (+3).
 
+### WG-229 (2026-08-11): Background expiration & termination
+
+- **What.** `BackgroundExpirationTerminationTests`.
+- Expiration cancels in-flight work and still completes the task safely; an interrupted external schedule is
+  `.uncertain` (never a silent apply); `reconcile()` repairs the uncertainty by scheduling the desired
+  alarm. `make ci-fast` green — 1181 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
