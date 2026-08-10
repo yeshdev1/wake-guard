@@ -2895,6 +2895,27 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-100 (2026-08-10): System time-zone observer (E06 start)
+
+- **What.** The **no-GPS travel signal** (CLAUDE.md forbids continuous GPS for travel detection): watch
+  the device time zone. A pure `TimeZoneChangeDetector.observe(current:)` compares the current IANA zone
+  to a persisted last-known one and returns a `TimeZoneChange(previous, current)` — or `nil`. One reducer
+  serves both paths: the live `NSSystemTimeZoneDidChange` notification and launch reconciliation.
+- **The three behaviors.** First observation → baseline only (no change). A repeat of the same zone →
+  **idempotent** (no phantom change), so coalesced/duplicate notifications are harmless. A different zone
+  — live, or a persisted baseline that differs at launch (a change **missed while the app was closed**) —
+  → a `TimeZoneChange`. Launch reconciliation is just `observe(current:)` at launch.
+- **Boundaries.** `SystemTimeZoneMonitor` is the only reader of `TimeZone.current` / the system
+  notification; it **fails closed on a non-IANA zone** (a fixed-offset simulator zone, #11 — never a
+  crash, never a spurious change). The last-known zone persists in `UserDefaults` behind a
+  `TimeZoneStateStore` port (a small non-alarm preference; deliberately not the Core Data store), fail-
+  closed on a corrupt value. It is **advisory** — a detected change is handed to a callback and **never
+  re-anchors or mutates an alarm** on its own (that decision is WG-104/105).
+- **Scope.** Detection + recording + idempotency + launch catch-up (the acceptance). The change has no
+  consumer yet — the travel-context model (WG-101) and the zone-change prompt (WG-105) wire it. Pure,
+  advisory, well-tested → no adversarial review. `make ci-fast` green — 667. Device travel-sim →
+  `RELEASE_CHECKLIST.md`.
+
 ### WG-019 (2026-08-10): Privacy-safe structured logging
 
 - **What.** A structured-logging primitive whose redaction is **structural, not a runtime scan**.

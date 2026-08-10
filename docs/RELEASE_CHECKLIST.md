@@ -42,6 +42,7 @@
 - [ ] Follow-local and fixed-zone semantics are documented and tested.
 - [ ] Stale travel prompts are harmless.
 - [ ] Manual clock/time-zone changes are tested.
+- [ ] Time-zone observer on device (**manual travel sim**, WG-100): changing the device time zone (Settings, or flying) records the **previous → current** IANA zone; relaunching after a zone change that happened **while the app was closed** catches it **once** (launch reconciliation); repeated/no-op zone notifications don't re-fire; a fixed-offset/non-geographic device zone is skipped without a crash (#11). Detecting a change **never re-anchors an alarm** on its own — the travel prompt is WG-104/105.
 
 ## Lifecycle and reliability
 
