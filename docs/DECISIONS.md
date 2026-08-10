@@ -2895,6 +2895,35 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-103 (2026-08-10): Optional region-monitoring rules
+
+- **What.** A pure, advisory debounce mechanic for optional geofence-style regions: `RegionDebouncer`
+  folds noisy enter/exit `RegionEvent`s into a single **stable** `RegionState`, and `RegionMonitoringRule`
+  wraps it with **opt-in** enable/disable and a clamped dwell. No device adapter — the `CLLocationManager`
+  region source that would *feed* events is a follow-on with no consumer until WG-104.
+- **Explicit enable/disable (opt-in).** `isEnabled` defaults **false**; a disabled rule returns `.unknown`
+  (the safe fallback) without consulting the debouncer, so an off-by-default optional rule drives no
+  decision.
+- **Debounce = dwell.** A crossing commits only if it held for ≥ `dwellTime` before the next crossing (or
+  `now` for the final event); a flip that reverses sooner is boundary noise and never commits. `dwellTime`
+  is clamped to a **≥ 30 s** minimum (fallback 60 s on non-finite/sub-30), so a pathological config can't
+  disable debouncing.
+- **Adversarial-robust (from `alarm-safety-reviewer`).** The review found three SHOULD-FIX debounce bugs;
+  all fixed and pinned: events are **sorted** (callback order isn't trusted); a **future-dated** event
+  (backward clock) is **dropped** — it can't commit or bound a dwell, so the present degrades to `.unknown`
+  rather than a stale commit; and a **signal-loss `.unknown`** is treated as a real boundary that
+  **interrupts** the preceding dwell (confidence must be re-established, never assumed across a gap).
+  Every path biases toward `.unknown`.
+- **Fail-closed decode (#27).** `RegionState` decodes an unrecognized raw value to `.unknown`, never a
+  confident `.inside`/`.outside`.
+- **No alarm authority (#8/#9).** Region types are `{identifier, isEnabled, dwellTime}` / a plain state —
+  nothing referencing an alarm, criticality, or command (a `Mirror` test pins this). A region signal can
+  never suppress a critical alarm; it will at most, once WG-104 exists, surface an advisory travel prompt.
+- **Naming.** Renamed from `RegionRule` → `RegionMonitoringRule` to avoid collision with the **existing**
+  `AlarmDomain.RegionRule` **policy** type (region → `TravelBehavior` with a mandatory non-region
+  `SafeFallback`). That is the *policy* mapping; this is the *detection* mechanic — a distinct layer.
+  `make ci-fast` green — 691. Feeds WG-104 (travel policy evaluator).
+
 ### WG-102 (2026-08-10): Low-power significant-location adapter
 
 - **No continuous GPS.** The adapter uses **only** `startMonitoringSignificantLocationChanges`
