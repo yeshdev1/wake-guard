@@ -3362,6 +3362,14 @@ decisions are recorded above using the ADR template.
   not simulated behavior — test-pinned. **E10 (Privacy, security, compliance) complete: WG-180–191.**
   `make ci-fast` green — 1105 (+5).
 
+### WG-200 (2026-08-11): Progressive onboarding (E11 start)
+
+- **What.** `OnboardingPlan` (essentials vs feature-triggered) + `OnboardingStep`/`OnboardingModel` + view.
+- **Essentials only.** Onboarding requests alarm + notifications; the five optional data permissions are
+  feature-triggered (asked in context later), and the two sets partition all categories disjointly (#37).
+- **Skip stays useful.** Only the first-alarm step is skippable; skipping still reaches `.ready` (a usable
+  app), and welcome/ready can't be skipped. `make ci-fast` green — 1112 (+7).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
