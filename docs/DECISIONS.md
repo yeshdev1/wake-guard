@@ -2895,6 +2895,20 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-147 (2026-08-10): Calendar-change refresh
+
+- **What.** `CalendarChangeRefreshPolicy` (pure) + `TomorrowPlanRefresher` (`@MainActor`) keep the plan
+  fresh when the calendar changes. Mirrors WG-108's coalescing.
+- **Changes invalidate stale proposals.** A change bumps a generation; a proposal computed at an older
+  generation is stale (`isProposalStale`), so the UI never shows/applies a stale recommendation — and it
+  stays stale until a refresh runs.
+- **Prompt frequency is bounded.** `shouldRefresh` allows a refresh only once `minimumRefreshInterval`
+  (default 60 s) has elapsed, so a burst of change notifications is coalesced into one refresh.
+- **No automatic critical mutation.** `refreshIfNeeded` only recomputes the **advisory** presentation via
+  the injected closure; the refresher holds **no alarm dependency**, so a calendar change can never apply
+  an alarm change — applying remains the user's explicit WG-146 action. `make ci-fast` green — 888. Feeds
+  WG-148.
+
 ### WG-146 (2026-08-10): Tomorrow-plan recommendation screen
 
 - **What.** `TomorrowPlanPresenter.present` (pure) + `TomorrowPlanView` (thin SwiftUI) present the WG-145
