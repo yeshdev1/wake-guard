@@ -3127,9 +3127,17 @@ decisions are recorded above using the ADR template.
   audit trail is unambiguous about who changed an alarm.
 - **Permission-gated, critical-safe (#6, WG-171).** Recommend-only never submits; an acting mode submits
   only after the user confirms; a critical change without confirmation returns `.needsUserConfirmation` and
-  is never submitted. This is where the WG-171 policy actually gates the command path. Composition wiring
-  (the WG-166 `commit` seam, the Tomorrow-agent accept) is a follow-up. `make ci-fast` green — 1017 (+7).
-  Feeds WG-173.
+  is never submitted. This is where the WG-171 policy gates the command path.
+- **Critical enforcement is the engine, not the orchestrator (review correction).** The alarm-safety review
+  found that `targetIsCritical` is only *advisory* (drives whether to prompt) — the authoritative guarantee
+  is `DefaultAlarmPolicyEngine`, which re-reads the alarm's real criticality and **rejects any destructive
+  agent-proposed change to a critical alarm regardless of confirmation** (#4). So even a confirmed agent
+  proposal yields `.handed(.rejected)` and the AI can never weaken a critical alarm — a defense-in-depth
+  backstop stronger than the orchestrator's own gate. An **integration test** through the real processor +
+  engine pins this (a confirmed *and* an unconfirmed agent change to a genuinely critical alarm ⇒ rejected,
+  no mutation, `.rejected` audit from `.approvedAgentProposal`). Powerlessness is source-scan-enforced
+  (single-target build), not module-enforced. Composition wiring (the WG-166 `commit` seam, the
+  Tomorrow-agent accept) is a follow-up. `make ci-fast` green — 1017 (+7). Feeds WG-173.
 
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 

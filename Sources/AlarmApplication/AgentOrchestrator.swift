@@ -16,8 +16,12 @@ enum AgentHandoffResult: Sendable, Equatable {
 /// to the AI (`CommandSource.agentProposal` / `AuditActor.approvedAgentProposal`), so the audit trail
 /// always distinguishes an AI proposal from a direct user action (#46), and every submission passes through
 /// the command boundary's policy authorization. It honours the permission mode (WG-171): recommend-only
-/// never applies, and an acting mode applies only once the user has confirmed the change — so a critical
-/// alarm is never mutated without confirmation (#6).
+/// never applies, and an acting mode applies only once the user has confirmed the change.
+///
+/// **Critical alarms:** the orchestrator's `targetIsCritical` gate is advisory UX (whether to prompt). The
+/// *authoritative* guarantee is the policy engine itself — it re-reads the alarm's real criticality and
+/// **rejects any destructive agent-proposed change to a critical alarm regardless of confirmation** (#4/#6).
+/// So even a confirmed agent proposal can never weaken a critical alarm; the AI cannot suppress one at all.
 struct AgentOrchestrator: Sendable {
     private let processor: any AlarmCommandProcessing
     private let permissionPolicy: AgentActionPolicy
@@ -31,8 +35,10 @@ struct AgentOrchestrator: Sendable {
     }
 
     /// Apply an accepted proposal. `command` was built from a schema-validated, deterministically-checked
-    /// intent (WG-163/165/168); `mode` is the user's permission setting; `targetIsCritical` reflects the
-    /// alarm being changed; `userConfirmed` is whether the user explicitly confirmed **this** change.
+    /// intent (WG-163/165/168); `mode` is the user's permission setting; `targetIsCritical` is an
+    /// **advisory** hint for whether to prompt (the engine independently re-checks real criticality and is
+    /// the authority — see the type doc); `userConfirmed` is whether the user explicitly confirmed **this**
+    /// change.
     func apply(
         _ command: AlarmCommand, mode: AgentPermissionMode, targetIsCritical: Bool,
         userConfirmed: Bool
