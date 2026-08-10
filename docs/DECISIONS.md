@@ -2895,6 +2895,29 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-121 (2026-08-10): Contextual HealthKit authorization
+
+- **What.** `HealthAuthorizationCoordinator` (domain) requests HealthKit **read** access to **exactly**
+  the WG-120 plan's types and folds the result into a coarse `HealthAccessSummary`;
+  `HealthKitAuthorizationAdapter` (infrastructure) is the real `HKHealthStore` behind the port.
+- **Only necessary read types.** The coordinator requests `Set(plan.requestedTypes)` — never a hardcoded
+  or wider set — and the adapter calls `requestAuthorization(toShare: [], read:)` (share/write is
+  literally empty). `sleepAnalysis` is the only mapped `HKObjectType`, at the adapter boundary.
+- **Denied / partial / unavailable supported.** `HealthAccessSummary.of(requested:authorized:anyDenied:)`
+  folds on counts → `.granted` / `.partial` / `.denied` / `.notDetermined`; `unavailable` (HealthKit
+  absent) returns **before** any request. `partial` is genuinely supported (tested via synthetic 2-type
+  counts) even though only one type is requested today.
+- **Read-authorization honesty.** HealthKit deliberately hides *read* status, so the adapter reports
+  `.authorized` = "the user was asked"; genuine readability is a WG-122 **query** concern, never claimed
+  here. An errored/restricted request fails closed to `.restricted` (no raw error text logged, #41).
+- **App remains functional (#36/#38).** Only `.granted`/`.partial` enable the **optional** readiness
+  feature; every other state degrades it, and nothing in HealthDomain references alarms/scheduling — so
+  health authorization can never affect whether an alarm rings.
+- **Config.** Added `INFOPLIST_KEY_NSHealthShareUsageDescription` (accurate, disclaims raw/cloud, "never a
+  diagnosis", #39) and the `com.apple.developer.healthkit` entitlement (`WakeGuard.entitlements`).
+  `privacy-security-reviewer`: **APPROVE, no BLOCKER/SHOULD-FIX** — read-only, minimal, non-leaking; the
+  entitlement + test-double-filename NITs were applied. `make ci-fast` green — 760. Feeds WG-122.
+
 ### WG-120 (2026-08-10): Wellness data-minimization plan (E07 start)
 
 - **What.** A typed, Foundation-only registry (`WellnessDataMinimizationPlan.mvp`) + a plan doc

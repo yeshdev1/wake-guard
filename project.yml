@@ -28,6 +28,13 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: Sources           # single app target, feature folders (ADR-003)
+    entitlements:
+      path: WakeGuard.entitlements
+      properties:
+        # HealthKit read access (WG-121). Read-only; the app never writes (toShare: []). Required for
+        # real on-device authorization/queries; without it the request fails closed to .restricted and
+        # the app stays functional (health is optional, #36/#38).
+        com.apple.developer.healthkit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.app
@@ -42,6 +49,7 @@ targets:
         INFOPLIST_KEY_NSAlarmKitUsageDescription: "WakeGuard schedules system alarms so your wake-up and critical alarms reliably ring — through silent mode and Focus — at the times you set."
         INFOPLIST_KEY_NSMotionUsageDescription: "WakeGuard uses step and motion data only to run the wake-up walk challenge and to check whether you're already up just before an alarm. It never uses your location and never reads your saved workouts or health records."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "WakeGuard checks your approximate location only to notice when you've travelled to a new time zone, so it can keep your alarms correct. It uses low-power location (significant changes only), never continuous GPS, and never stores where you are."
+        INFOPLIST_KEY_NSHealthShareUsageDescription: "WakeGuard reads your recent sleep from Health only to estimate your sleep duration and consistency and explain your morning readiness — on your device, never stored raw or sent to the cloud. It's optional, and it's a sleep estimate, never a diagnosis."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1,2"
