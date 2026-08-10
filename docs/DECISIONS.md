@@ -2895,6 +2895,34 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-109 (2026-08-10): Location permission education and controls
+
+- **What.** The optional significant-location feature's user-facing education + control. `LocationEducation`
+  (pure copy) explains the approximate purpose, the low-power/never-GPS battery behavior, and that the app
+  works without permission; `LocationMonitoringModel` (`@MainActor @Observable`) reads the OS auth status
+  and the persisted `locationContextEnabled` control and lets the user enable/**disable** it;
+  `LocationPermissionSection` is a thin SwiftUI view. Reuses the existing opt-in setting (default false).
+- **Works without permission.** Time-zone travel detection (WG-100) is Foundation-only with no location
+  dependency, so it runs regardless of the OS permission or this control — the education states it, and a
+  `.denied`-status test proves the control still functions.
+- **User can disable.** `setMonitoringEnabled` is never gated on authorization — disabling (or enabling) is
+  always available and persists; it changes **only** `locationContextEnabled` (a full-`AppSettings`-equality
+  test pins that no other flag or alarm state moves). A failed save leaves the shown state at the persisted
+  truth (`saveDidFail`) rather than optimistically flipping.
+- **No alarm authority, no location data.** The model depends only on `SettingsRepository` +
+  `SignificantLocationSource`; it stores/logs no coordinates or timestamps and cannot reach an alarm — so
+  the control can never affect whether an alarm rings (#9).
+- **The copy's privacy promises are locked (#41).** `privacy-security-reviewer` cross-checked every claim
+  as accurate against the WG-102 adapter (timestamp-only, `startMonitoringSignificantLocationChanges`-only,
+  never coordinates/continuous GPS) and WG-100 (no location dependency), and **APPROVED** with no
+  BLOCKER/SHOULD-FIX. Its suggested source-guard test was added: `LocationPrivacyGuardTests` scans (comment-
+  stripped) `Sources/` and fails if a continuous/high-precision location API appears, if time-zone code
+  gains a Core Location dependency, or if Core Location spreads beyond the one WG-102 adapter — so a future
+  edit can't silently turn the education into a lie.
+- **Follow-on.** The control→adapter wiring (enabling actually starts the WG-102 monitor) is the
+  device/composition step — `locationContextEnabled` had no consumer before this. `make ci-fast` green —
+  742. Feeds WG-110.
+
 ### WG-108 (2026-08-10): Airport/transit and rapid zone changes
 
 - **What.** `RapidZoneChangeGate` — a pure gate over versioned time-zone observations that coalesces
