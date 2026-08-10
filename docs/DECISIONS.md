@@ -2895,6 +2895,34 @@ decisions are recorded above using the ADR template.
   opportunistic `BGTaskScheduler` trigger, the change-time-from-notification UI, and persisting
   `remindersUsed` — none affect whether or when an alarm rings, #9).
 
+### WG-105 (2026-08-10): Time-zone change prompt
+
+- **What.** `TimeZoneChangePromptBuilder.makePrompt(for:decision:zoneChange:now:)` turns a WG-104
+  `.prompt` decision into a `TimeZoneChangePrompt` that previews the old (keep-anchor) and new
+  (follow-local) ring times, and `TimeZoneChangePrompt.resolve(_:)` classifies the user's response into a
+  safe `TimeZoneChangePromptEffect` (`keepAsDocumented` / `apply` / `needsConfirmation`). Pure — ring
+  previews come from the deterministic `AlarmSchedulingEngine`; no clock/ambient state.
+- **Previews old/new ring times.** Each option carries the next occurrence strictly after `now` in **its
+  own** zone — keep-anchor in `alarm.schedule.anchorTimeZone`, follow-local in `zoneChange.current` —
+  plus the zone (so the UI renders the right wall clock, #11). A past-only one-time occurrence is `nil`
+  ("won't ring"), never a wrong instant. The previews reuse the WG-022/023 DST-gap / fall-back / IDL
+  policy for free.
+- **No response preserves the documented default (#7/#16) — pinned at THIS boundary.** A no-response
+  resolves to `.keepAsDocumented(.keepAnchorZone)`. Crucially, `makePrompt` **pins** the prompt's
+  structure itself (standing = keep-anchor, alternative = follow-local) rather than trusting the decision
+  payload, so no response can never silently re-anchor — even if a future/hostile decision defaulted its
+  standing slot to follow-local. (Review SHOULD-FIX: the first cut forwarded the decision's `standing`
+  verbatim, making #7 depend on WG-104's construction in another file; fixed + pinned by a
+  hostile-decision test.)
+- **Critical changes confirm (#6).** `alternativeRequiresConfirmation = (alarm.criticality == .critical)`
+  — computed by the builder, **independent** of the decision. `resolve(.followLocal(confirmed: false))`
+  on a critical alarm returns `.needsConfirmation` (nothing applied); only `confirmed: true` applies.
+  Keeping the anchor is never a change, so it never needs confirmation. The reviewer confirmed no input
+  can move a critical alarm to follow-local unconfirmed.
+- **No alarm authority.** `resolve` only classifies into an effect; the actual reschedule is the policy
+  engine's job (gated by that confirmation). The notification/sheet rendering + wiring is the device/UI
+  layer (`RELEASE_CHECKLIST.md`; no consumer yet). `make ci-fast` green — 710. Feeds WG-106/107.
+
 ### WG-104 (2026-08-10): Travel policy evaluator
 
 - **What.** `TravelPolicyEvaluator.evaluate(travel:behavior:anchorZone:)` turns a detected travel event
