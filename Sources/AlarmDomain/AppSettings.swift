@@ -16,6 +16,9 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
     var smartFeaturesKillSwitch: Bool
     /// How much autonomy the advisory agent has (WG-171). Privacy-first default: recommend-only.
     var agentPermissionMode: AgentPermissionMode
+    /// **Separate, explicit** consent to send minimized data to an optional cloud model (WG-174) — distinct
+    /// from `cloudAIEnabled`. Cloud use requires **both** the feature flag *and* this consent; default off.
+    var cloudAIConsented: Bool
 
     static let `default` = AppSettings(
         preAlarmPromptEnabled: false,
@@ -26,7 +29,8 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
         experimentalAntiCheatEnabled: false,
         analyticsEnabled: false,
         smartFeaturesKillSwitch: false,
-        agentPermissionMode: .recommendOnly)
+        agentPermissionMode: .recommendOnly,
+        cloudAIConsented: false)
 }
 
 extension AppSettings {
@@ -48,5 +52,7 @@ extension AppSettings {
         agentPermissionMode =
             try container.decodeIfPresent(AgentPermissionMode.self, forKey: .agentPermissionMode)
             ?? .recommendOnly
+        cloudAIConsented =
+            try container.decodeIfPresent(Bool.self, forKey: .cloudAIConsented) ?? false
     }
 }

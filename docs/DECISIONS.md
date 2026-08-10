@@ -3156,6 +3156,22 @@ decisions are recorded above using the ADR template.
   explanation prompts carry only minimized app-generated factors, so they need no delimiting.
   `make ci-fast` green — 1024. Feeds WG-176.
 
+### WG-174 (2026-08-10): Optional cloud-provider interface behind a feature flag
+
+- **What.** `CloudLanguageModelClient` + a `CloudModelTransport` port, gated by `CloudProviderGate`, fed
+  only `CloudSafeRequest`s cleared by `CloudRedactor`; a separate `AppSettings.cloudAIConsented` flag.
+- **Off by default, two-key consent.** Cloud requires **both** the `cloudAIEnabled` feature flag **and** the
+  distinct `cloudAIConsented` consent — enabling the feature is not the same as consenting to transmit
+  data, and both default off (ADR-004 stays: on-device only in the MVP).
+- **Default-deny redaction as a compiler boundary (#35).** `CloudSafeText`'s initializer is `fileprivate`;
+  the only way to make one is `CloudRedactor.clear(_:classification:)`, which denies `.sensitive` and clears
+  only `.nonSensitive`. The transport accepts **only** a `CloudSafeRequest` — a raw prompt cannot be sent by
+  construction, not by convention. The client also fails closed to `.unavailable` (never touching the
+  transport) when the gate is off.
+- **Scope.** The network transport is a port (real impl deferred; cloud stays off). Which minimized fields
+  are ever cloud-eligible is WG-181's job; WG-174 guarantees only that nothing reaches the transport except
+  an explicitly-cleared request. `make ci-fast` green — 1030 (+6).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
