@@ -87,6 +87,10 @@ struct AppEnvironment: Sendable {
     /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
     /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
     let languageModelProvider: any LanguageModelProvider
+    /// The sleep-sample source for the readiness card (WG-121). Production reads HealthKit; the in-memory
+    /// graph returns no samples (readiness degrades to "not enough data", #36/#38). Read-only, on device,
+    /// never stored raw (#41); holds no alarm authority.
+    let sleepQuery: any SleepSampleQuerying
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -113,6 +117,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 languageModelProvider: FoundationModelsLanguageModelProvider(),
+                sleepQuery: HealthKitSleepQueryAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
                     // The location source's `authorizationStatus()` returns the domain enum, so the
@@ -143,6 +148,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
                 languageModelProvider: UnavailableLanguageModelProvider(),
+                sleepQuery: UnavailableSleepQuery(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }
@@ -175,6 +181,7 @@ struct AppEnvironment: Sendable {
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
         let languageModelProvider: any LanguageModelProvider
+        let sleepQuery: any SleepSampleQuerying
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
         /// in-memory graph returns a hermetic fixed status (so tests/previews never touch a framework).
@@ -269,6 +276,7 @@ struct AppEnvironment: Sendable {
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
             languageModelProvider: wiring.languageModelProvider,
+            sleepQuery: wiring.sleepQuery,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

@@ -3895,6 +3895,24 @@ decisions are recorded above using the ADR template.
   alarm through the processor. `make ci-fast` green — 1239 (+2 onboarding, +4 conversational across the two
   commits).
 
+### Composition wiring E2 + onboarding ordering (2026-08-11)
+
+- **E2 readiness.** `SleepSampleQuerying` is composed in the graph (`HealthKitSleepQueryAdapter` in
+  production; hermetic `UnavailableSleepQuery` in-memory). A **Readiness** toolbar entry opens
+  `ReadinessScreen`, which requests Health read access in context and shows the readiness estimate —
+  **never a diagnosis** (#39). Health is optional (#36/#38): denied access or no data (the simulator) →
+  "not enough data", never a fabricated score. Test: `ReadinessWiringTests` (graph sleep source →
+  degraded-safely).
+- **Onboarding ordering.** `RootView` now shows onboarding **instead of** the list (not as an overlay), so
+  the list's launch work (reconcile, permission reads, notification setup) never runs behind the intro —
+  no app-initiated permission prompt precedes onboarding. Notification setup moved to `startLifecycle`,
+  which runs only when the list is shown (post-onboarding, or immediately for an already-onboarded user).
+  Non-production graphs skip onboarding and go straight to the list, so previews/UI tests are unchanged.
+- **Residual (device, WG-030).** A notification-permission prompt still appears at launch **before** the
+  view hierarchy's own requests — it is AlarmKit's own request (alarms are delivered via notifications), not
+  app view ordering; it fires with the list *not yet mounted*. Its exact timing/behavior is device-only.
+  `make ci-fast` green — 1240.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

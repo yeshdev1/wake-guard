@@ -92,6 +92,14 @@ private struct AlarmListScreen: View {
                     }
                     .accessibilityIdentifier("privacySettingsButton")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        ReadinessScreen()
+                    } label: {
+                        Label("Readiness", systemImage: "bed.double")
+                    }
+                    .accessibilityIdentifier("readinessButton")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button {

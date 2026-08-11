@@ -10,22 +10,33 @@ struct RootView: View {
     @State private var deepLink = DeepLinkModel()
     @State private var notificationDelegate: PreAlarmNotificationDelegate?
     @State private var onboarding = OnboardingModel()
+    @State private var onboardingResolved = false
     @State private var needsOnboarding = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        @Bindable var deepLink = deepLink
-        AlarmListView()
-            .task {
-                await setUpPreAlarmNotifications()
-                await runRetentionCleanup()
-                startTimeZoneMonitoring()
-                await loadOnboardingState()
-            }
-            .fullScreenCover(isPresented: $needsOnboarding) {
+        // Onboarding **replaces** the list until it's done, so the list's launch work (reconcile,
+        // permission reads, notification setup) never runs behind the intro — no permission prompt
+        // precedes onboarding. While the persisted flag is being read, show a brief placeholder.
+        Group {
+            if !onboardingResolved {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("launchResolving")
+            } else if needsOnboarding {
                 OnboardingView(
                     model: onboarding, onFinished: { Task { await completeOnboarding() } })
+            } else {
+                mainList
             }
+        }
+        .task { await loadOnboardingState() }
+    }
+
+    @ViewBuilder private var mainList: some View {
+        @Bindable var deepLink = deepLink
+        AlarmListView()
+            .task { await startLifecycle() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await runPreAlarmWork() } }
             }
@@ -49,6 +60,15 @@ struct RootView: View {
             } message: { message in
                 Text(message)
             }
+    }
+
+    /// The list's launch work — runs only once the list is shown (post-onboarding, or immediately for an
+    /// already-onboarded user), so any permission prompt appears after the intro, never before it.
+    @MainActor
+    private func startLifecycle() async {
+        await setUpPreAlarmNotifications()
+        await runRetentionCleanup()
+        startTimeZoneMonitoring()
     }
 
     /// Register the pre-alarm prompt category + install the notification delegate on launch — only in
@@ -75,7 +95,14 @@ struct RootView: View {
     /// the list. Reads the persisted flag; a fresh install (or a failed read → default) shows the intro.
     @MainActor
     private func loadOnboardingState() async {
-        guard let environment, environment.schedulesAlarmsInSystem else { return }
+        guard !onboardingResolved else { return }
+        // Always resolve, so the list eventually shows. Non-production graphs (previews / UI tests) skip
+        // onboarding entirely and go straight to the list.
+        defer { onboardingResolved = true }
+        guard let environment, environment.schedulesAlarmsInSystem else {
+            needsOnboarding = false
+            return
+        }
         let settings = (try? await environment.settingsRepository.settings()) ?? .default
         needsOnboarding = !settings.hasCompletedOnboarding
     }
@@ -84,11 +111,14 @@ struct RootView: View {
     /// save just means the intro shows once more, never a broken launch.
     @MainActor
     private func completeOnboarding() async {
+        // Persist first, then switch to the list — its `startLifecycle` requests the notification
+        // permission in context, after the intro rather than before it.
+        if let environment {
+            var settings = (try? await environment.settingsRepository.settings()) ?? .default
+            settings.hasCompletedOnboarding = true
+            try? await environment.settingsRepository.save(settings)
+        }
         needsOnboarding = false
-        guard let environment else { return }
-        var settings = (try? await environment.settingsRepository.settings()) ?? .default
-        settings.hasCompletedOnboarding = true
-        try? await environment.settingsRepository.save(settings)
     }
 
     /// Prune local data past its retention window on launch — production only, opportunistic + best-effort
