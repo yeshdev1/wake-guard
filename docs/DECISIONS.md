@@ -3741,6 +3741,23 @@ decisions are recorded above using the ADR template.
   until E14 composition (incl. the WG-250 App Store blockers) + device verification (WG-030). `make ci-fast`
   green — 1208 (+2), 0 unexpected. See `docs/reviews/EPOCH_12_RC_BUG_BASH.md`.
 
+### WG-252 (2026-08-11): Final regression — E13 (adversarial review) complete
+
+- **What.** The E13 capstone. Full available automated suite re-run after all E13 fixes: `make ci-fast` —
+  **1208 tests, 0 failures, 0 unexpected, 0 warnings**, lint/format/build clean. (Unit+integration; the
+  XCUITest scheme + device matrix are out of scope — UI largely unhosted pending E14, device behavior needs
+  WG-030.)
+- **E13 complete — 13/13 epochs (WG-240–252).** Every epoch produced CI pins; the genuine gaps were fixed:
+  critical-status masking + double-commit (241), `Etc/GMT±` (242), anti-shake gate (243), reconcile
+  lost-update + fail-closed re-validation (244/251), prompt redaction + leak-scan (246), a11y consequence +
+  Reduce-Motion (247), primary-CTA/fonts + honest visual-regression docs (248), perf/HealthKit locks (249),
+  and pins for the NL criticality carrier (245), the App Store false-assurance gap (250), and diagnostics
+  fail-safe surfacing (251).
+- **Release state.** The deterministic safety core is RC-quality and regression-locked (50 invariants → code
+  → tests). Shipping is gated on **E14 composition** (the WG-250 App Store blockers + challenge/tz-monitor/
+  diagnostics/sensor wiring) and **on-device verification** (WG-030) — both tracked, neither a defect in the
+  logic that exists. See `docs/reviews/EPOCH_13_FINAL_REGRESSION.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
