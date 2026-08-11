@@ -3824,6 +3824,20 @@ decisions are recorded above using the ADR template.
   `AppEnvironmentTests.testInMemoryGraphExposesReachablePrivacyControls`. `make ci-fast` green — 1225.
   Follow-up (manual): a `PrivacyControlsReachableUITests` navigation test (UITests aren't in `ci-fast`).
 
+### Composition wiring B (2026-08-11): time-zone monitor started
+
+- **What.** `SystemTimeZoneMonitor` was built but never started. Now composed in `AppEnvironment` and started
+  at launch by `RootView` (production-gated), with an `onChange` that runs `processor.reconcile()` — so a
+  device zone change while the app is backgrounded corrects the alarm schedule **live** (via
+  `NSSystemTimeZoneDidChange`), not only on the next foreground; `start()`'s launch reconcile also catches a
+  change made while the app was closed. Advisory — holds no alarm authority (#9); the in-memory graph
+  composes it but never starts it (hermetic).
+- **Secret-audit proximity guard.** The monitor's `UserDefaultsTimeZoneStateStore` lives in
+  `AppEnvironment+TimeZone.swift`, not `AppEnvironment.swift`, so the file that names the cloud token never
+  also mentions UserDefaults (`SecretHandlingAuditTests` false-positive avoided; the token still goes only to
+  the Keychain). Test: `SystemTimeZoneMonitorTests` (start() reconciles once against a missed change,
+  device-zone-independent). `make ci-fast` green — 1227 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

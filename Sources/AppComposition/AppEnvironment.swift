@@ -71,6 +71,10 @@ struct AppEnvironment: Sendable {
     /// The export data source (WG-183): gathers the user's local records (alarms, audit, settings) for the
     /// export flow. No network — the bundle goes to the system share sheet.
     let exportData: ExportDataProvider
+    /// The device time-zone monitor (WG-100): started at launch in production, it reconciles alarms when the
+    /// system zone changes — so a background zone change is corrected live, not only on the next foreground.
+    /// Advisory (holds no alarm authority); the in-memory graph composes it but never starts it (hermetic).
+    let timeZoneMonitor: SystemTimeZoneMonitor
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -215,6 +219,7 @@ struct AppEnvironment: Sendable {
             consentStatusProvider: consentStatusProvider,
             deletionCoordinator: DeletionCoordinator(eraser: dataEraser),
             exportData: ExportDataProvider(alarms: alarms, audit: audit, settings: settings),
+            timeZoneMonitor: makeTimeZoneMonitor(processor: processor),
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

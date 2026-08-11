@@ -17,6 +17,7 @@ struct RootView: View {
             .task {
                 await setUpPreAlarmNotifications()
                 await runRetentionCleanup()
+                startTimeZoneMonitoring()
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await runPreAlarmWork() } }
@@ -69,6 +70,15 @@ struct RootView: View {
     private func runRetentionCleanup() async {
         guard let environment, environment.schedulesAlarmsInSystem else { return }
         await environment.retentionCleanup.run()
+    }
+
+    /// Start the device time-zone monitor at launch — production only (WG-100). It reconciles alarms in the
+    /// new zone when the system zone changes, so a background zone change is corrected live rather than
+    /// only on the next foreground. `start()` is idempotent; the monitor lives in the environment.
+    @MainActor
+    private func startTimeZoneMonitoring() {
+        guard let environment, environment.schedulesAlarmsInSystem else { return }
+        environment.timeZoneMonitor.start()
     }
 
     /// Re-run the pre-alarm evaluation on every foreground (production only) — advisory, de-duped, and
