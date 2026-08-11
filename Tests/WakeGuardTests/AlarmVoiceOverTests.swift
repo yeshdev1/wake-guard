@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 @testable import WakeGuard
@@ -42,5 +43,18 @@ final class AlarmVoiceOverTests: XCTestCase {
         // Optional-data deletion reassures the user their alarms are unaffected.
         XCTAssertTrue(
             AlarmVoiceOver.consequence(of: .deleteOptionalData).lowercased().contains("unaffected"))
+    }
+
+    func testListViewDeleteActionWiresTheSpokenConsequence() throws {
+        // The consequence helper must be *used* on the reachable delete affordance, not dead code: a
+        // VoiceOver user swiping to delete hears the ring consequence as the button's hint (WG-247).
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let listView = try String(
+            contentsOf: root.appendingPathComponent("Sources/WakeGuardApp/AlarmListView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            listView.contains("accessibilityHint(AlarmVoiceOver.consequence"),
+            "the delete action must speak its consequence as an accessibility hint")
     }
 }

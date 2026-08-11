@@ -91,8 +91,14 @@ struct AccessibleChallengeView: View {
 
     @ViewBuilder private var progressBar: some View {
         if viewModel.kind == .pressAndHold {
-            // A timeline so the bar fills live while held; paused when not actively holding.
-            TimelineView(.animation(paused: !viewModel.isHoldInProgress)) { _ in bar }
+            // A timeline so the bar fills live while held; paused when not actively holding. Under Reduce
+            // Motion, throttle to coarse ~0.5s steps instead of per-frame growth (WG-247) — the bar still
+            // updates (functional feedback #22), but it steps rather than continuously animating.
+            TimelineView(
+                .animation(
+                    minimumInterval: reduceMotion ? 0.5 : nil,
+                    paused: !viewModel.isHoldInProgress)
+            ) { _ in bar }
         } else {
             bar
         }

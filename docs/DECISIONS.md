@@ -3648,6 +3648,26 @@ decisions are recorded above using the ADR template.
   real injection-test citations, the LLM-prompt-redaction and export/deletion-wiring rows, and the missing-
   cloud-transport note. `make ci-fast` green — 1200 (+1). See `docs/reviews/EPOCH_07_PRIVACY.md`.
 
+### WG-247 (2026-08-11): Accessibility review — destructive-consequence wiring + Reduce-Motion throttle
+
+- **What.** A `ux-accessibility-reviewer` verified the a11y guarantees hold + are pinned. No P0. Two P1
+  pin-seam gaps fixed. The meaning-carrying layer (status vocabulary, VoiceOver copy, Dynamic Type tokens,
+  RTL discipline) is genuinely strong.
+- **F1 — destructive consequence delivered.** `AlarmVoiceOver.consequence` was dead code; the reachable
+  swipe-delete announced only "Delete" and the critical confirmation omitted the ring consequence. The delete
+  button now carries `.accessibilityHint(AlarmVoiceOver.consequence(of: .cancelAlarm))`, and the critical
+  `.needsConfirmation` reason now states "…it will no longer ring." (Copy made *more* informative — an
+  improvement, not a weakening; the string was not test-asserted.) Pins: `testListViewDeleteActionWiresTheSpokenConsequence`,
+  `testCancellingCriticalAlarmRequiresConfirmation` asserts "ring".
+- **F2 — Reduce Motion throttle + honest pin.** The accessible hold bar's `TimelineView(.animation(paused:))`
+  grew ~60fps regardless of Reduce Motion; the file-wide substring gate couldn't catch it. Now throttled to
+  ~0.5s steps under Reduce Motion via `minimumInterval` (functional feedback preserved, #22). New pin
+  `testTimelineAnimationsAreReduceMotionThrottled` inspects the construct itself. Latent (the challenge screen
+  is unhosted → E14), but the pin weakness was real.
+- **Tracked (P2/E14).** `NonColorStatusTests` view-scan narrow; `DestructiveButtonStyle` orphaned; the
+  challenge/accessible-alternative screens unhosted (add a reachability UITest when wired). `make ci-fast`
+  green — 1202 (+2). See `docs/reviews/EPOCH_08_ACCESSIBILITY.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

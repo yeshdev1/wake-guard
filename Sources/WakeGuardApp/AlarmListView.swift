@@ -271,6 +271,9 @@ private struct AlarmRow: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+            // Speak the consequence, not a bare "Delete" — a VoiceOver user hears whether the
+            // alarm will still ring before committing (WG-201/247, #25).
+            .accessibilityHint(AlarmVoiceOver.consequence(of: .cancelAlarm))
             .accessibilityIdentifier("deleteAlarm")
         }
     }

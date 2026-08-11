@@ -99,7 +99,8 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
             // Confirmable (#6): the user can re-submit with confirmation. Distinct from the
             // #4 agent rejection above, which no confirmation can lift.
             return .needsConfirmation(
-                reason: "This is a critical alarm. Confirm that you want to cancel or change it.")
+                reason: "This is a critical alarm. Confirm that you want to cancel or change it — "
+                    + "it will no longer ring.")
         }
         if !critical, isImminent(alarm), !userConfirmed {
             return .needsConfirmation(

@@ -42,6 +42,20 @@ final class ReduceMotionTests: XCTestCase {
         }
     }
 
+    func testTimelineAnimationsAreReduceMotionThrottled() throws {
+        // A per-frame `TimelineView(.animation …)` is continuous motion. The file-wide gate above can pass
+        // on an unrelated `reduceMotion` mention elsewhere in the file, so pin the construct itself: any
+        // TimelineView animation must derive its interval/pause from `reduceMotion` (WG-247).
+        for file in appFiles() {
+            let code = try strippedCode(of: file)
+            guard code.contains("TimelineView(.animation") else { continue }
+            XCTAssertTrue(
+                code.contains("minimumInterval: reduceMotion")
+                    || code.contains("paused: reduceMotion") || code.contains("reduceMotion ?"),
+                "\(file.lastPathComponent) has a TimelineView animation not gated on Reduce Motion")
+        }
+    }
+
     // MARK: haptics are supplementary (paired with a visible signal)
 
     func testChallengeHapticIsPairedWithAVisibleSignal() throws {

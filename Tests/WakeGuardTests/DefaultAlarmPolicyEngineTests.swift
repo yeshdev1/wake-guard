@@ -69,6 +69,9 @@ final class DefaultAlarmPolicyEngineTests: XCTestCase {
             return XCTFail("cancelling a critical alarm must require confirmation (#6)")
         }
         XCTAssertFalse(reason.isEmpty, "the deny reason must be user-displayable")
+        XCTAssertTrue(
+            reason.localizedCaseInsensitiveContains("ring"),
+            "a critical-change confirmation must state the ring consequence (WG-247, #25)")
 
         let confirmed = await engine.authorize(
             .disable(alarm.id), from: .userInterface, userConfirmed: true)
