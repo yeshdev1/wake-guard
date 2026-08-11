@@ -3686,6 +3686,23 @@ decisions are recorded above using the ADR template.
   literals (wake screens render VM strings). `make ci-fast` green — 1203 (+1). See
   `docs/reviews/EPOCH_09_AESTHETICS.md`.
 
+### WG-249 (2026-08-11): Battery/perf regression — added the two missing locks
+
+- **What.** A `release-test-engineer` verified the six power/perf constraints hold + the pinned suites are
+  green. Verdict PASS; the two gaps were missing regression *locks* (behavior present, under-pinned).
+- **Gap A — hot-path perf lock.** The `measure {}` baseline records but doesn't gate (no `.xcbaseline`), so a
+  per-call regression would pass. Added `testNextOccurrenceHotPathStaysWithinAFunctionalBound` — 10,000
+  `nextOccurrence` calls under a generous `ContinuousClock` wall bound (~0.77s ≪ 2s), gating independently of
+  Xcode baselines.
+- **Gap B — HealthKit continuous-observation lock.** Location's continuous-drain APIs were scan-pinned absent;
+  HealthKit's weren't. Added `testHealthKitIsNotContinuouslyObserved` — `HealthInfrastructure` must not use
+  `HKObserverQuery`/`HKAnchoredObjectQuery`/`enableBackgroundDelivery` and must read on demand via
+  `HKSampleQuery`, so sleep can't become a real-time trigger.
+- **Manual (device) still required.** Absolute overnight drain, step→pass latency, cold-launch p50/p95 —
+  simulator evidence is insufficient. E14 adapters (live pedometer/location/tz-monitor/BGTaskScheduler) are
+  scan-pinned but not yet composed. `make ci-fast` green — 1205 (+2). See
+  `docs/reviews/EPOCH_10_BATTERY_PERF.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

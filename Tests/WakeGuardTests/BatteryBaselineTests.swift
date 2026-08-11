@@ -66,6 +66,29 @@ final class BatteryBaselineTests: XCTestCase {
             usesSignificant, "travel detection must use low-power significant-location changes")
     }
 
+    func testHealthKitIsNotContinuouslyObserved() throws {
+        // Continuous-observation / background-delivery APIs would turn nightly sleep reads into a real-time
+        // wake trigger — violating the core constraint and the +health battery budget. Only on-demand
+        // one-shot queries are allowed; sleep is never observed live (WG-249).
+        let continuous = ["HKObserverQuery", "HKAnchoredObjectQuery", "enableBackgroundDelivery"]
+        let files = swiftFiles(under: "HealthInfrastructure")
+        XCTAssertFalse(files.isEmpty)
+        var usesOnDemandQuery = false
+        for file in files {
+            let code = try strippedCode(of: file)
+            if code.contains("HKSampleQuery") { usesOnDemandQuery = true }
+            for api in continuous {
+                XCTAssertFalse(
+                    code.contains(api),
+                    "\(file.lastPathComponent) uses continuous HealthKit API '\(api)' — sleep must "
+                        + "not be a real-time trigger")
+            }
+        }
+        XCTAssertTrue(
+            usesOnDemandQuery, "sleep must be read on demand via HKSampleQuery, never observed live"
+        )
+    }
+
     func testBatteryBudgetAndOffOnComparisonAreDocumented() throws {
         let doc = try String(
             contentsOf: repoRoot().appendingPathComponent("docs/BATTERY.md"), encoding: .utf8)

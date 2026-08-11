@@ -39,6 +39,22 @@ final class PerformanceTests: XCTestCase {
         }
     }
 
+    /// A functional per-call lock for the hot path. The `measure` baseline above records but does not gate
+    /// (no `.xcbaseline` is checked in), so a gross per-call regression — an accidental O(n) scan in the
+    /// DST/Calendar path, say — would still pass. This bounds 10,000 computations by wall clock so such a
+    /// regression fails CI independently of Xcode baselines (WG-249).
+    func testNextOccurrenceHotPathStaysWithinAFunctionalBound() throws {
+        let rule = try rule(minute: 30)
+        let zone = try timeZone()
+        let start = try now()
+        let elapsed = ContinuousClock().measure {
+            for _ in 0..<10_000 { _ = engine.nextOccurrence(of: rule, after: start, in: zone) }
+        }
+        // Generous CI-safe bound (observed cost is well under this); the on-device budget is far tighter.
+        XCTAssertLessThan(
+            elapsed, .seconds(2), "10,000 next-occurrence calls should be well under budget")
+    }
+
     /// A large alarm history must reconcile within a bound — cost is linear in alarm count.
     func testLargeAlarmHistoryReconcilesWithinBudget() throws {
         let zone = try timeZone()
