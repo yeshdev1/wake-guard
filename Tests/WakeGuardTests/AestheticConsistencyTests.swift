@@ -44,6 +44,8 @@ final class AestheticConsistencyTests: XCTestCase {
         var forbidden = [
             "Color.red", "Color.green", "Color.blue", "Color.orange", "Color.yellow", "Color.gray",
             "Color.purple", "Color.pink",
+            // Raw SwiftUI text styles bypass the typography scale — use DesignSystem.Typography (WG-248).
+            ".font(.",
         ]
         for digit in 0...9 {
             forbidden.append(".padding(\(digit)")
@@ -59,6 +61,21 @@ final class AestheticConsistencyTests: XCTestCase {
                     code.contains(token),
                     "\(file.lastPathComponent) uses raw '\(token)' — use a DesignSystem token")
             }
+        }
+    }
+
+    func testPrimaryCTAsUseTheSharedButtonStyleNotBorderedProminent() throws {
+        // Full-width primary CTAs must use the shared `PrimaryButtonStyle` token (one consistent filled
+        // treatment). `.borderedProminent` is allowed ONLY for a compact inline affordance — a banner
+        // button paired with `.controlSize(.small)` (a deliberate, documented hit-target choice) — so a
+        // view using it without `.controlSize(.small)` is an unintended second primary style (WG-248).
+        for file in viewFiles() {
+            let code = try strippedCode(of: file)
+            guard code.contains(".buttonStyle(.borderedProminent)") else { continue }
+            XCTAssertTrue(
+                code.contains(".controlSize(.small)"),
+                "\(file.lastPathComponent) uses .borderedProminent for a non-compact CTA — "
+                    + "use PrimaryButtonStyle")
         }
     }
 

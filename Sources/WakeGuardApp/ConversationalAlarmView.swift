@@ -32,7 +32,7 @@ struct ConversationalAlarmView: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("conversationalAlarmInput")
             Button("Set up") { Task { await model.submit() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .disabled(model.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("conversationalAlarmSubmit")
         }
@@ -121,7 +121,7 @@ struct ConversationalAlarmView: View {
                 .foregroundStyle(DesignSystem.Colors.secondaryText)
 
             Button("Confirm") { Task { await model.confirm() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("conversationalConfirm")
         }
     }

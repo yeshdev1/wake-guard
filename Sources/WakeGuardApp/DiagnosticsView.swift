@@ -30,7 +30,7 @@ struct DiagnosticsView: View {
                         onExport(url)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("diagnosticsExport")
                 .accessibilityHint("Shares a redacted diagnostics report")
             }

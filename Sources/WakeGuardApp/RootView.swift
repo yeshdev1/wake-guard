@@ -85,15 +85,15 @@ struct CompositionErrorView: View {
     var body: some View {
         VStack(spacing: DesignSystem.Spacing.md) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.largeTitle)
+                .font(DesignSystem.Typography.screenTitle)
                 .accessibilityHidden(true)
             Text("WakeGuard can’t start")
-                .font(.title.bold())
+                .font(DesignSystem.Typography.sectionTitle)
             Text(
                 "Local storage is unavailable, so your alarms could not be loaded. "
                     + "Please make sure your device is unlocked, then restart the app."
             )
-            .font(.footnote)
+            .font(DesignSystem.Typography.caption)
             .multilineTextAlignment(.center)
             .foregroundStyle(.secondary)
         }

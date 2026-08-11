@@ -20,7 +20,7 @@ struct DataExportView: View {
             .foregroundStyle(DesignSystem.Colors.secondaryText)
 
             Button("Prepare export") { Task { await model.prepareExport() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("dataExportPrepare")
 
             if let url = model.fileURL {

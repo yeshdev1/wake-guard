@@ -3668,6 +3668,24 @@ decisions are recorded above using the ADR template.
   challenge/accessible-alternative screens unhosted (add a reachability UITest when wired). `make ci-fast`
   green — 1202 (+2). See `docs/reviews/EPOCH_08_ACCESSIBILITY.md`.
 
+### WG-248 (2026-08-11): Aesthetic polish — button-style token + honest visual-regression docs
+
+- **What.** A `ux-accessibility-reviewer` verified aesthetic consistency. Three gaps fixed; the rest are
+  latent (most designed screens aren't composed yet → E14) or documented honestly.
+- **Primary-CTA style.** Full-width primary CTAs now use one token (`PrimaryButtonStyle`); the four that used
+  `.borderedProminent` (Conversational ×2, Onboarding, DataExport, Diagnostics) were converted. The
+  permission banner's compact `.borderedProminent`+`.controlSize(.small)` is a deliberate inline role, kept.
+  Pin: `testPrimaryCTAsUseTheSharedButtonStyleNotBorderedProminent` (borderedProminent allowed only with
+  controlSize small).
+- **Raw fonts.** Reachable `CompositionErrorView` + an `AlarmListComponents` icon used raw text-style fonts →
+  `DesignSystem.Typography` tokens; locked by adding `.font(.` to the aesthetic forbidden scan (0 remain).
+- **Honest docs.** `VISUAL_REGRESSION.md` implied automated snapshot tests exist; corrected — the structural
+  adaptivity pins are automated, but pixel diffing is a **manual** device-matrix pass (no snapshot library /
+  baseline images; adding one needs the CLAUDE.md third-party assessment).
+- **Tracked (P2/E14).** Orphaned `DestructiveButtonStyle`/`SurfaceCard`; wake-copy-length pin inspects only
+  literals (wake screens render VM strings). `make ci-fast` green — 1203 (+1). See
+  `docs/reviews/EPOCH_09_AESTHETICS.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

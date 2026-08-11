@@ -30,7 +30,7 @@ struct OnboardingView: View {
             Button(model.step == .createFirstAlarm ? "Create an alarm" : "Continue") {
                 model.advance()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle())
             .accessibilityIdentifier("onboardingContinue")
 
             if model.canSkip {

@@ -57,7 +57,7 @@ struct AlarmListMessageView: View {
                 if progress {
                     ProgressView()
                 } else if let systemImage {
-                    Image(systemName: systemImage).font(.largeTitle)
+                    Image(systemName: systemImage).font(DesignSystem.Typography.screenTitle)
                         .foregroundStyle(DesignSystem.Colors.secondaryText).accessibilityHidden(
                             true)
                 }
