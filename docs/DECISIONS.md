@@ -3779,6 +3779,32 @@ decisions are recorded above using the ADR template.
   (privacy-control wiring) resolved — those gate the public submission (WG-268), tracked in
   `docs/RELEASE_CHECKLIST.md`. `make ci-fast` green — 1214 (+6). See `docs/RELEASE_PIPELINE.md`.
 
+### Composition wiring A1 (2026-08-11): privacy controls wired — WG-250 App Store blocker cleared
+
+- **What.** The export/deletion/retention domain logic was correct + unit-tested but had **no production
+  wiring** (the standing E13 gap). Now wired: `CoreDataDataEraser` (the production `DataEraser`) and
+  `RetentionCleanupJob` (the production `RetentionCleanup` caller, run best-effort at launch), both composed
+  in `AppEnvironment`. The `PrivacyManifestTests` compliance gate flips from `XCTExpectFailure` to a real
+  pass — the privacy-policy/nutrition-label promise of deletion + retention is now backed by running code.
+- **Audit deletion (ADR — the append-only port is not weakened).** A full reset and the retention job both
+  delete `AuditRecord`s, but the `AuditRepository` **port stays append-only** (#48): deletion happens on the
+  concrete `PersistenceController` only (`eraseAllEntities()` / `deleteAuditRecords(ids:)` via
+  `NSBatchDeleteRequest`), never through the domain port, and only from two bounded, safe paths — (a) a
+  **user-initiated, confirmation-gated** full reset (`DeletionPolicy` requires the alarm-consequence
+  confirmation), and (b) the retention job, **bounded by the 365-day critical-audit floor** so a
+  safety-relevant change to a critical alarm is never purged early. This is the explicit ADR CLAUDE.md
+  requires for touching the audit trail; no safety assertion is weakened.
+- **`eraseOptional` is a documented no-op today.** No optional category (derived motion, recommendations,
+  journal, health-derived) is persisted locally — they are computed-and-discarded / never copied to disk
+  (#35/#50) — so there is nothing on disk to erase, and alarms are never touched (#9). The branches are
+  structured so a future store slots in. (Alternative — narrowing `OptionalDataCategory` to only stored
+  categories — was declined as it changes the domain + tests for no runtime benefit.)
+- **Full reset cancels scheduled alarms first**, so nothing rings after the reset (best-effort per alarm;
+  reconciliation reaps any stray). Cloud token revoked (#35). Tests: `CoreDataDataEraserTests` (clears every
+  store, cancels alarms, revokes token; optional spares alarms), `RetentionCleanupJobTests` (expired
+  non-critical pruned; critical within the floor retained). `make ci-fast` green — 1217 (+3). Screen routing
+  (consent center / export / deletion) lands in wiring A2.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

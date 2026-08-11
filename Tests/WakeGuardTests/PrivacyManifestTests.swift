@@ -82,15 +82,13 @@ final class PrivacyManifestTests: XCTestCase {
     func testPrivacyControlsPromisedByDocsAreBackedByProductionCode() throws {
         // The privacy policy + nutrition label promise user export, deletion, and retention. App Review
         // (Guideline 5.1.1(v)/5.1.2) checks label-vs-behavior, so those controls must be backed by
-        // PRODUCTION code, not just documented. Today they are NOT: no non-Fake `DataEraser` conformance
-        // exists and `RetentionCleanup` has no production caller, so the promise is unmet at runtime
-        // (WG-246 Finding 1 / WG-250 BLOCKER 1). This is an EXPECTED FAILURE until E14 wires them; once
-        // wired, the assertions pass and `XCTExpectFailure` turns it into an *unexpected pass*, forcing
-        // removal of this wrapper. Do NOT delete this test to get green — wire the controls.
+        // PRODUCTION code, not just documented. This was a WG-250 submission BLOCKER (an `XCTExpectFailure`)
+        // until the composition wiring landed: `CoreDataDataEraser` (the `: DataEraser` conformance) and
+        // `RetentionCleanupJob` (the `RetentionCleanup` caller, run at launch) now back the promise, so the
+        // assertions below are real passes. If either is removed, this fails — keep them wired.
         let policy = try String(
             contentsOf: repoRoot().appendingPathComponent("docs/PRIVACY_POLICY.md"), encoding: .utf8
         ).lowercased()
-        // Precondition (a real assertion): the docs actually promise these controls.
         XCTAssertTrue(
             policy.contains("delete") && policy.contains("export"),
             "the privacy policy should promise deletion + export")
@@ -104,8 +102,6 @@ final class PrivacyManifestTests: XCTestCase {
             file.lastPathComponent != "DataRetention.swift" && code.contains("RetentionCleanup")
         }
 
-        XCTExpectFailure(
-            "WG-250 BLOCKER: export/deletion/retention are documented but unwired until E14")
         XCTAssertTrue(
             hasProductionEraser,
             "policy promises deletion but no production DataEraser conformance exists in Sources/")

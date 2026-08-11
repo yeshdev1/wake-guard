@@ -14,7 +14,10 @@ struct RootView: View {
     var body: some View {
         @Bindable var deepLink = deepLink
         AlarmListView()
-            .task { await setUpPreAlarmNotifications() }
+            .task {
+                await setUpPreAlarmNotifications()
+                await runRetentionCleanup()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await runPreAlarmWork() } }
             }
@@ -58,6 +61,14 @@ struct RootView: View {
         // Foreground fallback (WG-089 / step 6): evaluate upcoming alarms now, so a prompt can surface
         // when the app is open near an alarm even if no background opportunity ran.
         await environment.preAlarmWork.run(now: environment.clock.now)
+    }
+
+    /// Prune local data past its retention window on launch — production only, opportunistic + best-effort
+    /// (#9), bounded by the 365-day critical-audit floor (WG-250/182). Never touches an alarm.
+    @MainActor
+    private func runRetentionCleanup() async {
+        guard let environment, environment.schedulesAlarmsInSystem else { return }
+        await environment.retentionCleanup.run()
     }
 
     /// Re-run the pre-alarm evaluation on every foreground (production only) — advisory, de-duped, and
