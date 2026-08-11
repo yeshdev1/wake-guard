@@ -13,10 +13,11 @@
   a **Privacy & data** toolbar entry routes to the consent center, export, and deletion screens (each backed
   by a composed model). `PrivacyManifestTests.testPrivacyControlsPromisedByDocsAreBackedByProductionCode` now
   passes as a real assertion.
-- [ ] **App Review notes point to unrouted screens — PARTIAL.** "Permissions & privacy" is now routed
-  (wiring A2). Still unhosted: the walk-challenge ring-stop and the conversational create screen (wired via a
-  user-initiated test affordance in composition wiring D/E; the true unattended-ring hookup remains device-only
-  AlarmKit, WG-030). Until then, keep `APP_REVIEW_NOTES.md` pointed only at the shipping flows.
+- [ ] **App Review notes point to unrouted screens — MOSTLY CLEARED.** "Permissions & privacy" (wiring A2)
+  and the **walk-challenge** flow (wiring D — reachable via a "Test challenge" swipe running the real
+  pipeline) are now routed. The genuine unattended-ring hookup remains device-only AlarmKit (WG-030), so the
+  App Review notes should describe the challenge as a user-initiated test until that lands. Still unrouted:
+  the **conversational create** screen (wiring E) — keep `APP_REVIEW_NOTES.md` off it until wired.
 - [ ] Add `PrivacyControlsReachableUITests` (composition-graph + accessibility-id reachability) — catches both
   blockers together.
 

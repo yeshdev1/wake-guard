@@ -16,6 +16,9 @@ struct AlarmListItem: Identifiable, Equatable, Sendable {
     let nextRingText: String
     /// A single combined VoiceOver announcement: (criticality,) label, status, next ring.
     let accessibilityLabel: String
+    /// The walk-challenge step target if this alarm requires a walk challenge, else `nil` — drives the
+    /// "test the walk challenge" affordance (WG-073). Non-walk / no challenge is `nil`.
+    let challengeRequiredSteps: Int?
 }
 
 /// The loaded content: the soonest upcoming alarm (the "next-alarm summary") and the full
@@ -204,12 +207,17 @@ final class AlarmListViewModel {
             calendar: calendar)
         let label = alarm.label.isEmpty ? "Alarm" : alarm.label
         let isCritical = alarm.criticality == .critical
+        let challengeSteps: Int? = {
+            if case .walk(let walk) = alarm.challengePolicy { return walk.minimumSteps }
+            return nil
+        }()
         return AlarmListItem(
             id: alarm.id, label: label, isEnabled: alarm.isEnabled, isCritical: isCritical,
             status: status, nextOccurrence: occurrence, nextRingText: ringText,
             accessibilityLabel: Self.accessibilityLabel(
                 label: label, status: status, ringText: ringText, isEnabled: alarm.isEnabled,
-                isCritical: isCritical))
+                isCritical: isCritical),
+            challengeRequiredSteps: challengeSteps)
     }
 
     private static func accessibilityLabel(

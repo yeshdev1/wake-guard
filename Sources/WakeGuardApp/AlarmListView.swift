@@ -42,6 +42,7 @@ private struct AlarmListScreen: View {
     @State private var permission: AlarmPermissionModel
     @State private var showingCreate = false
     @State private var editingAlarm: Alarm?
+    @State private var challengeTarget: ChallengeTarget?
     private let processor: any AlarmCommandProcessing
     private let clock: any WallClock
     private let ids: any IdentifierGenerator
@@ -120,6 +121,9 @@ private struct AlarmListScreen: View {
                         feedbackStore: feedbackStore)
                 }
             )
+            .fullScreenCover(item: $challengeTarget) { target in
+                ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
+            }
             .alert(
                 "Confirm change", isPresented: confirmationPresented,
                 presenting: model.pendingConfirmation
@@ -163,7 +167,11 @@ private struct AlarmListScreen: View {
         case .loaded(let content):
             AlarmListLoadedView(
                 content: content, model: model,
-                onEdit: { editingAlarm = model.alarm(for: $0) })
+                onEdit: { editingAlarm = model.alarm(for: $0) },
+                onTestChallenge: { item in
+                    challengeTarget = ChallengeTarget(
+                        id: item.id, requiredSteps: item.challengeRequiredSteps ?? 0)
+                })
         case .failed(let reason):
             AlarmListMessageView(
                 systemImage: "exclamationmark.triangle", title: "Couldn’t load alarms",
@@ -173,11 +181,13 @@ private struct AlarmListScreen: View {
 }
 
 /// The loaded list: a prominent next-alarm summary section, then every alarm. `List`
-/// sections give VoiceOver a logical reading order (summary before the full list).
-private struct AlarmListLoadedView: View {
+/// sections give VoiceOver a logical reading order (summary before the full list). `internal` (not
+/// `private`) so the split-out preview file can render it.
+struct AlarmListLoadedView: View {
     let content: AlarmListContent
     let model: AlarmListViewModel
     let onEdit: (AlarmID) -> Void
+    var onTestChallenge: (AlarmListItem) -> Void = { _ in }
 
     var body: some View {
         List {
@@ -186,7 +196,9 @@ private struct AlarmListLoadedView: View {
             }
             Section("All alarms") {
                 ForEach(content.items) { item in
-                    AlarmRow(item: item, model: model, onEdit: onEdit)
+                    AlarmRow(
+                        item: item, model: model, onEdit: onEdit,
+                        onTestChallenge: onTestChallenge)
                 }
             }
         }
@@ -237,6 +249,8 @@ private struct AlarmRow: View {
     let item: AlarmListItem
     let model: AlarmListViewModel
     let onEdit: (AlarmID) -> Void
+    /// Present the walk-challenge test for this alarm (only offered when it requires a walk challenge).
+    let onTestChallenge: (AlarmListItem) -> Void
 
     var body: some View {
         HStack {
@@ -284,6 +298,19 @@ private struct AlarmRow: View {
             .accessibilityHint(AlarmVoiceOver.consequence(of: .cancelAlarm))
             .accessibilityIdentifier("deleteAlarm")
         }
+        .swipeActions(edge: .leading) {
+            // Offered only for a walk-challenge alarm: run the real challenge pipeline now (#18 requires
+            // an explicit start). The genuine unattended-ring hookup is device-only (WG-030).
+            if item.challengeRequiredSteps != nil {
+                Button {
+                    onTestChallenge(item)
+                } label: {
+                    Label("Test challenge", systemImage: "figure.walk")
+                }
+                .tint(DesignSystem.Colors.accent)
+                .accessibilityIdentifier("testChallenge")
+            }
+        }
     }
 
     private var enabledBinding: Binding<Bool> {
@@ -299,85 +326,4 @@ private struct AlarmRow: View {
                 .foregroundStyle(DesignSystem.Colors.secondaryText)
         }
     }
-}
-
-// MARK: - Previews
-
-extension AlarmListContent {
-    /// Illustrative sample content for previews (no repository/disk). The `nextRingText`
-    /// mirrors the relative form the view model produces.
-    fileprivate static let preview: AlarmListContent = {
-        let wake = AlarmListItem(
-            id: AlarmID(UUID()), label: "Wake up", isEnabled: true, isCritical: false,
-            status: .scheduled, nextOccurrence: Date(timeIntervalSince1970: 1_700_000_000),
-            nextRingText: "Tomorrow, 7:00 AM",
-            accessibilityLabel: "Wake up, Scheduled, Tomorrow, 7:00 AM")
-        let medication = AlarmListItem(
-            id: AlarmID(UUID()), label: "Medication", isEnabled: true, isCritical: true,
-            status: .critical, nextOccurrence: Date(timeIntervalSince1970: 1_700_030_000),
-            nextRingText: "Tomorrow, 9:00 PM",
-            accessibilityLabel: "Critical alarm. Medication, Critical, Tomorrow, 9:00 PM")
-        let stale = AlarmListItem(
-            id: AlarmID(UUID()), label: "Old reminder", isEnabled: true, isCritical: false,
-            status: .attention, nextOccurrence: nil, nextRingText: "No upcoming time",
-            accessibilityLabel: "Old reminder, Needs attention, No upcoming time")
-        let off = AlarmListItem(
-            id: AlarmID(UUID()), label: "Weekend lie-in", isEnabled: false, isCritical: false,
-            status: .off, nextOccurrence: nil, nextRingText: "Off",
-            accessibilityLabel: "Weekend lie-in, Off")
-        return AlarmListContent(nextAlarm: wake, items: [wake, medication, stale, off])
-    }()
-}
-
-extension AlarmListViewModel {
-    /// A preview model over the in-memory graph (no disk, no real AlarmKit).
-    fileprivate static var preview: AlarmListViewModel {
-        let environment = AppEnvironment.preview
-        return AlarmListViewModel(
-            alarms: environment.alarmRepository, clock: environment.clock,
-            processor: environment.alarmCommandProcessor)
-    }
-}
-
-#Preview("Loaded — light") {
-    NavigationStack {
-        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
-            "Alarms")
-    }
-}
-
-#Preview("Loaded — dark") {
-    NavigationStack {
-        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
-            "Alarms")
-    }
-    .preferredColorScheme(.dark)
-}
-
-#Preview("Loaded — accessibility XL") {
-    NavigationStack {
-        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in }).navigationTitle(
-            "Alarms")
-    }
-    .environment(\.dynamicTypeSize, .accessibility5)
-}
-
-#Preview("Reconciling banner") {
-    VStack(spacing: 0) {
-        ReconcilingBanner()
-        AlarmListLoadedView(content: .preview, model: .preview, onEdit: { _ in })
-    }
-}
-
-#Preview("Empty") {
-    AlarmListMessageView(
-        systemImage: "alarm", title: "No alarms yet",
-        message: "Alarms you create will appear here.", identifier: "alarmListEmpty")
-}
-
-#Preview("Error") {
-    AlarmListMessageView(
-        systemImage: "exclamationmark.triangle", title: "Couldn’t load alarms",
-        message: "Your alarms couldn’t be loaded. They are still saved.",
-        identifier: "alarmListError")
 }

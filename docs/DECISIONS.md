@@ -3854,6 +3854,28 @@ decisions are recorded above using the ADR template.
   snapshot). `make ci-fast` green — 1230 (+3). Follow-up: a redacted crash-breadcrumb ring buffer for
   `recentErrors` (currently empty, honest).
 
+### Composition wiring D (2026-08-11): walk-challenge runtime wired (#18–#24 live)
+
+- **What.** The walk-challenge components were built + unit-tested but connected to no runtime pass path
+  (the WG-073 CONNECT seam). Now `WakeChallengeRuntime` drives the **real pipeline** end-to-end: live
+  pedometer → `MovementObservation` → `ChallengeObservationReducer` (anti-shake corroboration, #19/#20) →
+  `WakeChallengeMachine` → on a genuine pass, `ChallengeStopCoordinator` submits **exactly one** authorized
+  `markChallengePassed` through the command boundary (#2/#24). Sensor unavailability / a dropped stream
+  leaves the alarm active and offers the accessible alternative (#21/#22) — movement inference alone never
+  stops the alarm.
+- **Reachability.** The live pedometer (`CoreMotionLivePedometerAdapter`) is composed in the graph
+  (hermetic `UnavailableLivePedometerSource` in-memory). `ChallengeHostView` presents the walk + accessible
+  views off the runtime and dismisses on pass. A **"Test challenge"** leading swipe on the alarm row (shown
+  only when the alarm requires a walk challenge) presents it via `ChallengeTestCover`.
+- **Honest limitation.** The trigger is a **user-initiated test** — #18 requires an explicit start anyway,
+  so this is invariant-faithful, not a workaround. Wiring the challenge to a genuine **unattended AlarmKit
+  ring** needs a device-only alerting-observation seam (WG-030) that does not exist in the codebase; that
+  half remains deferred. No ring signal is faked.
+- **Tests.** `WakeChallengeRuntimeTests`: a corroborated walk passes + submits exactly one stop; a shake
+  never passes + submits nothing; an unavailable sensor offers the fallback (no stop), which then submits
+  one. `AlarmListView` previews split to `AlarmListView+Previews.swift` (length). `make ci-fast` green —
+  1233 (+3).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

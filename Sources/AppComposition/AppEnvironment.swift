@@ -79,6 +79,10 @@ struct AppEnvironment: Sendable {
     /// reconcile result, the last safe schedule sync, and redacted recent errors — support-visible, no
     /// sensitive raw data. Fed by the reconcile-recording processor.
     let diagnosticsProvider: any DiagnosticsProviding
+    /// The live pedometer source for the walk challenge (WG-073): the challenge runtime consumes it to drive
+    /// the anti-shake machine. Production uses the real CoreMotion adapter; the in-memory graph reports it
+    /// unavailable (so the challenge offers the accessible alternative, #21/#22). Holds no alarm authority.
+    let pedometerLiveSource: any PedometerSource
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -103,6 +107,7 @@ struct AppEnvironment: Sendable {
                 schedulesAlarmsInSystem: true,
                 preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
+                pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
                     // The location source's `authorizationStatus()` returns the domain enum, so the
@@ -131,6 +136,7 @@ struct AppEnvironment: Sendable {
                 schedulesAlarmsInSystem: false,
                 preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
                 pedometerSource: UnavailablePedometerSource(),
+                pedometerLiveSource: UnavailableLivePedometerSource(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }
@@ -161,6 +167,7 @@ struct AppEnvironment: Sendable {
         let schedulesAlarmsInSystem: Bool
         let preAlarmNotifications: any PreAlarmNotificationScheduling
         let pedometerSource: any HistoricalPedometerSource
+        let pedometerLiveSource: any PedometerSource
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
         /// in-memory graph returns a hermetic fixed status (so tests/previews never touch a framework).
@@ -253,6 +260,7 @@ struct AppEnvironment: Sendable {
             timeZoneMonitor: makeTimeZoneMonitor(processor: recorder),
             diagnosticsProvider: DefaultDiagnosticsProvider(
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
+            pedometerLiveSource: wiring.pedometerLiveSource,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }
