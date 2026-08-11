@@ -2,11 +2,13 @@ import Foundation
 
 /// Gathers the user's local data into export categories for the data-export flow (WG-183/250). It reads the
 /// real stores and serializes each record to JSON — alarms, the audit log, and settings, the categories
-/// with a persistent store today. No network access; the model hands the encoded bundle to the system
-/// share sheet, and the OS + the user decide where it goes.
+/// with a persistent store today. The audit log streams its **already-stored JSON payloads** in batches
+/// (WG-182 scaling) rather than loading the whole table and re-encoding it, so peak memory stays bounded for
+/// a long log. No network access; the model hands the encoded bundle to the system share sheet, and the OS +
+/// the user decide where it goes.
 struct ExportDataProvider: Sendable {
+    let persistence: PersistenceController
     let alarms: any AlarmRepository
-    let audit: any AuditRepository
     let settings: any SettingsRepository
 
     func categories() async -> [ExportCategory] {
@@ -14,8 +16,8 @@ struct ExportDataProvider: Sendable {
         if let list = try? await alarms.allAlarms() {
             result.append(ExportCategory(name: "alarms", records: encodeEach(list)))
         }
-        if let events = try? await audit.allEvents() {
-            result.append(ExportCategory(name: "audit", records: encodeEach(events)))
+        if let payloads = try? await persistence.auditPayloadsJSON() {
+            result.append(ExportCategory(name: "audit", records: payloads))
         }
         if let appSettings = try? await settings.settings() {
             result.append(ExportCategory(name: "settings", records: encodeEach([appSettings])))

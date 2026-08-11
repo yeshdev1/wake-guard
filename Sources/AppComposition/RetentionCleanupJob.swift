@@ -1,41 +1,45 @@
 import Foundation
 
-/// The production retention job (WG-250/182) — the launch/foreground caller of `RetentionCleanup`. It
-/// gathers the audit log's records (the only category with a persistent store today), asks the pure
-/// `RetentionCleanup` which are past their window (the 365-day critical-audit floor applies automatically),
-/// and deletes exactly those.
+/// The production retention/reap job (WG-250/182) — a launch/foreground caller that prunes old bookkeeping
+/// **in the store** (batch deletes, no full-table load), so it stays cheap as the log grows:
 ///
-/// Opportunistic + best-effort (#9): never required, never throws to the caller — a read/delete failure
-/// just leaves the rows for the next run. Audit rows are deleted through the concrete store only, so the
-/// append-only `AuditRepository` port is untouched (#48); the deletion is bounded by the critical-audit
-/// floor, so a safety-relevant change to a critical alarm is never purged early (see the WG-250 ADR).
+/// - **Audit** rows past their retention window are batch-deleted via
+///   `PersistenceController.pruneAuditRecords`, implementing the same policy as the pure `RetentionCleanup`
+///   spec — the general window, with a longer floor for audit about a currently-critical alarm (#48), so a
+///   safety-relevant change is never purged early. Deleted on the concrete stack only, so the append-only
+///   `AuditRepository` port is untouched.
+/// - **Outbox** rows older than a conservative window are reaped, bounding otherwise-unbounded growth
+///   (ground-truth reconciliation — not the outbox — drives recovery; keys embed the alarm revision + fire
+///   time, so dedup isn't weakened).
+///
+/// Opportunistic + best-effort (#9): never required, never throws to the caller — a failure just leaves the
+/// rows for the next run.
 struct RetentionCleanupJob: Sendable {
     let persistence: PersistenceController
-    let audit: any AuditRepository
     let alarms: any AlarmRepository
     let clock: any WallClock
     var policy: RetentionPolicy = .default
 
+    /// Operational outbox rows are reaped after this long — far past any operation + retry window, so no
+    /// in-flight op or crash recovery is lost (ground-truth reconciliation drives recovery, not the outbox).
+    static let outboxRetention: TimeInterval = 30 * 86_400
+
     func run() async {
-        guard let events = try? await audit.allEvents() else { return }
-        let criticalIDs = await criticalAlarmIDs()
-        // Pair each audit event with a RetentionRecord (category .audit; critical flag from its alarm).
-        let records = events.map { event in
-            (
-                id: event.id.rawValue.uuidString,
-                record: RetentionRecord(
-                    category: .audit, createdAt: event.timestamp,
-                    isCriticalAudit: criticalIDs.contains(event.command.alarmID))
-            )
-        }
-        let expired = Set(
-            RetentionCleanup.expired(records.map(\.record), policy: policy, now: clock.now))
-        let expiredIDs = records.filter { expired.contains($0.record) }.map(\.id)
-        try? await persistence.deleteAuditRecords(ids: expiredIDs)
+        let now = clock.now
+        let softCutoff = now.addingTimeInterval(-policy.audit)
+        // The hard cutoff is the longer of the general window and the critical floor, matching the pure
+        // `RetentionCleanup.expired` policy — critical-alarm audit is kept at least the floor.
+        let hardFloor = now.addingTimeInterval(
+            -max(policy.audit, RetentionPolicy.criticalAuditMinimum))
+        let criticalIDs = await criticalAlarmIDStrings()
+        try? await persistence.pruneAuditRecords(
+            softCutoff: softCutoff, hardFloor: hardFloor, criticalAlarmIDs: criticalIDs)
+        try? await persistence.pruneOutboxRecords(
+            before: now.addingTimeInterval(-Self.outboxRetention))
     }
 
-    private func criticalAlarmIDs() async -> Set<AlarmID> {
+    private func criticalAlarmIDStrings() async -> [String] {
         guard let all = try? await alarms.allAlarms() else { return [] }
-        return Set(all.filter { $0.criticality == .critical }.map(\.id))
+        return all.filter { $0.criticality == .critical }.map { $0.id.rawValue.uuidString }
     }
 }

@@ -206,7 +206,6 @@ struct AppEnvironment: Sendable {
         // Fresh repositories over the same persistence controller — the Core Data repos are thin,
         // per-operation wrappers with no shared mutable state, so these read/write the identical store.
         let alarms = CoreDataAlarmRepository(persistence)
-        let audit = CoreDataAuditRepository(persistence)
         let settings = CoreDataSettingsRepository(persistence)
         let eraser = CoreDataDataEraser(
             persistence: persistence, alarms: alarms, alarmManager: wiring.alarmManager,
@@ -214,11 +213,12 @@ struct AppEnvironment: Sendable {
         return PrivacyControls(
             dataEraser: eraser,
             retentionCleanup: RetentionCleanupJob(
-                persistence: persistence, audit: audit, alarms: alarms, clock: clock),
+                persistence: persistence, alarms: alarms, clock: clock),
             consentStatusProvider: wiring.makeConsentProvider(
                 wiring.alarmManager, settings, wiring.cloudTokenStore),
             deletionCoordinator: DeletionCoordinator(eraser: eraser),
-            exportData: ExportDataProvider(alarms: alarms, audit: audit, settings: settings))
+            exportData: ExportDataProvider(
+                persistence: persistence, alarms: alarms, settings: settings))
     }
 
     private static func make(

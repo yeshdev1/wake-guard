@@ -3,9 +3,12 @@ import XCTest
 
 @testable import WakeGuard
 
-/// WG-250/182: the production retention job. It prunes audit rows past their window via `RetentionCleanup`,
-/// bounded by the 365-day critical-audit floor (#48) — a safety-relevant change to a critical alarm is
-/// never purged early. This is the concrete backing for the compliance gate's `hasRetentionCaller`.
+/// WG-250/182: the production retention job. It prunes audit rows past their window **store-side** (batch
+/// delete, no full-table load), matching the pure `RetentionCleanup` policy and bounded by the 365-day
+/// critical-audit floor (#48) — a safety-relevant change to a critical alarm is never purged early. It also
+/// reaps operational outbox rows past a conservative window, including non-terminal ones (recovery is driven
+/// by launch reconciliation, not the outbox). This is the concrete backing for the compliance gate's
+/// `hasRetentionCaller`.
 final class RetentionCleanupJobTests: XCTestCase {
 
     private let ids = DeterministicIDGenerator(seed: 600)
@@ -48,7 +51,7 @@ final class RetentionCleanupJobTests: XCTestCase {
         }
 
         let job = RetentionCleanupJob(
-            persistence: controller, audit: auditRepo, alarms: alarms, clock: TestClock(now: now))
+            persistence: controller, alarms: alarms, clock: TestClock(now: now))
         await job.run()
 
         let remaining = Set(try await auditRepo.allEvents().map(\.id))
@@ -58,5 +61,33 @@ final class RetentionCleanupJobTests: XCTestCase {
         XCTAssertTrue(
             remaining.contains(oldCritical.id),
             "a critical-alarm audit row within the 365-day floor is kept (#48)")
+    }
+
+    private func outboxEntry(key: String, daysAgo: Double) -> OutboxEntry {
+        OutboxEntry(
+            id: OutboxEntryID(ids.next()), command: .disable(AlarmID(ids.next())),
+            idempotencyKey: key,
+            status: .pending, createdAt: now.addingTimeInterval(-daysAgo * 86_400), attempts: 0,
+            lastFailureReason: nil)
+    }
+
+    func testStaleOutboxRowsReapedIncludingNonTerminal() async throws {
+        let controller = try PersistenceController(inMemory: true)
+        let alarms = CoreDataAlarmRepository(controller)
+        let outbox = CoreDataOutboxRepository(controller)
+        // Both are `.pending` (non-terminal): the reap is by age, not status, so a stranded old entry is
+        // bounded (launch reconciliation — not the outbox — recovers in-flight work).
+        let stale = outboxEntry(key: "stale", daysAgo: 60)  // > 30-day outbox window → reaped
+        let fresh = outboxEntry(key: "fresh", daysAgo: 5)  // within the window → kept
+        try await outbox.enqueue(stale)
+        try await outbox.enqueue(fresh)
+
+        let job = RetentionCleanupJob(
+            persistence: controller, alarms: alarms, clock: TestClock(now: now))
+        await job.run()
+
+        let remaining = Set(try await outbox.unresolvedEntries().map(\.id))
+        XCTAssertFalse(remaining.contains(stale.id), "a stale non-terminal outbox row is reaped")
+        XCTAssertTrue(remaining.contains(fresh.id), "a recent outbox row is kept")
     }
 }

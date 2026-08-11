@@ -3913,6 +3913,33 @@ decisions are recorded above using the ADR template.
   app view ordering; it fires with the list *not yet mounted*. Its exact timing/behavior is device-only.
   `make ci-fast` green — 1240.
 
+### Composition wiring — retention/export scaling + outbox reap (2026-08-11)
+
+- **Problem.** The retention job and the data export both materialized the entire audit table
+  (`allEvents()`), and stale operational **outbox** rows were never reaped — both grow unbounded for a
+  long-lived power user, so peak memory and store size climb without a ceiling (the WG-182 scaling
+  follow-up flagged before "power-user for a decade" scale).
+- **Retention prunes store-side.** `RetentionCleanupJob` now deletes via two `NSBatchDeleteRequest`s
+  (`PersistenceController.pruneAuditRecords`) instead of loading + filtering in memory: everything past the
+  365-day critical floor, plus non-critical rows past the 180-day general window. This implements the **same
+  policy** as the pure `RetentionCleanup.expired` spec (which stays the readable, unit-tested definition —
+  and the job's name still satisfies the WG-250 `hasRetentionCaller` gate) — a currently-critical alarm's
+  audit is still spared until the floor (#48). Deletes hit the concrete stack only, so the append-only
+  `AuditRepository` port (#48) is untouched.
+- **Outbox reaped by age.** `pruneOutboxRecords(before:)` deletes rows older than a conservative 30-day
+  window — **including non-terminal** (pending/inProgress/uncertain) entries. Safe because launch
+  reconciliation (WG-029), not the outbox, drives recovery, and idempotency keys embed the alarm revision +
+  fire time, so a reaped op that recurs still dedups. Bounds otherwise-unbounded queue growth.
+- **Export streams stored payloads.** `ExportDataProvider` now emits the audit category from
+  `auditPayloadsJSON()` — the **already-stored** JSON payloads, faulted in `fetchBatchSize` batches, newest
+  first — instead of decoding each row to `AuditEvent` and re-encoding it. Bounded peak memory + a faithful
+  copy of exactly what was persisted.
+- **Best-effort (#9).** The job never throws to its caller; a prune failure just leaves the rows for the
+  next run. Never required to preserve a critical alarm.
+- Tests: `RetentionCleanupJobTests` — the audit floor/window case (store-side prune yields the identical
+  keep/drop set) + a new `testStaleOutboxRowsReapedIncludingNonTerminal` (a 60-day pending row reaped, a
+  5-day one kept). `make ci-fast` green — **1241**.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
