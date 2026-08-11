@@ -3563,6 +3563,17 @@ decisions are recorded above using the ADR template.
   **Tracked P1:** travel/time-zone-change subsystem (WG-100–108) is complete + tested but unwired into the
   app — the askOnChange prompt never runs (owner: a composition task). `make ci-fast` green — 1191 (+2).
 
+### WG-243 (2026-08-11): Motion spoofing red team — anti-shake gate wired (#19/#20)
+
+- **What.** Fixed the Epoch-1 P1: the challenge passed on step count alone. `observedProgress` now carries a
+  `MovementCorroboration`; a pass **requires `.corroborated`** gait, `.contradicted` (shake/replay) resets
+  progress, `.unavailable` accumulates but can't pass alone. Enforced in the deterministic state machine (the
+  chokepoint), with `ChallengeObservationReducer` fusing the cadence verdict.
+- **End-to-end regression:** `ChallengeAntiShakeTests` — a shake never stops the alarm; a real gait passes;
+  sensor-limited needs corroboration; a shake-then-clean-step splice can't pass. Accessible alternative
+  untouched (#21/#22). Thresholds unchanged (WG-075 calibration). Residual: phone-handoff (no continuity
+  signal) recorded as a backlog item. `make ci-fast` green — 1196 (+7).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

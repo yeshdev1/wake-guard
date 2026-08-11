@@ -64,13 +64,12 @@ claimed but not actually protected.
 
 ## Findings (tracked blocking issues)
 
-- **P1 — #19/#20 anti-shake gate not composed.** `CadenceRegularity`/`WalkVerifier` are complete and
-  unit-tested but invoked by **no runtime pass path**; `WakeChallengeMachine.apply(.observedProgress)`
-  passes on cumulative step count alone, and there is no end-to-end "a shake cannot stop the alarm" test.
-  Not P0 because the walk challenge is not yet composed into the running app (no production path constructs
-  `observedProgress` or presents `ChallengeView`), so no shipping surface is defeatable today — but it
-  **blocks enabling the walk challenge**. **Owner: WG-243 (motion red team)** — gate the pass on multi-signal
-  corroboration + add the regression test.
+- **P1 — #19/#20 anti-shake gate not composed. → RESOLVED in WG-243.** `CadenceRegularity`/`WalkVerifier`
+  were complete but invoked by no runtime pass path; `WakeChallengeMachine` passed on step count alone.
+  **Fixed (WG-243):** `observedProgress` now carries a `MovementCorroboration`, a pass **requires**
+  `.corroborated` gait (a `.contradicted` shake resets progress), and `ChallengeAntiShakeTests` proves
+  end-to-end that a shake can't stop the alarm. The gate lives in the deterministic state machine (the
+  single chokepoint), so #19/#20 hold by construction.
 - **P2 — #46 audit is best-effort.** `AlarmCommandProcessor` appends the audit with `try?` after the alarm
   save, so a save-succeeds/audit-fails window can drop the actor record. Track a launch-time state-vs-audit
   backfill or a transactional audit; low likelihood, on-device only.

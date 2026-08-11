@@ -89,8 +89,9 @@ enum WakeChallengeEvent: Sendable, Equatable {
     case sensorsReady
     case sensorsUnavailable
     /// A **cumulative** source count (e.g. steps since the source began) — not a raw delta, so
-    /// replays can't inflate progress (see `ChallengeProgress`).
-    case observedProgress(cumulative: Int)
+    /// replays can't inflate progress (see `ChallengeProgress`). `corroboration` is the independent gait
+    /// signal (WG-243): a `.contradicted` (shake/replay) reading can never pass and earns no progress.
+    case observedProgress(cumulative: Int, corroboration: MovementCorroboration)
     case pause
     case timeout
     case fail
@@ -128,9 +129,8 @@ struct WakeChallengeMachine: Sendable, Equatable {
             phase = .timedOut
         case (.starting, .fail), (.active, .fail):
             phase = .failed
-        case (.active, .observedProgress(let cumulative)):
-            progress.observe(cumulative: cumulative)
-            if progress.isComplete { phase = .passed }
+        case (.active, .observedProgress(let cumulative, let corroboration)):
+            recordObservedProgress(cumulative: cumulative, corroboration: corroboration)
         case (.active, .pause):
             progress.reset()
         case (.passed, .reset), (.failed, .reset), (.timedOut, .reset), (.unavailable, .reset):
@@ -140,5 +140,27 @@ struct WakeChallengeMachine: Sendable, Equatable {
             return false
         }
         return true
+    }
+
+    /// A pass requires the step count AND an **independent corroboration** of real gait (#19/#20):
+    /// - `.contradicted` (erratic/metronomic shake or replay) → **reset** banked progress, so a shake can't
+    ///   fill the bar to be finished with one clean step, and can never pass.
+    /// - `.unavailable` (cadence can't be judged yet) → **accumulate** the count but do **not** pass on it
+    ///   alone — a fast shake in the low-data window is held, not admitted.
+    /// - `.corroborated` (plausible gait) → accumulate and pass once complete.
+    /// A genuine walk of the required length generates enough step intervals to be corroborated, so real
+    /// walkers aren't blocked; a sensor-limited edge case falls back to the accessible alternative (#21/#22).
+    private mutating func recordObservedProgress(
+        cumulative: Int, corroboration: MovementCorroboration
+    ) {
+        switch corroboration {
+        case .contradicted:
+            progress.reset()
+        case .unavailable:
+            progress.observe(cumulative: cumulative)
+        case .corroborated:
+            progress.observe(cumulative: cumulative)
+            if progress.isComplete { phase = .passed }
+        }
     }
 }

@@ -27,8 +27,8 @@ final class ChallengeViewModelTests: XCTestCase {
 
     func testActiveProgressDisplayAndHaptic() {
         let viewModel = active(required: 12)
-        viewModel.apply(.observedProgress(cumulative: 0))  // baseline
-        viewModel.apply(.observedProgress(cumulative: 6))
+        viewModel.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))  // baseline
+        viewModel.apply(.observedProgress(cumulative: 6, corroboration: .corroborated))
         XCTAssertEqual(viewModel.progressFraction, 0.5)
         XCTAssertEqual(viewModel.progressText, "6 of 12 steps")
         XCTAssertTrue(viewModel.isAlarmActive)
@@ -39,8 +39,8 @@ final class ChallengeViewModelTests: XCTestCase {
 
     func testPassDismissesAlarmWithSuccessHaptic() {
         let viewModel = active(required: 12)
-        viewModel.apply(.observedProgress(cumulative: 0))
-        viewModel.apply(.observedProgress(cumulative: 12))
+        viewModel.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+        viewModel.apply(.observedProgress(cumulative: 12, corroboration: .corroborated))
         XCTAssertFalse(viewModel.isAlarmActive, "only a pass dismisses the alarm")
         XCTAssertEqual(viewModel.progressFraction, 1.0)
         XCTAssertEqual(viewModel.statusLabel, "Alarm off")
@@ -92,23 +92,24 @@ final class ChallengeViewModelTests: XCTestCase {
         XCTAssertTrue(unavailable.isAlarmActive, "unavailable")
 
         let passed = active()
-        passed.apply(.observedProgress(cumulative: 0))
-        passed.apply(.observedProgress(cumulative: 12))
+        passed.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+        passed.apply(.observedProgress(cumulative: 12, corroboration: .corroborated))
         XCTAssertFalse(passed.isAlarmActive, "only passed dismisses")
     }
 
     func testProgressHapticOnlyFiresWhenProgressAdvances() {
         let viewModel = active(required: 12)
-        viewModel.apply(.observedProgress(cumulative: 0))  // baseline — no advance
+        // baseline — no advance
+        viewModel.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
         XCTAssertNil(viewModel.lastHapticCue, "the baseline observation adds no progress")
-        viewModel.apply(.observedProgress(cumulative: 3))
+        viewModel.apply(.observedProgress(cumulative: 3, corroboration: .corroborated))
         XCTAssertEqual(viewModel.lastHapticCue, .progressed)
     }
 
     func testAccessibilityAnnouncementCarriesProgress() {
         let viewModel = active(required: 12)
-        viewModel.apply(.observedProgress(cumulative: 0))
-        viewModel.apply(.observedProgress(cumulative: 4))
+        viewModel.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+        viewModel.apply(.observedProgress(cumulative: 4, corroboration: .corroborated))
         let announcement = viewModel.accessibilityAnnouncement
         XCTAssertTrue(announcement.contains("Alarm active"))
         XCTAssertTrue(announcement.contains("4 of 12 steps"))

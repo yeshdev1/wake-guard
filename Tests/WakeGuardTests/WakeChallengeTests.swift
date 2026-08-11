@@ -27,8 +27,9 @@ final class WakeChallengeTests: XCTestCase {
 
     func testHappyPathReachesPassedAndPermitsDismissal() {
         var machine = started(required: 20)
-        machine.apply(.observedProgress(cumulative: 0))  // baseline
-        XCTAssertTrue(machine.apply(.observedProgress(cumulative: 20)))
+        machine.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))  // baseline
+        XCTAssertTrue(
+            machine.apply(.observedProgress(cumulative: 20, corroboration: .corroborated)))
         XCTAssertEqual(machine.phase, .passed)
         XCTAssertTrue(machine.progress.isComplete)
         XCTAssertTrue(machine.phase.permitsAlarmDismissal)
@@ -36,11 +37,14 @@ final class WakeChallengeTests: XCTestCase {
 
     func testProgressIsMonotonicViaPeak() {
         var machine = started(required: 20)
-        machine.apply(.observedProgress(cumulative: 0))  // baseline 0
-        machine.apply(.observedProgress(cumulative: 8))  // peak 8 -> completed 8
-        machine.apply(.observedProgress(cumulative: 3))  // dip ignored — peak stays 8
+        machine.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))  // baseline 0
+        // peak 8 -> completed 8
+        machine.apply(.observedProgress(cumulative: 8, corroboration: .corroborated))
+        // dip ignored — peak stays 8
+        machine.apply(.observedProgress(cumulative: 3, corroboration: .corroborated))
         XCTAssertEqual(machine.progress.completed, 8, "a lower count never retreats progress")
-        machine.apply(.observedProgress(cumulative: 103))  // peak 103 -> clamp 20 -> pass
+        // peak 103 -> clamp 20 -> pass
+        machine.apply(.observedProgress(cumulative: 103, corroboration: .corroborated))
         XCTAssertEqual(machine.progress.completed, 20)
         XCTAssertEqual(machine.phase, .passed)
     }
@@ -48,7 +52,7 @@ final class WakeChallengeTests: XCTestCase {
     func testReplayedCumulativeCannotInflate() {
         var machine = started(required: 20)
         for cumulative in [0, 10, 10, 10] {
-            machine.apply(.observedProgress(cumulative: cumulative))
+            machine.apply(.observedProgress(cumulative: cumulative, corroboration: .corroborated))
         }
         XCTAssertEqual(machine.progress.completed, 10, "replaying a value can't raise the peak")
         XCTAssertEqual(machine.phase, .active)
@@ -58,7 +62,7 @@ final class WakeChallengeTests: XCTestCase {
         var machine = started(required: 20)
         // A counter reset (dip) followed by re-climbing the same range must not add each time.
         for cumulative in [0, 10, 0, 10, 0, 10] {
-            machine.apply(.observedProgress(cumulative: cumulative))
+            machine.apply(.observedProgress(cumulative: cumulative, corroboration: .corroborated))
         }
         XCTAssertEqual(
             machine.progress.completed, 10, "reset-spam can't inflate past the real peak")
@@ -67,16 +71,17 @@ final class WakeChallengeTests: XCTestCase {
 
     func testHugeCumulativeSaturatesWithoutTrapping() {
         var machine = started(required: 20)
-        machine.apply(.observedProgress(cumulative: 100))  // baseline 100
-        XCTAssertTrue(machine.apply(.observedProgress(cumulative: Int.max)))
+        machine.apply(.observedProgress(cumulative: 100, corroboration: .corroborated))  // baseline
+        XCTAssertTrue(
+            machine.apply(.observedProgress(cumulative: Int.max, corroboration: .corroborated)))
         XCTAssertEqual(machine.progress.completed, 20, "an implausible span saturates, never traps")
         XCTAssertEqual(machine.phase, .passed)
     }
 
     func testPauseSafelyResetsProgressButStaysActive() {
         var machine = started(required: 20)
-        machine.apply(.observedProgress(cumulative: 0))
-        machine.apply(.observedProgress(cumulative: 12))
+        machine.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+        machine.apply(.observedProgress(cumulative: 12, corroboration: .corroborated))
         XCTAssertTrue(machine.apply(.pause))
         XCTAssertEqual(machine.progress.completed, 0, "a pause safely resets progress to zero")
         XCTAssertEqual(machine.phase, .active, "a pause does not end the challenge")
@@ -126,8 +131,8 @@ final class WakeChallengeTests: XCTestCase {
     func testResetFromEachTerminalReturnsToIdle() {
         for terminalEvent in [WakeChallengeEvent.timeout, .fail, .sensorsUnavailable] {
             var machine = started(required: 20)
-            machine.apply(.observedProgress(cumulative: 0))
-            machine.apply(.observedProgress(cumulative: 5))
+            machine.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+            machine.apply(.observedProgress(cumulative: 5, corroboration: .corroborated))
             machine.apply(terminalEvent)
             XCTAssertTrue(machine.phase.isTerminal)
             XCTAssertTrue(machine.apply(.reset))
@@ -138,11 +143,12 @@ final class WakeChallengeTests: XCTestCase {
 
     func testPassedIsStableAgainstFurtherEvents() {
         var machine = started(required: 5)
-        machine.apply(.observedProgress(cumulative: 0))
-        machine.apply(.observedProgress(cumulative: 5))
+        machine.apply(.observedProgress(cumulative: 0, corroboration: .corroborated))
+        machine.apply(.observedProgress(cumulative: 5, corroboration: .corroborated))
         XCTAssertEqual(machine.phase, .passed)
         XCTAssertFalse(
-            machine.apply(.observedProgress(cumulative: 99)), "no progress after passing")
+            machine.apply(.observedProgress(cumulative: 99, corroboration: .corroborated)),
+            "no progress after passing")
         XCTAssertFalse(machine.apply(.start), "cannot restart a passed challenge without reset")
         XCTAssertEqual(machine.phase, .passed)
     }
@@ -151,7 +157,9 @@ final class WakeChallengeTests: XCTestCase {
 
     func testInvalidTransitionsAreNoOps() {
         var machine = WakeChallengeMachine(required: 10)
-        XCTAssertFalse(machine.apply(.observedProgress(cumulative: 5)), "no progress while idle")
+        XCTAssertFalse(
+            machine.apply(.observedProgress(cumulative: 5, corroboration: .corroborated)),
+            "no progress while idle")
         XCTAssertFalse(machine.apply(.sensorsReady), "cannot become active without starting")
         XCTAssertFalse(machine.apply(.pause), "nothing to pause while idle")
         XCTAssertFalse(machine.apply(.reset), "idle is not terminal")
