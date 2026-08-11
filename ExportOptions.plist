@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WG-260: export options for `xcodebuild -exportArchive` targeting TestFlight / App Store Connect.
+  Used by `make export`. Signing + the actual upload need real Apple Developer credentials
+  (a Team ID and an App Store Connect API key), so they run on a provisioned machine, not in this
+  sandbox — set DEVELOPMENT_TEAM / the team id below before first use. `uploadSymbols` ships dSYMs so
+  crash reports symbolicate; `stripSwiftSymbols` keeps the binary lean. See docs/RELEASE_PIPELINE.md.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>teamID</key>
+    <string>REPLACE_WITH_TEAM_ID</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+</dict>
+</plist>

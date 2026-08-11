@@ -8,7 +8,13 @@ SOURCES     := Sources Tests UITests
 # Override on the CLI, e.g. make test DESTINATION='platform=iOS Simulator,name=iPhone 16,OS=26.5'
 DESTINATION ?= platform=iOS Simulator,name=iPhone 17,OS=26.5
 
-.PHONY: generate build test test-fast test-ui lint format format-check check-tracking ci ci-fast clean
+.PHONY: generate build test test-fast test-ui lint format format-check check-tracking ci ci-fast clean archive export release-notes
+
+# WG-260: TestFlight / App Store pipeline paths + build number.
+ARCHIVE_PATH ?= build/WakeGuard.xcarchive
+EXPORT_PATH  ?= build/export
+# Reproducible build number (commit count); override per upload with BUILD=<n>.
+BUILD        ?= $(shell scripts/release_metadata.sh build-number)
 
 generate:
 	xcodegen generate
@@ -43,6 +49,32 @@ test-ui: generate
 		-project $(PROJECT) -scheme WakeGuardUITests \
 		-destination '$(DESTINATION)' \
 		$(if $(RESULT_BUNDLE),-resultBundlePath '$(RESULT_BUNDLE)',)
+
+# WG-260: internal TestFlight pipeline. `release-notes` prints build metadata + notes from git;
+# `archive` builds a device archive stamped with the reproducible build number; `export` produces an
+# .ipa via ExportOptions.plist. Signing + the App Store Connect upload need real Apple credentials on a
+# provisioned machine (not this sandbox) — see docs/RELEASE_PIPELINE.md for the manual upload step.
+release-notes:
+	@scripts/release_metadata.sh
+
+# Remove any prior archive first so `export` can never repackage a stale build from an earlier commit.
+archive: generate
+	rm -rf '$(ARCHIVE_PATH)'
+	xcodebuild archive \
+		-project $(PROJECT) -scheme $(SCHEME) \
+		-destination 'generic/platform=iOS' \
+		-archivePath '$(ARCHIVE_PATH)' \
+		CURRENT_PROJECT_VERSION=$(BUILD)
+
+# Export the .ipa from the archive just built. Run `make archive` immediately before this (a fresh
+# archive per upload) — export intentionally does not re-archive so an externally-built archive can be
+# exported, but it must be the current one; the archive step clears stale output to keep that safe.
+export:
+	rm -rf '$(EXPORT_PATH)'
+	xcodebuild -exportArchive \
+		-archivePath '$(ARCHIVE_PATH)' \
+		-exportOptionsPlist ExportOptions.plist \
+		-exportPath '$(EXPORT_PATH)'
 
 lint:
 	swiftlint lint --strict --config .swiftlint.yml

@@ -3758,6 +3758,27 @@ decisions are recorded above using the ADR template.
   diagnostics/sensor wiring) and **on-device verification** (WG-030) — both tracked, neither a defect in the
   logic that exists. See `docs/reviews/EPOCH_13_FINAL_REGRESSION.md`.
 
+### WG-260 (2026-08-11): Internal TestFlight build pipeline (E14 start)
+
+- **What.** The automatable + testable half of an internal TestFlight pipeline: `make archive`/`export`
+  (`ExportOptions.plist`, App Store Connect method, upload symbols), `scripts/release_metadata.sh` +
+  `make release-notes` (version + monotonic commit-count build number + subjects-only release notes),
+  explicit `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, and `ReleaseReadinessTests`.
+- **Signing + upload are manual.** They need real Apple Developer credentials (Team ID + App Store Connect
+  API key) on a provisioned machine — this sandbox can't sign or upload, so the config is provided and its
+  correctness pinned, but the live upload is documented as the manual step (same posture as WG-030).
+- **Debug tools compiled out.** `MotionTraceRecorder` (whole-file `#if DEBUG`) and the `-uiTesting` launch
+  hook are Release-excluded; `ReleaseReadinessTests` pins it — including a guard that the `-uiTesting` line
+  sits *inside* `#if DEBUG` (a file-wide check would miss a moved hook), release notes are subjects-only
+  (no bodies/emails), and the version/export config is present.
+- **Review (release-test-engineer, read-only). No P0.** Applied the P1s: `release_metadata.sh` fails loudly
+  on a shallow clone (a bogus build number → App Store Connect rejects the upload; CI must use
+  `fetch-depth: 0`); `make archive` clears the stale archive first so `export` can't repackage a prior
+  build; the debug-gate + subjects-only pins were strengthened.
+- **Internal ≠ submission.** An internal TestFlight build does not require the WG-250 App Store blockers
+  (privacy-control wiring) resolved — those gate the public submission (WG-268), tracked in
+  `docs/RELEASE_CHECKLIST.md`. `make ci-fast` green — 1214 (+6). See `docs/RELEASE_PIPELINE.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
