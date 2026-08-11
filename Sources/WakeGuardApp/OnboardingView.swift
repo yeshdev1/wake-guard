@@ -4,24 +4,49 @@ import SwiftUI
 /// alarms), then offers an optional first alarm the user can **skip** and still reach a usable app. Optional
 /// data permissions (motion, location, health, calendar, cloud AI) are **not** requested here — they are
 /// asked for later, in context. Design-system, accessibility-labelled.
+///
+/// Layout: the step **title is the hero** — centred in the middle of the screen, italic — with the body copy
+/// and controls as its subcontent directly beneath. The whole group **fades in** on appear (a pure opacity
+/// cross-fade; removed under Reduce Motion, WG-203).
 struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     var onFinished: () -> Void = {}
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealed = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.lg) {
-            Text(Self.title(for: model.step))
-                .font(DesignSystem.Typography.screenTitle)
-                .accessibilityAddTraits(.isHeader)
-            Text(Self.body(for: model.step))
-                .font(DesignSystem.Typography.body)
-                .foregroundStyle(DesignSystem.Colors.secondaryText)
+        VStack(spacing: DesignSystem.Spacing.xl) {
             Spacer(minLength: 0)
-            controls
+            hero
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(DesignSystem.Spacing.lg)
+        .opacity(revealed ? 1 : 0)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.7), value: revealed)
+        .onAppear { revealed = true }
         .onChange(of: model.isComplete) { _, complete in
             if complete { onFinished() }
+        }
+    }
+
+    /// The centred hero: the italic title, its subtitle, and the controls — one group in the vertical
+    /// middle, everything subordinate to the title.
+    @ViewBuilder private var hero: some View {
+        VStack(spacing: DesignSystem.Spacing.xl) {
+            VStack(spacing: DesignSystem.Spacing.sm) {
+                Text(Self.title(for: model.step))
+                    .font(DesignSystem.Typography.screenTitle)
+                    .italic()
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+                Text(Self.body(for: model.step))
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.secondaryText)
+                    .multilineTextAlignment(.center)
+            }
+            controls
         }
     }
 
