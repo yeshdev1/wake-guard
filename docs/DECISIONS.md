@@ -3535,6 +3535,15 @@ decisions are recorded above using the ADR template.
   explicit tap; content is the redacted report). **E12 (Reliability, performance, battery, observability)
   complete: WG-220–230.** `make ci-fast` green — 1185 (+4).
 
+### WG-240 (2026-08-11): Architecture & invariant review (E13 start)
+
+- **What.** Two independent reviewers (ios-architect + alarm-safety-reviewer) mapped all 50 safety
+  invariants to code + tests; `docs/reviews/EPOCH_01_INVARIANT_MAP.md` + `InvariantMapTests` (CI-pinned).
+- **No P0.** Alarm-authority chain, auditability, privacy, cloud boundaries enforced *and* tested.
+- **Blocking issues tracked.** P1: #19/#20 anti-shake gate exists but isn't wired to the runtime pass path
+  (blocks enabling the walk challenge; assigned to WG-243). P2: best-effort audit `try?`, dead
+  `.recovery`/outbox recovery API. `make ci-fast` green — 1187 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
