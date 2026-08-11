@@ -2844,3 +2844,147 @@ Report changed files, tests, assumptions, risks, and next task.
 - Next-phase features require a new scope decision
 - Narrow tests and the full available suite pass.
 - `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+## E15: Opt-in telemetry (TelemetryDeck)
+
+Opt-in, privacy-first product + reliability + crash telemetry via TelemetryDeck, behind the existing
+`AnalyticsSink` port (WG-220). Off by default, disclosed, consented, never on the alarm critical path. Full
+design in `docs/TELEMETRY_PLAN.md`.
+
+### WG-272: Telemetry ADR + third-party privacy/maintenance assessment
+
+**Dependencies:** WG-220
+
+**Claude Code instruction:**
+
+> Implement WG-272 only: the decision record + third-party assessment authorizing opt-in TelemetryDeck
+> telemetry. Docs-only — no product code, no dependency, no manifest/label change. Preserve every safety
+> invariant. This task records the human approval that unblocks WG-273–279.
+
+**Acceptance criteria:**
+
+- `docs/DECISIONS.md` ADR records the vendor choice, the rejection of Firebase/GA, off-by-default + consent
+  model, the closed-schema guarantee, the critical-path rule, and data residency.
+- `docs/THIRD_PARTY_TELEMETRYDECK.md` assessment exists (data flows, subprocessors, retention, SDK size,
+  update cadence, removal plan) per the CLAUDE.md third-party-SDK rule.
+- Human approval to proceed is recorded.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-273: Add the TelemetryDeck Swift package
+
+**Dependencies:** WG-272
+
+**Claude Code instruction:**
+
+> Implement WG-273 only: add the TelemetryDeck SPM dependency (the project's first third-party package),
+> pinned to an exact version, with no behaviour change yet. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- `project.yml` gains a top-level `packages:` entry + the target dependency, pinned to an exact `from:`.
+- `Package.resolved` committed; the project resolves and builds; `make ci-fast` green.
+- No sink wired yet (no runtime behaviour change).
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-274: TelemetryDeckSink adapter (wired, off by default)
+
+**Dependencies:** WG-273
+
+**Claude Code instruction:**
+
+> Implement WG-274 only: a `TelemetryDeckSink: AnalyticsSink` mapping each closed `AnalyticsEvent` to a
+> TelemetryDeck signal, initialised with crash reporting enabled and the App ID from build config; wire it
+> into `AppEnvironment` behind `GatedAnalytics`, production-only, **off by default**. Preserve every safety
+> invariant.
+
+**Acceptance criteria:**
+
+- With `analyticsEnabled == false` (default) nothing is emitted (unit test asserts the gate drops all).
+- `inMemory()` graph uses `NoOpAnalyticsSink`; the App ID is read from config, not a literal.
+- `ConsentFlagBox` bridges the synchronous gate to async settings.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` updated with evidence.
+
+### WG-275: Dedicated opt-in consent step (honored live)
+
+**Dependencies:** WG-274
+
+**Claude Code instruction:**
+
+> Implement WG-275 only: a dedicated onboarding consent step + a Privacy-settings toggle bound to
+> `analyticsEnabled`, opt-in, honest copy, honored on the next event without relaunch. Preserve every safety
+> invariant and every UI rule (Dynamic Type, VoiceOver, contrast, localization).
+
+**Acceptance criteria:**
+
+- Default stays off; toggling on then off is honored live (test).
+- Dedicated onboarding consent screen with a clear decline that leaves telemetry off.
+- Accessibility + localization per the UI rules.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` updated with evidence.
+
+### WG-276: Instrument call sites (product + reliability)
+
+**Dependencies:** WG-274
+
+**Claude Code instruction:**
+
+> Implement WG-276 only: extend the closed `AnalyticsEvent` enum with the reliability events
+> (`alarmScheduled`, `reconcileOutcome`, `permissionResolved`, `appLaunched`) and emit all events
+> fire-and-forget at their call sites. Never on the alarm critical path. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- New cases carry only coarse, closed values (a leak-scan test proves no sensitive payload is representable).
+- Emissions never `await`-block scheduling / reconcile / challenge completion.
+- `reconcileOutcome` is emitted from the existing `RecordingAlarmCommandProcessor` seam.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` updated with evidence.
+
+### WG-277: Disclosure — nutrition label + privacy manifest
+
+**Dependencies:** WG-272, WG-274
+
+**Claude Code instruction:**
+
+> Implement WG-277 only: update `PrivacyNutritionLabel`, `PrivacyInfo.xcprivacy`, and their pinned tests to
+> the honest opt-in-telemetry state (Product Interaction + Crash Data, not linked, not tracking). This
+> changes pinned privacy assertions — requires the WG-272 ADR + recorded approval. Preserve every other
+> safety invariant.
+
+**Acceptance criteria:**
+
+- Nutrition label, privacy manifest, and `transmittedDataTypes` are consistent and honest; tracking flag
+  stays false.
+- `PrivacyNutritionLabelTests` + `PrivacyManifestTests` updated to the new state under the ADR.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` updated with evidence.
+
+### WG-278: Telemetry test matrix
+
+**Dependencies:** WG-275, WG-276, WG-277
+
+**Claude Code instruction:**
+
+> Implement WG-278 only: the telemetry test matrix — consent on/off honored live, structurally leak-proof,
+> critical-path isolation, offline degrades silently, disclosure consistency, config-not-secret. Preserve
+> every safety invariant.
+
+**Acceptance criteria:**
+
+- All matrix cases pass in `make ci-fast`.
+- A manual device line (verify a signal lands in the dashboard on device) is added to the checklist.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-279: Rollout, kill-switch, and disclosure docs
+
+**Dependencies:** WG-278
+
+**Claude Code instruction:**
+
+> Implement WG-279 only: confirm the consent toggle is the kill-switch (off → zero emission), document the
+> remote-free disable, and update the release checklist, testability report, App Store data questionnaire
+> answer, and privacy policy. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- Consent-off proven to emit nothing; the no-backend disable path is documented.
+- `RELEASE_CHECKLIST.md`, `TESTABILITY_REPORT.md`, and the App Store data-collection answer are updated and
+  mutually consistent with the manifest/label.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` updated with evidence.

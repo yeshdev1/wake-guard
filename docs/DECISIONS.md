@@ -4765,3 +4765,34 @@ decisions are recorded above using the ADR template.
   **Handoff:** WG-082 combines this snapshot (recent steps + recency + availability) with a
   sustained-episode source and device interaction into the WG-080 model, then applies criticality +
   time-remaining prompt policy — movement never directly cancels.
+
+### WG-272 (2026-08-11): Opt-in telemetry via TelemetryDeck (E15 start)
+
+- **Decision (human-approved 2026-08-11).** Adopt **TelemetryDeck** for opt-in, privacy-first product +
+  reliability + crash telemetry, behind the existing `AnalyticsSink` port (WG-220). Ships **off by default**,
+  disclosed + consented, and **never on the alarm critical path**. This ADR + the third-party assessment
+  (`docs/THIRD_PARTY_TELEMETRYDECK.md`) record the approval that unblocks WG-273–279. Full design:
+  `docs/TELEMETRY_PLAN.md`.
+- **Why this is not "hidden analytics."** The quality rule bans *hidden* analytics and the nutrition label
+  currently promises no transmission. Telemetry is admissible only as **disclosed + opt-in + off-by-default**
+  with a **closed event schema**. WG-220 already enforces the schema: `AnalyticsEvent` is a closed enum with
+  **no free-text case**, so no health/location/label/journal/prompt text is *representable*, let alone
+  transmittable. The consent gate (`GatedAnalytics`) drops everything when off.
+- **Rejected: Firebase / Google Analytics.** Google's ad ecosystem on a sleep/health app; a **free-form**
+  event model that would reopen the sensitive-payload hole the closed enum closes; an ATT prompt + "tracking"
+  nutrition bucket; a heavy SDK. TelemetryDeck uses a **salted-hash** signal id (no IDFA, no ATT prompt, no
+  cross-app tracking), so `NSPrivacyTracking` stays **false**.
+- **Data residency (US / India / EU).** TelemetryDeck managed hosting is EU-only; acceptable for a global
+  base because the data is **anonymous + aggregated** (US has no residency mandate + GDPR is a superset;
+  India's DPDP uses a blocklist model + governs personal data, which anonymous aggregates likely aren't).
+  Not legal advice — keep it anonymous, disclose EU processing in the policy; **self-host** is the noted
+  fallback if a future review requires localization.
+- **Crash reporting adopted.** TelemetryDeck crash capture is enabled; it also finally populates the empty
+  on-device `recentErrors` in Diagnostics. Declared as `Crash Data` (not linked, not tracking).
+- **Pinned-assertion gate (the reason this ADR exists).** WG-277 will change the nutrition label + privacy
+  manifest + their pinned tests (`PrivacyNutritionLabelTests`, `PrivacyManifestTests`). Per CLAUDE.md a
+  pinned privacy assertion is changed **only** with an ADR + explicit human approval — recorded here. No
+  dependency, sink, label, or manifest change lands before WG-273+ under this approval.
+- **Critical-path rule.** The sink enqueues and returns (TelemetryDeck batches + uploads on its own queue);
+  an offline device or a telemetry failure must never affect an alarm firing. Consent-off is the
+  kill-switch — the app has no backend, so there is no server-side switch (documented in WG-279).
