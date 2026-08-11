@@ -24,6 +24,14 @@ struct IANATimeZone: Codable, Sendable, Equatable, Hashable {
         guard !canonical.hasPrefix("GMT+"), !canonical.hasPrefix("GMT-") else {
             throw DomainError.timeZoneNotIANA(identifier)
         }
+        // Also reject the **signed** fixed-offset `Etc/GMT±N` family (e.g. `Etc/GMT+5`, `Etc/GMT-14`,
+        // WG-242): these canonicalize to `Etc/GMT+…`/`Etc/GMT-…`, so the `GMT±` check above misses them, yet
+        // they are non-zero offset-only zones with no DST / geographic identity (and POSIX-inverted signs) —
+        // exactly what #11 forbids. Zero-offset references (`UTC`, `Etc/UTC`, `Etc/GMT`, which canonicalize
+        // to `GMT`) are legitimate and kept.
+        guard !canonical.hasPrefix("Etc/GMT+"), !canonical.hasPrefix("Etc/GMT-") else {
+            throw DomainError.timeZoneNotIANA(identifier)
+        }
         self.identifier = identifier
     }
 

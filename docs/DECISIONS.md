@@ -3551,6 +3551,18 @@ decisions are recorded above using the ADR template.
   (not "Critical"); conversational `confirm()` commits at most once on a double-tap (clears `pending` before
   the await). `make ci-fast` green — 1189 (+2).
 
+### WG-242 (2026-08-11): Time/DST/recurrence/travel red team
+
+- **What.** Adversarial temporal review (brute-forced all IANA zones 2020–2030);
+  `docs/reviews/EPOCH_03_TIME_TRAVEL.md`.
+- **Correction (strengthens #11):** `IANATimeZone` previously accepted the signed `Etc/GMT±N` offset family
+  (a WG-002-era test enshrined `Etc/GMT+5`). These are non-zero, POSIX-inverted, no-DST offset zones — the
+  offset-only zones #11 exists to reject. Now rejected; zero-offset `UTC`/`Etc/UTC`/`Etc/GMT` references
+  (canonical `GMT`) are kept. This tightens a safety assertion (not a weakening).
+- Added a fall-back anti-double-fire regression test; the engine math is proven correct across all zones.
+  **Tracked P1:** travel/time-zone-change subsystem (WG-100–108) is complete + tested but unwired into the
+  app — the askOnChange prompt never runs (owner: a composition task). `make ci-fast` green — 1191 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

@@ -63,16 +63,19 @@ final class AlarmDomainTests: XCTestCase {
     }
 
     func testIANATimeZoneRejectsOffsetsAndBogusButKeepsRealZones() {
-        // The whole fixed-offset GMT family and unresolvable ids are rejected (#11).
+        // The whole fixed-offset GMT family — including the `Etc/GMT±N` offset zones (WG-242) — and
+        // unresolvable ids are rejected (#11): they carry an offset with no DST/geographic identity.
         let rejected = [
             "GMT", "GMT+0", "GMT-0", "GMT+5", "GMT+0530", "GMT+1400", "UTC+5", "Not/AZone",
+            "Etc/GMT+5", "Etc/GMT-14",
         ]
         for zone in rejected {
             XCTAssertThrowsError(try IANATimeZone(identifier: zone), zone)
         }
-        // Real geographic zones (incl. UTC, Etc/*, extreme/odd offsets) are kept.
+        // Real geographic zones — plus the genuine `UTC`/`Etc/UTC`/`Etc/Universal` reference zones (which
+        // are not offset-only) — are kept.
         let accepted = [
-            "UTC", "Etc/UTC", "Etc/GMT", "Etc/GMT+5", "America/New_York",
+            "UTC", "Etc/UTC", "Etc/Universal", "America/New_York",
             "Asia/Kolkata", "Pacific/Kiritimati", "Asia/Kathmandu", "Australia/Eucla",
         ]
         for zone in accepted {
