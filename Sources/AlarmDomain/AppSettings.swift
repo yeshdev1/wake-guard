@@ -22,6 +22,9 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
     /// Opt-in to leave **redacted** crash breadcrumbs (WG-221). Off by default; even when on, breadcrumbs
     /// carry no raw sensitive data (only coarse categories + audit correlation IDs).
     var crashDiagnosticsEnabled: Bool
+    /// Whether the first-launch onboarding has been completed (WG-200 composition). Persisted so the intro
+    /// shows once, not every launch. Default false (a fresh install shows onboarding).
+    var hasCompletedOnboarding: Bool
 
     static let `default` = AppSettings(
         preAlarmPromptEnabled: false,
@@ -34,7 +37,8 @@ struct AppSettings: Codable, Sendable, Equatable, Hashable {
         smartFeaturesKillSwitch: false,
         agentPermissionMode: .recommendOnly,
         cloudAIConsented: false,
-        crashDiagnosticsEnabled: false)
+        crashDiagnosticsEnabled: false,
+        hasCompletedOnboarding: false)
 }
 
 extension AppSettings {
@@ -60,5 +64,7 @@ extension AppSettings {
             try container.decodeIfPresent(Bool.self, forKey: .cloudAIConsented) ?? false
         crashDiagnosticsEnabled =
             try container.decodeIfPresent(Bool.self, forKey: .crashDiagnosticsEnabled) ?? false
+        hasCompletedOnboarding =
+            try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
     }
 }

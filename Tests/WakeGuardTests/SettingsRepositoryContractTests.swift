@@ -36,6 +36,29 @@ final class SettingsRepositoryContractTests: XCTestCase {
         try await assertContract(CoreDataSettingsRepository(controller))
     }
 
+    func testOnboardingFlagDefaultsFalseAndBackCompatDecodesFalse() throws {
+        XCTAssertFalse(
+            AppSettings.default.hasCompletedOnboarding, "a fresh install shows onboarding")
+        // A blob encoded before the flag existed must decode to false, not throw (WG-200 back-compat).
+        let legacy = Data(
+            """
+            {"preAlarmPromptEnabled":false,"automaticProposalPreparationEnabled":false,\
+            "cloudAIEnabled":false,"locationContextEnabled":false,"readinessScoreEnabled":false,\
+            "experimentalAntiCheatEnabled":false,"analyticsEnabled":false,"smartFeaturesKillSwitch":false}
+            """.utf8)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        XCTAssertFalse(decoded.hasCompletedOnboarding)
+    }
+
+    func testOnboardingFlagPersists() async throws {
+        let repo = InMemorySettingsRepository()
+        var settings = AppSettings.default
+        settings.hasCompletedOnboarding = true
+        try await repo.save(settings)
+        let loaded = try await repo.settings()
+        XCTAssertTrue(loaded.hasCompletedOnboarding, "the onboarding flag persists across loads")
+    }
+
     func testSchemaIsVersioned() throws {
         XCTAssertFalse(PersistenceController.schemaVersion.isEmpty)
         let controller = try PersistenceController(inMemory: true)

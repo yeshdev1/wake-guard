@@ -9,6 +9,8 @@ struct RootView: View {
     @Environment(\.appEnvironment) private var environment
     @State private var deepLink = DeepLinkModel()
     @State private var notificationDelegate: PreAlarmNotificationDelegate?
+    @State private var onboarding = OnboardingModel()
+    @State private var needsOnboarding = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -18,6 +20,11 @@ struct RootView: View {
                 await setUpPreAlarmNotifications()
                 await runRetentionCleanup()
                 startTimeZoneMonitoring()
+                await loadOnboardingState()
+            }
+            .fullScreenCover(isPresented: $needsOnboarding) {
+                OnboardingView(
+                    model: onboarding, onFinished: { Task { await completeOnboarding() } })
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await runPreAlarmWork() } }
@@ -62,6 +69,26 @@ struct RootView: View {
         // Foreground fallback (WG-089 / step 6): evaluate upcoming alarms now, so a prompt can surface
         // when the app is open near an alarm even if no background opportunity ran.
         await environment.preAlarmWork.run(now: environment.clock.now)
+    }
+
+    /// Show first-launch onboarding once — production only (WG-200), so previews / UI tests go straight to
+    /// the list. Reads the persisted flag; a fresh install (or a failed read → default) shows the intro.
+    @MainActor
+    private func loadOnboardingState() async {
+        guard let environment, environment.schedulesAlarmsInSystem else { return }
+        let settings = (try? await environment.settingsRepository.settings()) ?? .default
+        needsOnboarding = !settings.hasCompletedOnboarding
+    }
+
+    /// Persist that onboarding is done, so it doesn't show again, then dismiss it. Best-effort — a failed
+    /// save just means the intro shows once more, never a broken launch.
+    @MainActor
+    private func completeOnboarding() async {
+        needsOnboarding = false
+        guard let environment else { return }
+        var settings = (try? await environment.settingsRepository.settings()) ?? .default
+        settings.hasCompletedOnboarding = true
+        try? await environment.settingsRepository.save(settings)
     }
 
     /// Prune local data past its retention window on launch — production only, opportunistic + best-effort
