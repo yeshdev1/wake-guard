@@ -41,6 +41,7 @@ private struct AlarmListScreen: View {
     @State private var model: AlarmListViewModel
     @State private var permission: AlarmPermissionModel
     @State private var showingCreate = false
+    @State private var showingDescribe = false
     @State private var editingAlarm: Alarm?
     @State private var challengeTarget: ChallengeTarget?
     private let processor: any AlarmCommandProcessing
@@ -92,8 +93,19 @@ private struct AlarmListScreen: View {
                     .accessibilityIdentifier("privacySettingsButton")
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingCreate = true
+                    Menu {
+                        Button {
+                            showingDescribe = true
+                        } label: {
+                            Label("Describe your alarm", systemImage: "text.bubble")
+                        }
+                        .accessibilityIdentifier("describeAlarmButton")
+                        Button {
+                            showingCreate = true
+                        } label: {
+                            Label("Add manually", systemImage: "slider.horizontal.3")
+                        }
+                        .accessibilityIdentifier("addManualAlarmButton")
                     } label: {
                         Label("Add alarm", systemImage: "plus")
                     }
@@ -104,6 +116,11 @@ private struct AlarmListScreen: View {
                 isPresented: $showingCreate,
                 onDismiss: { Task { await model.load() } },  // reload so a new alarm appears
                 content: { CreateAlarmView(processor: processor, clock: clock, ids: ids) }
+            )
+            .sheet(
+                isPresented: $showingDescribe,
+                onDismiss: { Task { await model.load() } },
+                content: { ConversationalCreateCover(onCreated: { Task { await model.load() } }) }
             )
             .safeAreaInset(edge: .bottom) {
                 if schedulesInSystem {

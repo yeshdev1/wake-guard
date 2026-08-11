@@ -83,6 +83,10 @@ struct AppEnvironment: Sendable {
     /// the anti-shake machine. Production uses the real CoreMotion adapter; the in-memory graph reports it
     /// unavailable (so the challenge offers the accessible alternative, #21/#22). Holds no alarm authority.
     let pedometerLiveSource: any PedometerSource
+    /// The on-device language model for conversational alarm creation (WG-160/166). Production uses
+    /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
+    /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
+    let languageModelProvider: any LanguageModelProvider
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -108,6 +112,7 @@ struct AppEnvironment: Sendable {
                 preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
+                languageModelProvider: FoundationModelsLanguageModelProvider(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
                     // The location source's `authorizationStatus()` returns the domain enum, so the
@@ -137,6 +142,7 @@ struct AppEnvironment: Sendable {
                 preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
+                languageModelProvider: UnavailableLanguageModelProvider(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }
@@ -168,6 +174,7 @@ struct AppEnvironment: Sendable {
         let preAlarmNotifications: any PreAlarmNotificationScheduling
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
+        let languageModelProvider: any LanguageModelProvider
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
         /// in-memory graph returns a hermetic fixed status (so tests/previews never touch a framework).
@@ -261,6 +268,7 @@ struct AppEnvironment: Sendable {
             diagnosticsProvider: DefaultDiagnosticsProvider(
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
+            languageModelProvider: wiring.languageModelProvider,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

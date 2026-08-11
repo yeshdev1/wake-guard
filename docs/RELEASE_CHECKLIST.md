@@ -16,8 +16,10 @@
 - [ ] **App Review notes point to unrouted screens — MOSTLY CLEARED.** "Permissions & privacy" (wiring A2)
   and the **walk-challenge** flow (wiring D — reachable via a "Test challenge" swipe running the real
   pipeline) are now routed. The genuine unattended-ring hookup remains device-only AlarmKit (WG-030), so the
-  App Review notes should describe the challenge as a user-initiated test until that lands. Still unrouted:
-  the **conversational create** screen (wiring E) — keep `APP_REVIEW_NOTES.md` off it until wired.
+  App Review notes should describe the challenge as a user-initiated test until that lands. The
+  **conversational create** screen is now routed (wiring E3 — "Describe your alarm" on the create menu),
+  but on-device FoundationModels is device-only, so it fail-closes to the manual editor in the simulator —
+  describe it in `APP_REVIEW_NOTES.md` as available on eligible devices.
 - [ ] Add `PrivacyControlsReachableUITests` (composition-graph + accessibility-id reachability) — catches both
   blockers together.
 

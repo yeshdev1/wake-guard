@@ -3876,6 +3876,25 @@ decisions are recorded above using the ADR template.
   one. `AlarmListView` previews split to `AlarmListView+Previews.swift` (length). `make ci-fast` green —
   1233 (+3).
 
+### Composition wiring E1/E3 (2026-08-11): onboarding + conversational create
+
+- **E1 onboarding.** `OnboardingView` now shows once on first launch (RootView, production-gated so
+  previews/UI tests skip it), persisted via a new `AppSettings.hasCompletedOnboarding` (back-compat decode).
+  Verified live in the simulator (the app launches into the intro on a fresh install).
+- **E3 conversational create.** Composed the on-device AI stack (`FoundationModelsLanguageModelProvider` →
+  `StructuredGenerator` → `NaturalLanguageAlarmParser`; hermetic `UnavailableLanguageModelProvider`
+  in-memory) and added the missing **`ConversationalAlarmBuilder`** (`ValidatedAlarmIntent → ScheduleRule →
+  Alarm`). A "Describe your alarm" item on the create menu opens the flow; the commit builds a **`.standard`**
+  alarm (never critical from parsed text, #31/WG-245) and submits it through the command boundary. The
+  manual editor is always one tap away (#33).
+- **Honest limitation (device).** On-device FoundationModels is unavailable in the simulator, so the flow
+  hits its **fail-closed "use the manual editor"** path there; the actual NL parsing only runs on an eligible
+  device. No output is fabricated.
+- **Tests.** `ConversationalAlarmBuilderTests`: weekly + one-time intents build correct `.standard` alarms;
+  an unavailable model routes to the manual editor; and end-to-end, a scripted parse → Confirm creates a real
+  alarm through the processor. `make ci-fast` green — 1239 (+2 onboarding, +4 conversational across the two
+  commits).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
