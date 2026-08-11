@@ -7,9 +7,9 @@ import Foundation
 /// - `corroborated`: an independent signal confirms a walk (e.g. cadence `.plausibleGait`).
 /// - `contradicted`: a **positive** shake / replay signal — this can **never** pass, and it earns no
 ///   progress (a shake bar can't be banked and then finished with one clean step).
-/// - `unavailable`: sensors are too limited to judge — **not** a contradiction, so a genuinely-walking user
-///   on a sensor-poor device still passes on the count (degraded), never trapped (#21). The accessible
-///   alternative (#22) remains available regardless.
+/// - `unavailable`: sensors are too limited to judge — **not** a contradiction, so progress accumulates, but
+///   (since a pass requires `.corroborated`) it **never passes on the count alone**. A sensor-poor walker is
+///   never trapped: the always-available accessible alternative (#22) is the fallback (#21).
 enum MovementCorroboration: String, Sendable, Equatable, Hashable, Codable {
     case corroborated
     case contradicted

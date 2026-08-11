@@ -313,13 +313,16 @@ extension AlarmCommandProcessor {
         return summary
     }
 
-    /// Apply one repair, folding its outcome into `summary`. First re-validate against *current*
-    /// desired state (WG-244): the actor releases at every await, so a concurrent command may have
-    /// changed this alarm since the plan; a stale repair is dropped, never applied (#10).
+    /// Apply one repair, folding its outcome into `summary`. Re-validate against *current* desired state
+    /// first (WG-244): a stale — or unreadable — repair is deferred, never applied (fail closed, #10).
     private func apply(
         _ repair: ReconciliationRepair, into summary: inout ReconciliationSummary
     ) async {
-        let current = await currentDesiredSchedule(for: repair.alarmID)
+        let current: AlarmScheduleRequest?
+        do { current = try await currentDesiredSchedule(for: repair.alarmID) } catch {
+            summary.stale += 1  // read failed → defer, don't act on unknown state (WG-251)
+            return
+        }
         let outcome: RepairOutcome
         let scheduled: Bool
         switch repair {
@@ -344,11 +347,10 @@ extension AlarmCommandProcessor {
         }
     }
 
-    /// The *current* desired schedule for one alarm (its next occurrence if still present + enabled,
-    /// else `nil`). Re-read on the actor right before a repair so a concurrent command can't be lost to
-    /// a stale repair (the lost-update guard for #10, WG-244); same engine/now/zone as the planner.
-    private func currentDesiredSchedule(for id: AlarmID) async -> AlarmScheduleRequest? {
-        guard let alarm = try? await alarms.alarm(id: id), alarm.isEnabled,
+    /// The *current* desired schedule for one alarm (the lost-update guard for #10, WG-244). **Throws** on
+    /// a read failure so the caller defers rather than acting on unknown state (WG-251).
+    private func currentDesiredSchedule(for id: AlarmID) async throws -> AlarmScheduleRequest? {
+        guard let alarm = try await alarms.alarm(id: id), alarm.isEnabled,
             let occurrence = engine.nextOccurrence(
                 for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
         else { return nil }
@@ -379,8 +381,8 @@ extension AlarmCommandProcessor {
         }
     }
 
-    /// Record a repair whose external outcome is unknown — audited `.failed` (the safe "not-yet-
-    /// applied" posture, #10); the next pass re-checks and retries. (A `.uncertain` audit is WG-048.)
+    /// Record a repair whose external outcome is unknown — audited `.failed` (the safe not-yet-applied
+    /// posture, #10); the next pass re-checks. (A distinct `.uncertain` audit outcome is WG-048.)
     private func auditUncertainRepair(_ context: CommandContext) async -> RepairOutcome {
         await appendAudit(
             context, old: nil, new: nil, outcome: .failed,
@@ -391,8 +393,7 @@ extension AlarmCommandProcessor {
     /// The outcome of applying one reconciliation repair against the system authority.
     private enum RepairOutcome: Sendable {
         case applied
-        /// The adapter call was interrupted / cancelled and may or may not have applied —
-        /// the next pass re-checks ground truth (#10), so it is never a hard failure.
+        /// Interrupted / cancelled — may or may not have applied; the next pass re-checks (#10).
         case uncertain
         case failed
     }

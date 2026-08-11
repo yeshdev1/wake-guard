@@ -3723,6 +3723,24 @@ decisions are recorded above using the ADR template.
 - **Recorded** in `docs/RELEASE_CHECKLIST.md` (new submission-blockers section) + `docs/reviews/EPOCH_11_APP_STORE.md`.
   `make ci-fast` green — 1206 (+1), 0 unexpected.
 
+### WG-251 (2026-08-11): RC bug bash — E13 fixes coherent; three P2/P3 fixed
+
+- **What.** A cross-cutting `release-test-engineer` sweep over E01–E11 confirmed **the E13 fixes compose
+  without conflict — no P0/P1, no regressions** (WG-244 reconcile re-validation vs WG-242 `Etc/GMT±` vs
+  WG-243 corroboration don't contradict; #1/#2 boundary holds in the real graph; switches exhaustive;
+  determinism/Sendable clean). Three P2/P3 found + fixed, all on E13-authored code.
+- **Diagnostics (P2).** `DiagnosticsRenderer` omitted `stale`/`skipped`; the latter is the #10 fail-safe
+  signal (unreadable ground truth → nothing repaired). Now surfaced + flagged distinctly; pinned.
+- **Reconcile fail-closed (P2).** WG-244's `currentDesiredSchedule` used `try?`, so a read failure returned
+  `nil` and a `.cancel` *proceeded* on unknown state — fail-open, unlike the rest of the processor. Made it
+  `throws`; `apply` catches and **defers** the repair (counts `stale`). Pinned by
+  `testCancelRepairIsDeferredWhenTheRevalidationReadFails`. (A direct hardening of the WG-244 fix.)
+- **Doc hazard (P3).** `MovementCorroboration`'s `.unavailable` comment said it "passes on the count" — the
+  opposite of the fail-safe machine, and a route to reopening #20 if trusted. Corrected to match code+test.
+- **RC verdict.** Deterministic core is RC-quality + regression-locked (1208 tests), but **not shippable**
+  until E14 composition (incl. the WG-250 App Store blockers) + device verification (WG-030). `make ci-fast`
+  green — 1208 (+2), 0 unexpected. See `docs/reviews/EPOCH_12_RC_BUG_BASH.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

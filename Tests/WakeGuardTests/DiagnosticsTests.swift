@@ -32,6 +32,20 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(report.contains("reconciliation.failed"), "redacted error breadcrumb")
     }
 
+    func testReportSurfacesStaleAndSkippedReconcileState() {
+        // WG-251: `stale` (WG-244 lost-update deferrals) and `skipped` (the #10 fail-safe — ground truth
+        // unreadable → nothing repaired) must be visible in the export, not silently omitted, so support
+        // can distinguish a healthy no-op reconcile from one that repaired nothing.
+        let snapshot = DiagnosticsSnapshot(
+            permissions: [], reconciliation: ReconciliationSummary(stale: 3, skipped: true),
+            lastScheduleSync: nil, recentErrors: [])
+        let report = DiagnosticsRenderer.report(snapshot)
+        XCTAssertTrue(report.contains("stale 3"), "stale reconcile deferrals must be reported")
+        XCTAssertTrue(
+            report.lowercased().contains("skipped"),
+            "a skipped (unreadable ground truth) reconcile must be flagged, not read as healthy")
+    }
+
     func testReportContainsOnlyRedactedCoarseData() {
         // Every error line is a breadcrumb marker (category.action) — no free text is representable.
         let report = DiagnosticsRenderer.report(snapshot())

@@ -214,6 +214,32 @@ final class AlarmReconciliationTests: XCTestCase {
             adapter.scheduledRequests.isEmpty,
             "a schedule invalidated by a concurrent disable must not resurrect the alarm")
     }
+
+    func testCancelRepairIsDeferredWhenTheRevalidationReadFails() async throws {
+        // WG-251: if the apply-time re-validation read throws (a transient store failure), a planned cancel
+        // must be DEFERRED (fail closed, #10) — not applied on unknown state. The rest of the processor
+        // fails closed; the WG-244 re-validation must too. The system alarm is left for the next pass.
+        let alarm = try makeAlarm()
+        let repo = RevalidationReadFailsAlarmRepository(alarm)
+        let controller = try PersistenceController(inMemory: true)
+        let adapter = FakeAlarmManagerAdapter()
+        adapter.setScheduled([snapshot(alarm.id)])  // system holds it → planned as "extra" → cancel
+        let processor = AlarmCommandProcessor(
+            policy: FakeAlarmPolicyEngine(), alarms: repo,
+            audit: CoreDataAuditRepository(controller),
+            outbox: CoreDataOutboxRepository(controller),
+            alarmManager: adapter, clock: TestClock(now: now),
+            ids: DeterministicIDGenerator(seed: 27), deviceTimeZone: { .gmt })
+
+        let summary = await processor.reconcile()
+
+        XCTAssertEqual(summary, ReconciliationSummary(stale: 1))
+        XCTAssertTrue(
+            adapter.cancelledAlarmIDs.isEmpty,
+            "a cancel must be deferred when the re-validation read fails, not applied on unknown state"
+        )
+        XCTAssertEqual(adapter.currentlyScheduled.map(\.alarmID), [alarm.id])
+    }
 }
 
 /// An alarm repository whose reads always throw — proves reconciliation fails safe when
@@ -258,4 +284,23 @@ private final class InterleavingAlarmRepository: AlarmRepository {
         copy.isEnabled = isEnabled
         return copy
     }
+}
+
+/// `allAlarms()` reports the alarm disabled (so the planner emits a cancel), then `alarm(id:)` — the
+/// apply-time re-validation read — throws, modeling a transient store failure during reconcile (WG-251).
+/// Proves the re-validation defers the repair on a read failure instead of cancelling on unknown state.
+private final class RevalidationReadFailsAlarmRepository: AlarmRepository {
+    private let stored: Alarm
+
+    init(_ alarm: Alarm) { stored = alarm }
+
+    func allAlarms() async throws -> [Alarm] {
+        var disabled = stored
+        disabled.isEnabled = false
+        return [disabled]
+    }
+
+    func alarm(id: AlarmID) async throws -> Alarm? { throw AlarmRepositoryError.storageUnavailable }
+    func save(_ alarm: Alarm) async throws {}
+    func deleteAlarm(id: AlarmID) async throws {}
 }

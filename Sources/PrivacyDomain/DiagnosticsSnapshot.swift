@@ -32,7 +32,11 @@ enum DiagnosticsRenderer {
         let reconcile = snapshot.reconciliation
         lines.append(
             "Reconciliation: scheduled \(reconcile.scheduled), cancelled \(reconcile.cancelled), "
-                + "failed \(reconcile.failed), uncertain \(reconcile.uncertain)")
+                + "failed \(reconcile.failed), uncertain \(reconcile.uncertain), "
+                + "stale \(reconcile.stale)"
+                // `skipped` is the #10 fail-safe signal (ground truth/desired unreadable → nothing
+                // repaired) — surface it distinctly so support can tell it from a healthy no-op.
+                + (reconcile.skipped ? " (skipped: ground truth unreadable)" : ""))
 
         let sync =
             snapshot.lastScheduleSync.map { ISO8601DateFormatter().string(from: $0) } ?? "never"
