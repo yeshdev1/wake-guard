@@ -147,6 +147,40 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertEqual(counts.helpfulCount, 1, "feedback round-trips through the composed store")
     }
 
+    @MainActor
+    func testInMemoryGraphExposesReachablePrivacyControls() async throws {
+        // WG-250 composition: export/deletion/consent are wired into the graph, so the Privacy & data
+        // screen can build its models. The consent provider is hermetic in-memory (never touches a
+        // framework), the export gathers real records, and a full reset stays confirmation-gated (#9).
+        let env = try AppEnvironment.inMemory()
+
+        let consent = ConsentCenterModel(provider: env.consentStatusProvider)
+        await consent.refresh()
+        XCTAssertEqual(
+            consent.states.count, ConsentCategory.allCases.count,
+            "the consent center resolves a status for every category")
+
+        let schedule = ScheduleRule.weekly(
+            WeeklySchedule(
+                days: try WeekdaySet(Set(Weekday.allCases)),
+                time: try TimeOfDay(hour: 7, minute: 0),
+                timeZone: try IANATimeZone(identifier: "America/New_York")))
+        let epoch = Date(timeIntervalSince1970: 0)
+        let alarm = try Alarm(
+            id: AlarmID(env.identifierGenerator.next()), label: "wake", schedule: schedule,
+            createdAt: epoch, updatedAt: epoch)
+        try await env.alarmRepository.save(alarm)
+        let categories = await env.exportData.categories()
+        XCTAssertTrue(
+            categories.contains { $0.name == "alarms" && !$0.records.isEmpty },
+            "the export gathers the user's alarms")
+
+        let outcome = await env.deletionCoordinator.delete(
+            .allData, userConfirmedAlarmConsequences: false)
+        XCTAssertEqual(
+            outcome, .needsAlarmConsequenceConfirmation, "a full reset is confirmation-gated (#9)")
+    }
+
     func testAppEnvironmentIsSendable() {
         // Compile-time guard: the container is delivered through the SwiftUI
         // environment across isolation, so it must stay Sendable. If a future port

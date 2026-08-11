@@ -82,6 +82,14 @@ private struct AlarmListScreen: View {
                 if model.isReconciling { ReconcilingBanner() }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        PrivacySettingsView()
+                    } label: {
+                        Label("Privacy & data", systemImage: "hand.raised")
+                    }
+                    .accessibilityIdentifier("privacySettingsButton")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingCreate = true

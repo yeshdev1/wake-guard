@@ -8,15 +8,15 @@
 > These are **gating**: the build is **not submittable** until both clear. Both are the E14 composition-wiring
 > gap surfacing at the store boundary. See `docs/reviews/EPOCH_11_APP_STORE.md`.
 
-- [ ] **Privacy-label/behavior mismatch.** `PRIVACY_POLICY.md` + the nutrition label promise export, deletion,
-  and retention, but no production `DataEraser` conformance or retention job exists and the
-  export/deletion/consent screens are unrouted (`RootView` hosts only `AlarmListView`). Wire them (Core Data
-  `DataEraser` + retention runner + navigation) — or remove the promises from the docs. Pinned as an expected
-  failure by `PrivacyManifestTests.testPrivacyControlsPromisedByDocsAreBackedByProductionCode` (flips to a
-  real failure once wired).
-- [ ] **App Review notes point to unrouted screens.** `APP_REVIEW_NOTES.md` sends the reviewer to the
-  walk-challenge ring-stop, the conversational screen, and "Permissions & privacy" — all unhosted. Route them
-  or rewrite the notes to the shipping flows only.
+- [x] **Privacy-label/behavior mismatch — CLEARED (composition wiring A1+A2).** `CoreDataDataEraser` (the
+  production `DataEraser`) + `RetentionCleanupJob` (run at launch) now back the deletion/retention promise, and
+  a **Privacy & data** toolbar entry routes to the consent center, export, and deletion screens (each backed
+  by a composed model). `PrivacyManifestTests.testPrivacyControlsPromisedByDocsAreBackedByProductionCode` now
+  passes as a real assertion.
+- [ ] **App Review notes point to unrouted screens — PARTIAL.** "Permissions & privacy" is now routed
+  (wiring A2). Still unhosted: the walk-challenge ring-stop and the conversational create screen (wired via a
+  user-initiated test affordance in composition wiring D/E; the true unattended-ring hookup remains device-only
+  AlarmKit, WG-030). Until then, keep `APP_REVIEW_NOTES.md` pointed only at the shipping flows.
 - [ ] Add `PrivacyControlsReachableUITests` (composition-graph + accessibility-id reachability) — catches both
   blockers together.
 

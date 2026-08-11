@@ -61,6 +61,16 @@ struct AppEnvironment: Sendable {
     /// that prunes audit rows past their window, bounded by the 365-day critical-audit floor (#48). Never
     /// required (#9).
     let retentionCleanup: RetentionCleanupJob
+    /// The consent-center status source (WG-180): reports each permission's live status, read-only —
+    /// production reads the OS, the in-memory graph returns a fixed hermetic status. Holds no alarm
+    /// authority (#9).
+    let consentStatusProvider: any ConsentStatusProviding
+    /// The deletion coordinator (WG-184): drives the deletion UI through the policy + `dataEraser`. A full
+    /// reset is confirmation-gated; deleting optional data never touches alarms (#9).
+    let deletionCoordinator: DeletionCoordinator
+    /// The export data source (WG-183): gathers the user's local records (alarms, audit, settings) for the
+    /// export flow. No network — the bundle goes to the system share sheet.
+    let exportData: ExportDataProvider
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -73,18 +83,26 @@ struct AppEnvironment: Sendable {
     /// unavailable) — the app surfaces that rather than running without persistence.
     static func production() throws -> AppEnvironment {
         let persistence = try PersistenceController(inMemory: false)
+        let clock = SystemClock()
         // The real AlarmKit adapter (so alarms ring) + the real Settings opener (denial recovery),
         // and schedulesAlarmsInSystem: true — the list surfaces the authorization banner until
         // permission is granted, never a false "it rings" (runs-on-a-phone steps 2–3).
         return make(
-            persistence: persistence, clock: SystemClock(),
+            persistence: persistence, clock: clock,
             identifierGenerator: SystemIdentifierGenerator(),
             wiring: SystemWiring(
                 alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
                 schedulesAlarmsInSystem: true,
                 preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
-                cloudTokenStore: KeychainCloudTokenStore()))
+                cloudTokenStore: KeychainCloudTokenStore(),
+                makeConsentProvider: { alarm, settings, cloudToken in
+                    // The location source's `authorizationStatus()` returns the domain enum, so the
+                    // consent provider reads location consent without importing CoreLocation (#41).
+                    SystemConsentStatusProvider(
+                        alarm: alarm, settings: settings, cloudToken: cloudToken,
+                        location: CoreLocationSignificantLocationAdapter(now: { clock.now }))
+                }))
     }
 
     /// The test/preview graph: an ephemeral in-memory store, with the clock and id
@@ -105,7 +123,8 @@ struct AppEnvironment: Sendable {
                 schedulesAlarmsInSystem: false,
                 preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
                 pedometerSource: UnavailablePedometerSource(),
-                cloudTokenStore: InMemoryCloudTokenStore()))
+                cloudTokenStore: InMemoryCloudTokenStore(),
+                makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }
 
     /// A non-throwing in-memory graph for SwiftUI previews (the store is the fake;
@@ -135,6 +154,11 @@ struct AppEnvironment: Sendable {
         let preAlarmNotifications: any PreAlarmNotificationScheduling
         let pedometerSource: any HistoricalPedometerSource
         let cloudTokenStore: any CloudTokenStore
+        /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
+        /// in-memory graph returns a hermetic fixed status (so tests/previews never touch a framework).
+        let makeConsentProvider:
+            @Sendable (any AlarmManagerAdapter, any SettingsRepository, any CloudTokenStore) ->
+                any ConsentStatusProviding
     }
 
     private static func make(
@@ -169,6 +193,8 @@ struct AppEnvironment: Sendable {
             cloudToken: wiring.cloudTokenStore)
         let retentionCleanup = RetentionCleanupJob(
             persistence: persistence, audit: audit, alarms: alarms, clock: clock)
+        let consentStatusProvider = wiring.makeConsentProvider(
+            wiring.alarmManager, settings, wiring.cloudTokenStore)
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -186,6 +212,9 @@ struct AppEnvironment: Sendable {
             cloudTokenStore: wiring.cloudTokenStore,
             dataEraser: dataEraser,
             retentionCleanup: retentionCleanup,
+            consentStatusProvider: consentStatusProvider,
+            deletionCoordinator: DeletionCoordinator(eraser: dataEraser),
+            exportData: ExportDataProvider(alarms: alarms, audit: audit, settings: settings),
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

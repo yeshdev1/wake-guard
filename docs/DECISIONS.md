@@ -3805,6 +3805,25 @@ decisions are recorded above using the ADR template.
   non-critical pruned; critical within the floor retained). `make ci-fast` green — 1217 (+3). Screen routing
   (consent center / export / deletion) lands in wiring A2.
 
+### Composition wiring A2 (2026-08-11): privacy screens routed + consent provider
+
+- **What.** The export / deletion / permission-consent screens were built but unrouted (the App Review
+  honesty half of the WG-250 blocker). Now reachable: a **Privacy & data** toolbar entry on the alarm list
+  routes to `PrivacySettingsView` → `ConsentCenterView` / `DataExportView` / `DataDeletionView`, each backed
+  by a real model composed from `AppEnvironment` (`consentStatusProvider`, `exportData`,
+  `deletionCoordinator`).
+- **`SystemConsentStatusProvider`** (the first production `ConsentStatusProviding`) reports each category's
+  live status — **status reads only, never a prompt** (#9). The pure `ConsentStatusMapping` (OS enum →
+  `ConsentStatus`) is unit-tested by passing raw enum values; the framework reads are device-adjacent. The
+  in-memory graph uses a hermetic `FixedConsentStatusProvider` so tests/previews never touch a framework.
+- **CoreLocation stays confined (#41).** The consent provider reads location **consent status** via the
+  significant-location source's domain `authorizationStatus()` — it does **not** import CoreLocation, so the
+  coordinate-handling remains confined to the one WG-102 adapter (the `LocationPrivacyGuard` still passes).
+- **`ExportDataProvider`** gathers real records (alarms, audit, settings) into export categories — no
+  network; the model hands the bundle to the system share sheet. Tests: `ConsentStatusMappingTests`,
+  `AppEnvironmentTests.testInMemoryGraphExposesReachablePrivacyControls`. `make ci-fast` green — 1225.
+  Follow-up (manual): a `PrivacyControlsReachableUITests` navigation test (UITests aren't in `ci-fast`).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
