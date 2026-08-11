@@ -75,6 +75,10 @@ struct AppEnvironment: Sendable {
     /// system zone changes — so a background zone change is corrected live, not only on the next foreground.
     /// Advisory (holds no alarm authority); the in-memory graph composes it but never starts it (hermetic).
     let timeZoneMonitor: SystemTimeZoneMonitor
+    /// The operational diagnostics provider (WG-230): a read-only snapshot of permission statuses, the last
+    /// reconcile result, the last safe schedule sync, and redacted recent errors — support-visible, no
+    /// sensitive raw data. Fed by the reconcile-recording processor.
+    let diagnosticsProvider: any DiagnosticsProviding
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -165,6 +169,37 @@ struct AppEnvironment: Sendable {
                 any ConsentStatusProviding
     }
 
+    /// The privacy-control services (WG-250/180/183): the eraser, retention job, consent provider,
+    /// deletion coordinator, and export gatherer — grouped so `make` stays within its budget.
+    private struct PrivacyControls {
+        let dataEraser: any DataEraser
+        let retentionCleanup: RetentionCleanupJob
+        let consentStatusProvider: any ConsentStatusProviding
+        let deletionCoordinator: DeletionCoordinator
+        let exportData: ExportDataProvider
+    }
+
+    private static func makePrivacyControls(
+        persistence: PersistenceController, clock: any WallClock, wiring: SystemWiring
+    ) -> PrivacyControls {
+        // Fresh repositories over the same persistence controller — the Core Data repos are thin,
+        // per-operation wrappers with no shared mutable state, so these read/write the identical store.
+        let alarms = CoreDataAlarmRepository(persistence)
+        let audit = CoreDataAuditRepository(persistence)
+        let settings = CoreDataSettingsRepository(persistence)
+        let eraser = CoreDataDataEraser(
+            persistence: persistence, alarms: alarms, alarmManager: wiring.alarmManager,
+            cloudToken: wiring.cloudTokenStore)
+        return PrivacyControls(
+            dataEraser: eraser,
+            retentionCleanup: RetentionCleanupJob(
+                persistence: persistence, audit: audit, alarms: alarms, clock: clock),
+            consentStatusProvider: wiring.makeConsentProvider(
+                wiring.alarmManager, settings, wiring.cloudTokenStore),
+            deletionCoordinator: DeletionCoordinator(eraser: eraser),
+            exportData: ExportDataProvider(alarms: alarms, audit: audit, settings: settings))
+    }
+
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
@@ -179,12 +214,14 @@ struct AppEnvironment: Sendable {
         let processor = AlarmCommandProcessor(
             policy: policy, alarms: alarms, audit: audit, outbox: outbox,
             alarmManager: wiring.alarmManager, clock: clock, ids: identifierGenerator)
+        // Wrap the processor so every reconcile() records into the store the diagnostics provider reads.
+        let (recorder, reconcileStore) = makeRecordingProcessor(wrapping: processor, clock: clock)
         let promptCoordinator = PreAlarmPromptCoordinator(
             ledger: CoreDataPreAlarmPromptLedger(persistence))
         let authorizationCoordinator = AlarmAuthorizationCoordinator(
             adapter: wiring.alarmManager, settingsOpener: wiring.settingsOpener)
         let preAlarmResponder = PreAlarmNotificationResponder(
-            processor: processor, notifications: wiring.preAlarmNotifications)
+            processor: recorder, notifications: wiring.preAlarmNotifications)
         let preAlarmWork = PreAlarmBackgroundWork(
             alarms: alarms,
             pipeline: PreAlarmPipeline(
@@ -192,13 +229,7 @@ struct AppEnvironment: Sendable {
                 coordinator: promptCoordinator),
             notifications: wiring.preAlarmNotifications, deviceTimeZone: { .current })
         let preAlarmFeedback = CoreDataPreAlarmFeedbackStore(persistence)
-        let dataEraser = CoreDataDataEraser(
-            persistence: persistence, alarms: alarms, alarmManager: wiring.alarmManager,
-            cloudToken: wiring.cloudTokenStore)
-        let retentionCleanup = RetentionCleanupJob(
-            persistence: persistence, audit: audit, alarms: alarms, clock: clock)
-        let consentStatusProvider = wiring.makeConsentProvider(
-            wiring.alarmManager, settings, wiring.cloudTokenStore)
+        let privacy = makePrivacyControls(persistence: persistence, clock: clock, wiring: wiring)
         return AppEnvironment(
             clock: clock,
             identifierGenerator: identifierGenerator,
@@ -206,7 +237,7 @@ struct AppEnvironment: Sendable {
             auditRepository: audit,
             outboxRepository: outbox,
             settingsRepository: settings,
-            alarmCommandProcessor: processor,
+            alarmCommandProcessor: recorder,
             preAlarmPromptCoordinator: promptCoordinator,
             authorizationCoordinator: authorizationCoordinator,
             preAlarmNotifications: wiring.preAlarmNotifications,
@@ -214,12 +245,14 @@ struct AppEnvironment: Sendable {
             preAlarmWork: preAlarmWork,
             preAlarmFeedback: preAlarmFeedback,
             cloudTokenStore: wiring.cloudTokenStore,
-            dataEraser: dataEraser,
-            retentionCleanup: retentionCleanup,
-            consentStatusProvider: consentStatusProvider,
-            deletionCoordinator: DeletionCoordinator(eraser: dataEraser),
-            exportData: ExportDataProvider(alarms: alarms, audit: audit, settings: settings),
-            timeZoneMonitor: makeTimeZoneMonitor(processor: processor),
+            dataEraser: privacy.dataEraser,
+            retentionCleanup: privacy.retentionCleanup,
+            consentStatusProvider: privacy.consentStatusProvider,
+            deletionCoordinator: privacy.deletionCoordinator,
+            exportData: privacy.exportData,
+            timeZoneMonitor: makeTimeZoneMonitor(processor: recorder),
+            diagnosticsProvider: DefaultDiagnosticsProvider(
+                consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

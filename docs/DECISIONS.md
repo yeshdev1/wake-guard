@@ -3838,6 +3838,22 @@ decisions are recorded above using the ADR template.
   the Keychain). Test: `SystemTimeZoneMonitorTests` (start() reconciles once against a missed change,
   device-zone-independent). `make ci-fast` green — 1227 (+2).
 
+### Composition wiring C (2026-08-11): diagnostics provider + reconcile capture
+
+- **What.** `DiagnosticsProviding` had no production conformer and the reconcile summary was discarded at
+  the call site. Now: `DefaultDiagnosticsProvider` (permissions from the consent provider + the last
+  reconcile summary + last safe sync) is composed and routed — a **Diagnostics** row on the Privacy & data
+  screen shows the redacted report and shares it via the system sheet.
+- **Reconcile capture.** `RecordingAlarmCommandProcessor` wraps the processor and records every
+  `reconcile()` result + timestamp into a `LastReconcileStore` (a `skipped` pass isn't a "safe sync"). It is
+  transparent — same `AlarmCommandProcessing`, no added authority — so foreground reconciles *and* the
+  time-zone monitor's are captured uniformly. The wrapper is the graph's `alarmCommandProcessor`.
+- **Composition tidy.** The privacy-control construction moved into a `makePrivacyControls` helper (fresh
+  thin repos over the same persistence controller) to keep `make()` within budget as the graph grew.
+  Tests: `DiagnosticsWiringTests` (recorder captures summary + sync; skipped ≠ sync; provider assembles the
+  snapshot). `make ci-fast` green — 1230 (+3). Follow-up: a redacted crash-breadcrumb ring buffer for
+  `recentErrors` (currently empty, honest).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

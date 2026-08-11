@@ -24,6 +24,8 @@ private struct PrivacySettingsScreen: View {
     @State private var consent: ConsentCenterModel
     @State private var export: DataExportModel
     @State private var deletion: DataDeletionModel
+    @State private var diagnostics: DiagnosticsModel
+    @State private var diagnosticsShareURL: IdentifiableURL?
 
     init(environment: AppEnvironment) {
         _consent = State(
@@ -34,6 +36,8 @@ private struct PrivacySettingsScreen: View {
                 categories: { await environment.exportData.categories() }))
         _deletion = State(
             wrappedValue: DataDeletionModel(coordinator: environment.deletionCoordinator))
+        _diagnostics = State(
+            wrappedValue: DiagnosticsModel(provider: environment.diagnosticsProvider))
     }
 
     var body: some View {
@@ -59,6 +63,15 @@ private struct PrivacySettingsScreen: View {
                     Label("Delete your data", systemImage: "trash")
                 }
                 .accessibilityIdentifier("privacyLinkDelete")
+
+                NavigationLink {
+                    DiagnosticsView(
+                        model: diagnostics,
+                        onExport: { diagnosticsShareURL = IdentifiableURL(url: $0) })
+                } label: {
+                    Label("Diagnostics", systemImage: "stethoscope")
+                }
+                .accessibilityIdentifier("privacyLinkDiagnostics")
             } footer: {
                 Text(
                     "Your data stays on this device. Exporting or deleting never sends it anywhere."
@@ -66,7 +79,20 @@ private struct PrivacySettingsScreen: View {
             }
         }
         .navigationTitle("Privacy & data")
+        .sheet(item: $diagnosticsShareURL) { item in
+            // The user explicitly confirms sharing the redacted diagnostics report via the system sheet.
+            ShareLink(item: item.url) {
+                Label("Share diagnostics report", systemImage: "square.and.arrow.up")
+            }
+            .padding()
+        }
     }
+}
+
+/// A share URL wrapped so it can drive a `.sheet(item:)` presentation.
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: URL { url }
 }
 
 #Preview("Privacy settings") {
