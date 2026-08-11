@@ -80,13 +80,11 @@ final class ConversationalAlarmViewModel {
     /// intent to the command boundary (never AlarmKit/persistence directly, #1/#2).
     func confirm() async {
         guard case .preview = stage, let intent = pending else { return }
+        // Clear the pending intent *before* the await (WG-241): a concurrent second `confirm()` — e.g. a
+        // fast double-tap — then fails this guard, so a proposal is committed at most once.
+        pending = nil
         let scheduled = await commit(intent)
-        if scheduled {
-            pending = nil
-            stage = .scheduled
-        } else {
-            stage = .failed
-        }
+        stage = scheduled ? .scheduled : .failed
     }
 
     func requestManualEditor() {

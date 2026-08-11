@@ -168,6 +168,28 @@ final class AlarmListViewModelTests: XCTestCase {
         XCTAssertNil(content.nextAlarm, "an alarm with no upcoming time is not the next alarm")
     }
 
+    func testEnabledCriticalAlarmWithNoOccurrenceStillSurfacesAttention() async throws {
+        // WG-241 regression: a critical alarm that can't ring (past one-time) must not hide the "won't
+        // fire" signal behind a reassuring "Critical" label.
+        let repo = try makeRepo()
+        let epoch = Date(timeIntervalSince1970: 0)
+        let past = try Alarm(
+            id: AlarmID(ids.next()), label: "old", isEnabled: true,
+            schedule: .oneTime(
+                OneTimeSchedule(
+                    date: try CalendarDate(year: 2020, month: 1, day: 1),
+                    time: try TimeOfDay(hour: 7, minute: 0),
+                    timeZone: try IANATimeZone(identifier: "UTC"))),
+            criticality: .critical, createdAt: epoch, updatedAt: epoch, revision: 0)
+        try await repo.save(past)
+
+        let content = try await loadedContent(makeVM(repo))
+        let item = try XCTUnwrap(content.items.first)
+        XCTAssertEqual(
+            item.status.label, "Needs attention", "a can't-ring critical must show attention")
+        XCTAssertNil(item.nextOccurrence)
+    }
+
     func testEmptyLabelFallsBackToAlarm() async throws {
         let repo = try makeRepo()
         try await repo.save(try makeAlarm(hour: 6, label: ""))

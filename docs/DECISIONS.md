@@ -3544,6 +3544,13 @@ decisions are recorded above using the ADR template.
   (blocks enabling the walk challenge; assigned to WG-243). P2: best-effort audit `try?`, dead
   `.recovery`/outbox recovery API. `make ci-fast` green — 1187 (+2).
 
+### WG-241 (2026-08-11): Functional bug hunt
+
+- **What.** Independent adversarial pass over the core flows; `docs/reviews/EPOCH_02_BUG_HUNT.md`.
+- No P0/P1. Two P2 bugs fixed + regression-tested: can't-ring critical alarm now shows "Needs attention"
+  (not "Critical"); conversational `confirm()` commits at most once on a double-tap (clears `pending` before
+  the await). `make ci-fast` green — 1189 (+2).
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

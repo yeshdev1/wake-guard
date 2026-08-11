@@ -224,10 +224,11 @@ final class AlarmListViewModel {
 
     private static func status(for alarm: Alarm, hasOccurrence: Bool) -> AlarmStatusStyle {
         guard alarm.isEnabled else { return .off }
-        if alarm.criticality == .critical { return .critical }
-        // Enabled but nothing upcoming (e.g. a past one-time alarm): surface it rather than
-        // imply it will ring.
-        return hasOccurrence ? .scheduled : .attention
+        // An enabled alarm with nothing upcoming (e.g. a past one-time alarm) can't ring — surface it as
+        // needing attention **even if it's marked critical** (WG-241), rather than a reassuring "Critical"
+        // that hides the fact it won't fire.
+        guard hasOccurrence else { return .attention }
+        return alarm.criticality == .critical ? .critical : .scheduled
     }
 
     private static func nextRingText(
