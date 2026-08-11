@@ -6,9 +6,12 @@ would violate those goals, the mitigation that prevents each (by design and by `
 number), and the automated test(s) that hold the mitigation in place. It is a living document: a new
 sensitive surface or mutation path must be added here with its mitigation and test.
 
-Scope note: the on-device AI (E09) is **scaffolded** today (`AIApplication`/`AIInfrastructure` are
-placeholders). Its threats are listed with their **architectural** mitigations, which are already
-enforced by the module boundaries; the constrained-decoding tests land with E09.
+Scope note: the on-device AI (E09) is now **implemented** (`AIApplication`/`AIInfrastructure`:
+`NaturalLanguageAlarmParser`, `StructuredGenerator`, `PromptSafety`, `TomorrowProposalGenerator`,
+`ExplanationGenerator`, `JournalExtractor`, `CloudProvider`). Its threats hold by **architecture** (no AI
+type carries a command/criticality; the model boundary exposes no tools) *and* by constrained-decoding /
+injection tests (WG-245). Note the cloud transport (`CloudModelTransport`) has **no concrete
+implementation**, so no raw data leaves the device today; a future network transport requires re-review.
 
 Severity: **Critical** = a user could fail to wake, or sensitive data could leak. **High** = incorrect
 behavior with a safe fallback. **Medium** = degraded UX, no safety/privacy impact.
@@ -49,8 +52,8 @@ Malicious or adversarial content reaching the on-device AI (E09) coercing an uns
 | Abuse case | Mitigation (invariant) | Enforcement |
 |---|---|---|
 | The model calls AlarmKit / cancels an alarm directly | **AI cannot call AlarmKit** (#1) and **cannot mutate persistence** — it only proposes. | Module boundaries + `domain_no_apple_frameworks` / composition-root lint rules; `AlarmApplication` is Foundation-only |
-| A model output is executed as an unconstrained command | AI output is **decoded into constrained structured types**, and every proposed mutation passes through `AlarmPolicyEngine`. | `AlarmPolicyEngine` is the sole mutation authority (WG-028); constrained-decode tests land with **E09** |
-| A model escalates an alarm to critical | **Only the user/policy assigns criticality — never a model** (#31). | `DefaultAlarmPolicyEngineTests`, `PreAlarmFeedbackTests` (feedback references no alarm authority) |
+| A model output is executed as an unconstrained command | AI output is **decoded into constrained structured types**, and every proposed mutation passes through `AlarmPolicyEngine`. | `AlarmPolicyEngine` is the sole mutation authority (WG-028); `StructuredGeneratorTests`, `AISchemaTests`, `PromptInjectionDefenseTests` (fail-closed decode + injected-key drop) |
+| A model escalates an alarm to critical | **Only the user/policy assigns criticality — never a model** (#31); no AI schema *or* validated NL-create carrier exposes criticality. | `DefaultAlarmPolicyEngineTests`, `AISchemaTests`, `PromptInjectionDefenseTests.testValidatedCreatePathCarriesNoCriticality` (WG-245) |
 | A prompt embeds sensitive data that then leaks | Prompts containing sensitive data are **never logged** (#41) — see §4. | see §4 |
 
 ## 4. Privacy leakage (Critical)
@@ -68,6 +71,8 @@ persisted, logged, or transmitted.
 | Structured logs include sensitive value types | The privacy-safe logger's `Redacted` carries **only a category, never the raw value** — so raw health/location/calendar/journal/prompt/sample values are structurally impossible to log, in every build (#41). | `PrivacyLogTests` |
 | Raw HealthKit sleep samples persisted or sent to the cloud | A typed **data-minimization plan** (WG-120) fixes the requested types (sleep only, read-only), **compute-and-discard** raw retention, and **on-device-only** processing — cloud processing and writes are *structurally* unrepresentable (single-case enums), not merely policy (#35/#43). | `WellnessDataMinimizationPlanTests`, `WELLNESS_DATA_MINIMIZATION.md` |
 | An event title (incl. a prompt-injection payload) reaches the model / leaves the device | A calendar **data-minimization plan + redaction** (WG-140): the title is **local-only**, notes aren't retained, and the **only** model-facing projection (`RedactedEventSummary`) carries **no free text** — a title/notes/location string is *structurally* unrepresentable in it, so a malicious title can't reach the model (#28/#35). | `CalendarDataMinimizationTests` (incl. a title-never-survives-redaction JSON scan), `CALENDAR_DATA_MINIMIZATION.md` |
+| An LLM prompt is logged via interpolation / `dump` | `LanguageModelRequest` redacts its content through `CustomStringConvertible`/`CustomDebugStringConvertible`/`CustomReflectable` — interpolation, `dump`, and `Mirror` see only field lengths (#41). The leak scan also flags a bare `Logger(` instantiation, closing an import-spelling hole. | `PrivacyLeakScanTests.testLanguageModelRequestNeverRendersPromptContent`, `…testOSLoggerIsConfinedToTheObservabilitySink` (WG-246) |
+| **Export/deletion/retention controls are unwired** (a user cannot actually export or erase their data; retention never expires on device) | Domain logic is correct + isolated-tested (`ExportBuilder` no-network, `DeletionPolicy` consequence-gated, `RetentionPolicy` per-category with a 365-day critical-audit floor), **but** there is no production `DataEraser` over Core Data, no retention job runs, and the export/deletion/consent/diagnostics screens are not routed — so #42/#43 are **unmet at runtime** and contradict `PRIVACY_POLICY.md` / the nutrition label. Composition-wiring gap, **tracked → E14** (blocks WG-250). | `DataExportTests`, `DataDeletionTests`, `DataRetentionTests` (domain only). **Missing:** a composition-graph + `PrivacyControlsReachableUITests` reachability test — add when wired. |
 
 ## 5. Data corruption (High)
 
@@ -87,6 +92,7 @@ Corrupt or malformed persisted state producing a crash, a lost alarm, or a wrong
 
 ## Residual risks & follow-ups
 
-- **AI constrained-decoding tests** land with E09 (the path is scaffolded; the boundary guarantees hold today).
+- **AI constrained-decoding / injection tests** now exist (WG-245: `StructuredGeneratorTests`, `AISchemaTests`, `PromptInjectionDefenseTests`). The cloud transport has no concrete implementation, so no raw data leaves the device today; a network transport requires re-review.
+- **Export/deletion/retention + privacy-UI wiring** (WG-246 High finding): the domain logic exists and is tested, but no production `DataEraser`/retention runner/navigation route is composed — #42/#43 are unmet at runtime. Tracked → E14; blocks the WG-250 App Store preflight.
 - **On-device ring verification** (AlarmKit/UNUserNotifications/BGTaskScheduler) is device-only — tracked in `RELEASE_CHECKLIST.md`, not unit tests.
 - The pre-alarm **reminder-cap persistence** and the **change-time-from-notification** UI are advisory-only follow-ups (documented in `DECISIONS.md`) — neither affects whether an alarm rings (#9).

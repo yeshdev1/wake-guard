@@ -3624,6 +3624,30 @@ decisions are recorded above using the ADR template.
   optionally route the factor block through `PromptSafety.delimit`. Neither is reachable to a live exploit.
   `make ci-fast` green — 1199 (+1). See `docs/reviews/EPOCH_06_AI_REDTEAM.md`.
 
+### WG-246 (2026-08-11): Privacy/security data-flow review — prompt redaction + scan hardening (#41)
+
+- **What.** A `privacy-security-reviewer` traced every sensitive category end-to-end and probed the
+  source-scan pins. **Privacy logic is correct** — no raw health/location/calendar/journal/prompt value can
+  reach a log, analytics event, or the cloud (#41/#44/#40/#35 confirmed + pinned).
+- **Two Low defense-in-depth gaps fixed.** (3) `LanguageModelRequest` rendered its prompt verbatim under
+  interpolation/`dump`; it now redacts via `CustomStringConvertible`/`CustomDebugStringConvertible`/
+  `CustomReflectable` (only field lengths), mirroring the `Sensitive` chokepoint. (4) The leak scan missed a
+  bare `Logger(` instantiation (an import spelling could dodge the `import os`/`os.Logger` substrings); it
+  now flags `Logger(` too, since a file must construct the logger regardless of import. Pins:
+  `PrivacyLeakScanTests.testLanguageModelRequestNeverRendersPromptContent`, `…testOSLoggerIsConfined…`.
+- **Finding 1 (High) — tracked → E14, not a logic defect.** Export/deletion/retention (`ExportBuilder`,
+  `DeletionPolicy`, `RetentionPolicy`) are correct and isolated-tested, but no production `DataEraser` over
+  Core Data exists, no retention job runs, and the export/deletion/consent/diagnostics screens aren't routed
+  — so #42/#43 are **unmet at runtime** and contradict `PRIVACY_POLICY.md` / the nutrition label. A
+  privacy-label/behavior mismatch that **blocks WG-250**; scheduled for the composition epoch with the
+  reachability test to add (composition-graph + `PrivacyControlsReachableUITests`).
+- **Finding 2 (Low) — tracked.** `Sensitive` is adopted only for the cloud token; the broad WG-181 guarantee
+  is unrealized for the sensor/journal sources (no active leak; the guarantee rests on the lexically-pinned
+  absence of `print`/`os_log`). WG-190 residue.
+- **Threat model refreshed** (`docs/THREAT_MODEL.md`): E09 corrected from "scaffolded" to implemented+tested,
+  real injection-test citations, the LLM-prompt-redaction and export/deletion-wiring rows, and the missing-
+  cloud-transport note. `make ci-fast` green — 1200 (+1). See `docs/reviews/EPOCH_07_PRIVACY.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

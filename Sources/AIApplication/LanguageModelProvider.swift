@@ -11,6 +11,30 @@ struct LanguageModelRequest: Sendable, Equatable, Hashable {
     let userPrompt: String
 }
 
+/// Never render prompt content (WG-246, #41). The user prompt may hold untrusted or sensitive text, so
+/// interpolation, `String(describing:)`, `String(reflecting:)`, `dump`, and `Mirror` all see only field
+/// lengths — a stray `log("\(request)")` cannot leak the prompt. Content stays reachable only via the
+/// explicit stored properties (auditable and greppable), mirroring the `Sensitive` chokepoint (WG-181).
+extension LanguageModelRequest: CustomStringConvertible, CustomDebugStringConvertible,
+    CustomReflectable
+{
+    var description: String {
+        "LanguageModelRequest(systemPrompt: <\(systemPrompt.count) chars>, "
+            + "userPrompt: <redacted \(userPrompt.count) chars>)"
+    }
+
+    var debugDescription: String { description }
+
+    var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "systemPrompt": "<\(systemPrompt.count) chars>",
+                "userPrompt": "<redacted \(userPrompt.count) chars>",
+            ])
+    }
+}
+
 /// The **typed** failures a language-model call can produce (WG-160). No raw provider error text is ever
 /// surfaced (#41) — a failure is one of these coarse, safe cases, each of which the caller maps to a
 /// deterministic fallback (#33).
