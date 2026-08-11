@@ -3703,6 +3703,26 @@ decisions are recorded above using the ADR template.
   scan-pinned but not yet composed. `make ci-fast` green — 1205 (+2). See
   `docs/reviews/EPOCH_10_BATTERY_PERF.md`.
 
+### WG-250 (2026-08-11): App Store compliance preflight — NOT submittable + false-assurance pin
+
+- **What.** A `release-test-engineer` preflight. The static/document compliance layer is clean (usage strings,
+  entitlements, manifest, no tracking/SDK/private-API/leak — all PASS + pinned). **Verdict: not submittable**,
+  two HIGH blockers, both the E14 wiring gap at the store boundary.
+- **Blocker 1 — privacy-label/behavior mismatch.** `PRIVACY_POLICY.md` + nutrition label promise export/
+  deletion/retention; no production `DataEraser`/retention job exists and the privacy screens are unrouted
+  (App Review 5.1.1(v)/5.1.2). **Blocker 2 — App Review notes** send the reviewer to unrouted challenge/
+  conversational/consent screens (Guideline 2.1).
+- **False-assurance pin (fixed).** The 28 existing compliance pins were green while the app is non-compliant —
+  they assert doc-consistency, not runtime reachability. Added
+  `PrivacyManifestTests.testPrivacyControlsPromisedByDocsAreBackedByProductionCode`: if the policy promises
+  deletion+export, a production (non-`Fake`) `DataEraser` conformance and a `RetentionCleanup` caller must
+  exist. Wrapped in `XCTExpectFailure` — the blocker is logged plainly in CI while the suite stays green, and
+  once E14 wires the controls the assertions pass → the expected failure flips to an unexpected pass, forcing
+  removal of the wrapper. (Chosen over faking green or deleting the test — the honest, self-cleaning encoding
+  of a known-tracked blocker.)
+- **Recorded** in `docs/RELEASE_CHECKLIST.md` (new submission-blockers section) + `docs/reviews/EPOCH_11_APP_STORE.md`.
+  `make ci-fast` green — 1206 (+1), 0 unexpected.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

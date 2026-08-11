@@ -77,6 +77,43 @@ final class PrivacyManifestTests: XCTestCase {
         }
     }
 
+    // MARK: privacy controls promised by the docs must be wired (WG-250 submission gate)
+
+    func testPrivacyControlsPromisedByDocsAreBackedByProductionCode() throws {
+        // The privacy policy + nutrition label promise user export, deletion, and retention. App Review
+        // (Guideline 5.1.1(v)/5.1.2) checks label-vs-behavior, so those controls must be backed by
+        // PRODUCTION code, not just documented. Today they are NOT: no non-Fake `DataEraser` conformance
+        // exists and `RetentionCleanup` has no production caller, so the promise is unmet at runtime
+        // (WG-246 Finding 1 / WG-250 BLOCKER 1). This is an EXPECTED FAILURE until E14 wires them; once
+        // wired, the assertions pass and `XCTExpectFailure` turns it into an *unexpected pass*, forcing
+        // removal of this wrapper. Do NOT delete this test to get green — wire the controls.
+        let policy = try String(
+            contentsOf: repoRoot().appendingPathComponent("docs/PRIVACY_POLICY.md"), encoding: .utf8
+        ).lowercased()
+        // Precondition (a real assertion): the docs actually promise these controls.
+        XCTAssertTrue(
+            policy.contains("delete") && policy.contains("export"),
+            "the privacy policy should promise deletion + export")
+
+        let files = try swiftFiles(under: repoRoot().appendingPathComponent("Sources"))
+        let contents = try files.map { try String(contentsOf: $0, encoding: .utf8) }
+        let hasProductionEraser = contents.contains {
+            $0.contains(": DataEraser") || $0.contains(", DataEraser")
+        }
+        let hasRetentionCaller = zip(files, contents).contains { file, code in
+            file.lastPathComponent != "DataRetention.swift" && code.contains("RetentionCleanup")
+        }
+
+        XCTExpectFailure(
+            "WG-250 BLOCKER: export/deletion/retention are documented but unwired until E14")
+        XCTAssertTrue(
+            hasProductionEraser,
+            "policy promises deletion but no production DataEraser conformance exists in Sources/")
+        XCTAssertTrue(
+            hasRetentionCaller,
+            "policy promises retention but RetentionCleanup has no production caller")
+    }
+
     private func swiftFiles(under directory: URL) throws -> [URL] {
         let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: nil)

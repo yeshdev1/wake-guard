@@ -3,6 +3,23 @@
 > Run these **incrementally** at epoch boundaries per `docs/UAT_CHECKPOINTS.md`, not all at
 > release — most items below belong to a specific checkpoint (CP-A…CP-I).
 
+## Submission blockers (WG-250 preflight — must clear before App Store)
+
+> These are **gating**: the build is **not submittable** until both clear. Both are the E14 composition-wiring
+> gap surfacing at the store boundary. See `docs/reviews/EPOCH_11_APP_STORE.md`.
+
+- [ ] **Privacy-label/behavior mismatch.** `PRIVACY_POLICY.md` + the nutrition label promise export, deletion,
+  and retention, but no production `DataEraser` conformance or retention job exists and the
+  export/deletion/consent screens are unrouted (`RootView` hosts only `AlarmListView`). Wire them (Core Data
+  `DataEraser` + retention runner + navigation) — or remove the promises from the docs. Pinned as an expected
+  failure by `PrivacyManifestTests.testPrivacyControlsPromisedByDocsAreBackedByProductionCode` (flips to a
+  real failure once wired).
+- [ ] **App Review notes point to unrouted screens.** `APP_REVIEW_NOTES.md` sends the reviewer to the
+  walk-challenge ring-stop, the conversational screen, and "Permissions & privacy" — all unhosted. Route them
+  or rewrite the notes to the shipping flows only.
+- [ ] Add `PrivacyControlsReachableUITests` (composition-graph + accessibility-id reachability) — catches both
+  blockers together.
+
 ## Product and safety
 
 - [ ] Core alarm works without HealthKit, location, calendar, or AI.
