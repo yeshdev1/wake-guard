@@ -3574,6 +3574,37 @@ decisions are recorded above using the ADR template.
   untouched (#21/#22). Thresholds unchanged (WG-075 calibration). Residual: phone-handoff (no continuity
   signal) recorded as a backlog item. `make ci-fast` green — 1196 (+7).
 
+### WG-244 (2026-08-11): Chaos red team — reconcile lost-update guard (#10)
+
+- **What.** An `alarm-safety-reviewer` attacked kill/relaunch, reboot, permission-revocation, BG-expiration,
+  duplicate-callback, and out-of-order paths. One **P1** found + fixed: `reconcile()` planned repairs from a
+  one-shot snapshot, then applied them across `await` points bypassing the outbox. Because the processor is a
+  reentrant actor, a concurrent `process(.enable(A))` during a repair's suspension could be overwritten by a
+  stale `.cancel(A)` — leaving A enabled locally but unscheduled in the system: a **silent no-ring**, the only
+  such path found.
+- **Fix.** Every repair is re-validated against **freshly-read desired state on the actor immediately before
+  the adapter call** (`currentDesiredSchedule`). A `.cancel` whose alarm is now enabled-with-occurrence, or a
+  `.schedule` whose alarm is now absent/disabled or whose fire time no longer matches, is **dropped**
+  (`ReconciliationSummary.stale`), never applied. The command path already synced the current intent, so a
+  fresh pass converges (#10); a genuinely-needed repair re-validates identically (same engine/now/zone as the
+  planner) and still applies, so normal reconciliation is unchanged.
+- **Why re-validate, not reorder.** A revision-keyed reconcile outbox would fully close even the narrower
+  race (a mutation during the single repair's *own* adapter `await`), but that is a larger change; re-read-
+  before-repair closes the demonstrated wide window (plan-time → apply-time, which can span other repairs'
+  awaits) with a local, reviewer-endorsed guard. The residual narrow window depends on the adapter serializing
+  its own calls (real AlarmKit does) — **tracked → E14**.
+- **Regression:** `AlarmReconciliationTests.testStaleCancelIsSkippedWhenAConcurrentEnableRestoredTheAlarm`
+  (the exploit) + `…testStaleScheduleIsSkippedWhenAConcurrentDisableRemovedTheAlarm` (mirror), driven
+  deterministically by an `InterleavingAlarmRepository` (plan-time state once, flipped state on re-read) —
+  no real thread race. `applyReconcileSchedule`/`applyReconcileCancel` were **unified into `applyRepair`** to
+  keep the file within the 400-line limit **without** loosening `private` on `alarmManager` (which would erode
+  the #2 adapter-boundary enforcement — declined; not weakening a safety boundary without an explicit ADR).
+  `make ci-fast` green — 1198 (+2), 0 warnings.
+- **Tracked → E14 (composition), not defects.** The reviewer re-surfaced the standing wiring gap: challenge-
+  stop, time-zone monitor, diagnostics provider, and outbox-recovery are built + unit-tested but not yet wired
+  into the composition root, so their guarantees are latent. Scheduled for the integration epoch; recorded so
+  "component-tested" is not read as "reachable end-to-end". See `docs/reviews/EPOCH_05_CHAOS.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar

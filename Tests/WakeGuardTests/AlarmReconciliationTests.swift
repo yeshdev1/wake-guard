@@ -163,6 +163,57 @@ final class AlarmReconciliationTests: XCTestCase {
         let stored = try await fixture.alarms.alarm(id: alarm.id)
         XCTAssertEqual(stored, alarm, "the local alarm is preserved after an uncertain repair")
     }
+
+    func testStaleCancelIsSkippedWhenAConcurrentEnableRestoredTheAlarm() async throws {
+        // WG-244 lost-update guard: the plan is computed from a snapshot where the alarm is disabled
+        // (so it plans a `cancel`), but by apply time a concurrent `enable`/`create` has restored it.
+        // The stale cancel must be DROPPED — applying it would silently drop a wanted ring (#10).
+        let alarm = try makeAlarm()  // enabled weekly 07:00 — has a future occurrence
+        let repo = InterleavingAlarmRepository(alarm, planTimeEnabled: false)
+        let controller = try PersistenceController(inMemory: true)
+        let adapter = FakeAlarmManagerAdapter()
+        adapter.setScheduled([snapshot(alarm.id)])  // system still holds it → planned as "extra"
+        let processor = AlarmCommandProcessor(
+            policy: FakeAlarmPolicyEngine(), alarms: repo,
+            audit: CoreDataAuditRepository(controller),
+            outbox: CoreDataOutboxRepository(controller),
+            alarmManager: adapter, clock: TestClock(now: now),
+            ids: DeterministicIDGenerator(seed: 27), deviceTimeZone: { .gmt })
+
+        let summary = await processor.reconcile()
+
+        XCTAssertEqual(summary, ReconciliationSummary(stale: 1))
+        XCTAssertTrue(
+            adapter.cancelledAlarmIDs.isEmpty,
+            "a cancel invalidated by a concurrent enable must never drop the alarm (#10, WG-244)")
+        XCTAssertEqual(
+            adapter.currentlyScheduled.map(\.alarmID), [alarm.id],
+            "the wanted alarm stays scheduled")
+    }
+
+    func testStaleScheduleIsSkippedWhenAConcurrentDisableRemovedTheAlarm() async throws {
+        // The mirror case: the plan is computed while the alarm is enabled (so it plans a `schedule`),
+        // but by apply time a concurrent `disable`/`delete` removed the desired schedule. The stale
+        // schedule must be DROPPED — otherwise reconciliation resurrects an alarm the user just cleared.
+        let alarm = try makeAlarm()
+        let repo = InterleavingAlarmRepository(alarm, planTimeEnabled: true)
+        let controller = try PersistenceController(inMemory: true)
+        // System empty → the alarm is "missing" → the planner emits a schedule.
+        let adapter = FakeAlarmManagerAdapter()
+        let processor = AlarmCommandProcessor(
+            policy: FakeAlarmPolicyEngine(), alarms: repo,
+            audit: CoreDataAuditRepository(controller),
+            outbox: CoreDataOutboxRepository(controller),
+            alarmManager: adapter, clock: TestClock(now: now),
+            ids: DeterministicIDGenerator(seed: 27), deviceTimeZone: { .gmt })
+
+        let summary = await processor.reconcile()
+
+        XCTAssertEqual(summary, ReconciliationSummary(stale: 1))
+        XCTAssertTrue(
+            adapter.scheduledRequests.isEmpty,
+            "a schedule invalidated by a concurrent disable must not resurrect the alarm")
+    }
 }
 
 /// An alarm repository whose reads always throw — proves reconciliation fails safe when
@@ -172,4 +223,39 @@ private struct FailingAlarmRepository: AlarmRepository {
     func alarm(id: AlarmID) async throws -> Alarm? { throw AlarmRepositoryError.storageUnavailable }
     func allAlarms() async throws -> [Alarm] { throw AlarmRepositoryError.storageUnavailable }
     func deleteAlarm(id: AlarmID) async throws { throw AlarmRepositoryError.storageUnavailable }
+}
+
+/// Models a concurrent enable/disable landing *between* the reconcile plan read (`allAlarms`) and the
+/// per-repair re-validation read (`alarm(id:)`), WG-244. `allAlarms()` reports the alarm with its
+/// plan-time enable state once (flipping an internal marker); every later `alarm(id:)` reports the
+/// *opposite* state — exactly what a concurrent command would have committed by apply time. This lets
+/// a single-threaded test deterministically exercise the lost-update window without a real race.
+private final class InterleavingAlarmRepository: AlarmRepository {
+    private let stored: Alarm
+    private let planTimeEnabled: Bool
+    private let planned = Synchronized(false)
+
+    init(_ alarm: Alarm, planTimeEnabled: Bool) {
+        stored = alarm
+        self.planTimeEnabled = planTimeEnabled
+    }
+
+    func allAlarms() async throws -> [Alarm] {
+        planned.mutate { $0 = true }
+        return [withEnabled(planTimeEnabled)]
+    }
+
+    func alarm(id: AlarmID) async throws -> Alarm? {
+        guard id == stored.id else { return nil }
+        return planned.get() ? withEnabled(!planTimeEnabled) : withEnabled(planTimeEnabled)
+    }
+
+    func save(_ alarm: Alarm) async throws {}
+    func deleteAlarm(id: AlarmID) async throws {}
+
+    private func withEnabled(_ isEnabled: Bool) -> Alarm {
+        var copy = stored
+        copy.isEnabled = isEnabled
+        return copy
+    }
 }

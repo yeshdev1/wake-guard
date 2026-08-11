@@ -85,13 +85,17 @@ enum ReconciliationRepair: Sendable, Equatable {
 
 /// The result of a reconciliation pass (WG-029): how many system alarms were
 /// (re)scheduled, cancelled, left `uncertain` (adapter outcome unknown — re-checked on
-/// the next pass, not a hard failure), or failed to repair. `skipped` means ground truth
-/// or the desired state could not be read, so **nothing** was repaired (fail-safe, #10) —
+/// the next pass, not a hard failure), or failed to repair. `stale` counts repairs that
+/// were re-validated against current desired state at apply time and dropped because a
+/// concurrent command had already changed the alarm (the lost-update guard, WG-244) —
+/// not an error, the current intent is already correct. `skipped` means ground truth or
+/// the desired state could not be read, so **nothing** was repaired (fail-safe, #10) —
 /// the last known safe schedule is preserved and the next pass retries.
 struct ReconciliationSummary: Sendable, Equatable {
     var scheduled = 0
     var cancelled = 0
     var failed = 0
     var uncertain = 0
+    var stale = 0
     var skipped = false
 }

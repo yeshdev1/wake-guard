@@ -295,9 +295,8 @@ actor AlarmCommandProcessor {
 /// Launch/foreground reconciliation (WG-029). In an extension so the core command path and the
 /// reconciliation path each stay within budget; both are actor-isolated and share the boundary (#2).
 extension AlarmCommandProcessor {
-    /// Make the system authority match the persisted desired state — plan + apply safe repairs
-    /// (missing / extra / divergent) as `.systemReconciliation`, auditing each (#46, #50). Idempotent;
-    /// fails safe (#10): an unreadable ground-truth/desired repairs nothing (`skipped`), never dropped.
+    /// Make the system authority match persisted desired state via `.systemReconciliation` repairs,
+    /// auditing each (#46/#50). Idempotent; fails safe — an unreadable read repairs nothing (#10).
     func reconcile() async -> ReconciliationSummary {
         guard let system = try? await alarmManager.scheduledAlarms() else {
             return ReconciliationSummary(skipped: true)
@@ -314,20 +313,27 @@ extension AlarmCommandProcessor {
         return summary
     }
 
-    /// Apply one repair and fold its outcome into `summary`. An *uncertain* outcome (the
-    /// adapter may or may not have applied it) is counted apart from a hard failure: the
-    /// local alarm is preserved and the next pass re-checks ground truth and retries (#10).
+    /// Apply one repair, folding its outcome into `summary`. First re-validate against *current*
+    /// desired state (WG-244): the actor releases at every await, so a concurrent command may have
+    /// changed this alarm since the plan; a stale repair is dropped, never applied (#10).
     private func apply(
         _ repair: ReconciliationRepair, into summary: inout ReconciliationSummary
     ) async {
+        let current = await currentDesiredSchedule(for: repair.alarmID)
         let outcome: RepairOutcome
         let scheduled: Bool
         switch repair {
         case .schedule(let request):
-            outcome = await applyReconcileSchedule(request)
+            guard current == request else { summary.stale += 1; return }
+            outcome = await applyRepair(
+                request.alarmID, success: "Re-synced this alarm to your saved settings."
+            ) { try await self.alarmManager.schedule(request) }
             scheduled = true
         case .cancel(let id):
-            outcome = await applyReconcileCancel(id)
+            guard current == nil else { summary.stale += 1; return }
+            outcome = await applyRepair(
+                id, success: "Removed a system alarm that no longer matched your settings."
+            ) { try await self.alarmManager.cancel(alarmID: id) }
             scheduled = false
         }
         switch outcome {
@@ -338,35 +344,29 @@ extension AlarmCommandProcessor {
         }
     }
 
-    private func applyReconcileSchedule(_ request: AlarmScheduleRequest) async -> RepairOutcome {
-        let context = CommandContext(
-            command: .reconcile(request.alarmID), actor: .systemReconciliation,
-            source: .reconciliation)
-        do {
-            try await alarmManager.schedule(request)
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .succeeded,
-                reason: "Re-synced this alarm to your saved settings.")
-            return .applied
-        } catch AlarmManagerError.uncertain {
-            return await auditUncertainRepair(context)
-        } catch is CancellationError {
-            return await auditUncertainRepair(context)
-        } catch {
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .failed, reason: Self.reason(for: error))
-            return .failed
-        }
+    /// The *current* desired schedule for one alarm (its next occurrence if still present + enabled,
+    /// else `nil`). Re-read on the actor right before a repair so a concurrent command can't be lost to
+    /// a stale repair (the lost-update guard for #10, WG-244); same engine/now/zone as the planner.
+    private func currentDesiredSchedule(for id: AlarmID) async -> AlarmScheduleRequest? {
+        guard let alarm = try? await alarms.alarm(id: id), alarm.isEnabled,
+            let occurrence = engine.nextOccurrence(
+                for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
+        else { return nil }
+        return AlarmScheduleRequest(
+            alarmID: alarm.id, fireTime: occurrence, title: alarm.label,
+            isCritical: alarm.criticality == .critical)
     }
 
-    private func applyReconcileCancel(_ id: AlarmID) async -> RepairOutcome {
+    /// Apply one repair via `body`, auditing as `.systemReconciliation` (#46/#50). Uncertain/cancelled
+    /// → `.uncertain` (re-checked next pass, #10); a thrown error → `.failed`. The local alarm survives.
+    private func applyRepair(
+        _ id: AlarmID, success: String, _ body: () async throws -> Void
+    ) async -> RepairOutcome {
         let context = CommandContext(
             command: .reconcile(id), actor: .systemReconciliation, source: .reconciliation)
         do {
-            try await alarmManager.cancel(alarmID: id)
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .succeeded,
-                reason: "Removed a system alarm that no longer matched your settings.")
+            try await body()
+            await appendAudit(context, old: nil, new: nil, outcome: .succeeded, reason: success)
             return .applied
         } catch AlarmManagerError.uncertain {
             return await auditUncertainRepair(context)
