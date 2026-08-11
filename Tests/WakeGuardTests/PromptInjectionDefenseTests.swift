@@ -86,6 +86,34 @@ final class PromptInjectionDefenseTests: XCTestCase {
         }
     }
 
+    // MARK: the validated NL-create carriers also carry no criticality (WG-245, Finding A)
+
+    /// The **validated** natural-language create carriers — the types the conversational commit path
+    /// consumes under a `.userInterface` source, which bypasses the `.agentProposal`-only model-
+    /// criticality guard — must themselves expose no criticality/command field. So an alarm built from
+    /// parsed text can never derive `.critical` from the model; criticality stays a separate, explicit
+    /// user action assigned by the policy/UI, not the parser (#31).
+    func testValidatedCreatePathCarriesNoCriticality() throws {
+        let draft = AlarmDraftPreview(hour: 7, minute: 0, weekdays: [], dayOffset: 1)
+        let intent = ValidatedAlarmIntent(
+            time: try TimeOfDay(hour: 7, minute: 0),
+            recurrence: .oneTime(fireDate: Date(timeIntervalSince1970: 10_000)),
+            timeZone: try IANATimeZone(identifier: "America/New_York"))
+
+        let forbidden = ["criticality", "command", "tool", "cancel", "delete", "disable", "all"]
+        for schema in [Mirror(reflecting: draft), Mirror(reflecting: intent)] {
+            let fields = Set(schema.children.compactMap(\.label))
+            for banned in forbidden {
+                XCTAssertFalse(
+                    fields.contains(banned),
+                    "a validated NL-create carrier exposes policy-altering field '\(banned)'")
+            }
+        }
+        // The validated intent is exactly the safe, criticality-free triple — nothing more can ride it.
+        let intentFields = Set(Mirror(reflecting: intent).children.compactMap(\.label))
+        XCTAssertEqual(intentFields, ["time", "recurrence", "timeZone"])
+    }
+
     // MARK: calendar content is text-free before it can reach a prompt (WG-140)
 
     func testRedactedEventSummaryCarriesNoText() {

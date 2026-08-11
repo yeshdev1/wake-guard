@@ -3605,6 +3605,25 @@ decisions are recorded above using the ADR template.
   into the composition root, so their guarantees are latent. Scheduled for the integration epoch; recorded so
   "component-tested" is not read as "reachable end-to-end". See `docs/reviews/EPOCH_05_CHAOS.md`.
 
+### WG-245 (2026-08-11): AI injection/hallucination red team — validated-carrier criticality pin (#31)
+
+- **What.** A `privacy-security-reviewer` attacked the on-device AI across text-to-command, malformed
+  output, unsupported claims, model-set criticality, and cloud egress. **No live exploit** — the guarantee
+  is architectural: no AI type carries a command/criticality, the model boundary exposes no tools
+  (`generate` returns only `String`), and the deterministic `AlarmPolicyEngine` is sole authority.
+- **Finding A (Low, latent) — fixed by a pin.** The `#31` model-criticality guard fires only for
+  `source == .agentProposal`; the conversational NL-create flow would naturally submit as `.userInterface`,
+  bypassing it. Safe today only because `ValidatedAlarmIntent`/`AlarmDraftPreview` structurally omit
+  criticality — an unpinned convention. `PromptInjectionDefenseTests.testValidatedCreatePathCarriesNoCriticality`
+  now pins that the validated NL-create carriers expose no criticality/command field and that
+  `ValidatedAlarmIntent` is exactly `{time, recurrence, timeZone}`, so parsed text can never yield a
+  `.critical` alarm. When the NL create is wired, criticality must remain a separate explicit user action.
+- **Tracked (Info hardening).** (B) `JournalExtraction.note` is model-authored free text — render
+  `Text(verbatim:)` when the journal UI is composed (E14). (C) `TomorrowProposalGenerator`/
+  `ExplanationGenerator` skip `PromptSafety` because factor values are coarse today — correct but un-pinned;
+  optionally route the factor block through `PromptSafety.delimit`. Neither is reachable to a live exploit.
+  `make ci-fast` green — 1199 (+1). See `docs/reviews/EPOCH_06_AI_REDTEAM.md`.
+
 ### WG-148 (2026-08-10): Hostile / misleading event text (E08 complete)
 
 - **What.** An adversarial test suite + a safe-render component (`EventTitleText`) proving hostile calendar
