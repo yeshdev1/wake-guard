@@ -107,4 +107,32 @@ enum CadenceRegularity {
     ) -> CadenceVerdict {
         classify(intervals: intervals(from: observations), thresholds: thresholds)
     }
+
+    /// The cadence stats + verdict for an observation series — surfaces the interval count and coefficient
+    /// of variation that `classify` decides on, so the anti-shake thresholds can be calibrated from real
+    /// device data (WG-075) rather than guessed. Pure; carries no samples.
+    static func diagnose(
+        _ observations: [MovementObservation], thresholds: CadenceThresholds = .default
+    ) -> CadenceDiagnostics {
+        let series = intervals(from: observations)
+        let valid = series.filter { $0.isFinite && $0 > 0 }
+        let mean = valid.isEmpty ? 0 : valid.reduce(0, +) / Double(valid.count)
+        var coefficientOfVariation = 0.0
+        if !valid.isEmpty, mean > 0 {
+            let variance = valid.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(valid.count)
+            coefficientOfVariation = variance.squareRoot() / mean
+        }
+        return CadenceDiagnostics(
+            intervalCount: valid.count, meanSecondsPerStep: mean,
+            coefficientOfVariation: coefficientOfVariation,
+            verdict: classify(intervals: series, thresholds: thresholds))
+    }
+}
+
+/// A read-only snapshot of the anti-shake cadence stats for a run (WG-075) — the numbers behind the verdict.
+struct CadenceDiagnostics: Sendable, Equatable {
+    let intervalCount: Int
+    let meanSecondsPerStep: Double
+    let coefficientOfVariation: Double
+    let verdict: CadenceVerdict
 }

@@ -19,6 +19,11 @@ final class WakeChallengeRuntime {
     private let coordinator: ChallengeStopCoordinator
     private var observations: [MovementObservation] = []
     private var task: Task<Void, Never>?
+    #if DEBUG
+        /// Live anti-shake cadence stats for on-device calibration (WG-075) — DEBUG only, compiled out of
+        /// Release; read by the diagnostics overlay on the challenge screen.
+        private(set) var cadenceDebug: CadenceDiagnostics?
+    #endif
 
     init(
         alarmID: AlarmID, required: Int, pedometer: any PedometerSource,
@@ -66,6 +71,9 @@ final class WakeChallengeRuntime {
         do {
             for try await sample in pedometer.samples() {
                 observations.append(MovementObservation.from(pedometer: sample))
+                #if DEBUG
+                    cadenceDebug = CadenceRegularity.diagnose(observations)
+                #endif
                 viewModel.apply(ChallengeObservationReducer.event(from: observations))
                 if viewModel.machine.phase == .passed {
                     await coordinator.walkChallengeReached(.passed)
