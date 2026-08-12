@@ -52,7 +52,13 @@ final class WakeChallengeRuntime {
     /// (not `private`) so a test can drive it deterministically; production calls it via `start()`.
     func drive() async {
         viewModel.apply(.start)
-        guard await pedometer.availability() == .available else {
+        var availability = await pedometer.availability()
+        if availability == .notAuthorized {
+            // Motion & Fitness may just be not-yet-asked — trigger the system prompt in context (WG-061),
+            // then re-read. A denial stays `.notAuthorized` → the accessible alternative (#21/#22).
+            availability = await pedometer.requestAuthorization()
+        }
+        guard availability == .available else {
             viewModel.apply(.sensorsUnavailable)  // offer the accessible alternative (#21/#22)
             return
         }
