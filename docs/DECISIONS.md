@@ -4796,3 +4796,38 @@ decisions are recorded above using the ADR template.
 - **Critical-path rule.** The sink enqueues and returns (TelemetryDeck batches + uploads on its own queue);
   an offline device or a telemetry failure must never affect an alarm firing. Consent-off is the
   kill-switch — the app has no backend, so there is no server-side switch (documented in WG-279).
+
+### WG-285 (2026-08-12): Enforced walk challenge — ring → challenge → re-arm loop (bounded)
+
+- **Decision (human-approved 2026-08-12).** A **critical** alarm's walk challenge is now *effectively*
+  enforced: the alarm rings (AlarmKit), a **"Start walk"** action opens the app into the WG-073 challenge,
+  and if the ring is stopped **without** a pass it **re-arms** — every **2 minutes, up to 15 cycles (~30 min),
+  then stops**. Full design: `docs/CHALLENGE_RING_PLAN.md`. Reuses WG-073's runtime + accessible fallback
+  unchanged.
+- **Why re-arm, not a lock.** AlarmKit *requires* a Stop button on every system alarm — iOS guarantees a
+  user can always stop a ringing system alarm, and it cannot be removed. Building a custom (non-AlarmKit)
+  alarm to hold the user would sacrifice the one thing that is WakeGuard's thesis: a reliable ring through
+  silent/Focus from a suspended device (only AlarmKit / the hard-to-get Critical-Alerts entitlement deliver
+  it). So enforcement is the **re-arm loop** (it keeps coming back until you walk), with the system Stop as an
+  always-present escape hatch the loop makes pointless.
+- **Safety — this bounds a dismissal-behaviour change (the reason this ADR exists).**
+  - **Bounded + always endable.** The 15-cycle cap is a hard safety requirement — an alarm a user *cannot*
+    end is abuse and dangerous in an emergency. The cap lives in the pure `RearmPolicy` (WG-283), unit-pinned
+    ("at the cap it stops; a degenerate config can't trap the user"). The alarm also remains cancellable via
+    the normal path (critical → #6 confirmation, but still possible).
+  - **Never a trap (#21/#22).** The accessible tap/hold fallback is reachable from every ring; a pedometer
+    that is unavailable/denied/ambiguous presents the accessible alternative, never a dead end.
+  - **Pass is an explicit action, not an inference (#8).** Stopping requires a genuine walk (or the
+    accessible action) through WG-073's anti-shake gate — movement inference alone never stops it.
+  - **Critical-only (decision 2).** Standard alarms keep the plain Stop, no re-arm.
+  - **Trigger = confirmed stop-without-pass only (decision 4).** Backgrounding the app mid-challenge does
+    **not** re-arm (glancing at a text isn't punished).
+- **Design of the re-arm.** A re-arm reschedules the alarm to re-fire at `now + interval` **through the
+  command processor** (policy-authorised as a system-initiated action; every re-arm + stop is an append-only
+  audit event) — no new component calls `AlarmManager` except the existing adapter (#1/#2). Detecting
+  "stopped without a pass" is device-fed (AlarmKit alerting-ended observation on foreground) and is verified
+  on-device (WG-286); the pure decision logic (`RearmPolicy`) and the orchestration
+  (`ChallengeRearmCoordinator`) are CI-tested against fakes.
+- **No existing invariant weakened.** This *strengthens* enforcement while preserving every safety rule
+  (safe fallback, explicit-pass, cancellable, bounded, audited, reconciled). Recorded here per the rule that
+  a dismissal-behaviour change needs an ADR + human approval.
