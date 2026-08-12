@@ -12,6 +12,8 @@ struct RootView: View {
     @State private var onboarding = OnboardingModel()
     @State private var onboardingResolved = false
     @State private var needsOnboarding = false
+    @State private var challengeInbox = WakeChallengeLaunchInbox.shared
+    @State private var challengeTarget: ChallengeTarget?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -38,7 +40,17 @@ struct RootView: View {
         AlarmListView()
             .task { await startLifecycle() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await runPreAlarmWork() } }
+                if phase == .active {
+                    Task { await runPreAlarmWork() }
+                    Task { await presentChallengeIfRequested(challengeInbox.requestedAlarmID) }
+                }
+            }
+            .onChange(of: challengeInbox.requestedAlarmID) { _, id in
+                Task { await presentChallengeIfRequested(id) }
+            }
+            .fullScreenCover(item: $challengeTarget) { target in
+                ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
+                    .onDisappear { challengeInbox.clear() }
             }
             .onOpenURL { url in
                 let route = DeepLinkParser.route(for: url)
@@ -144,6 +156,18 @@ struct RootView: View {
     private func runPreAlarmWork() async {
         guard let environment, environment.schedulesAlarmsInSystem else { return }
         await environment.preAlarmWork.run(now: environment.clock.now)
+    }
+
+    /// Present the walk challenge for an alarm requested by its "Start walk" system-alarm button (WG-282) —
+    /// navigational only, never a mutation. Looks up the alarm's required steps; a missing alarm falls back
+    /// to 0 and the runtime still offers the accessible alternative, so no one is trapped (#21/#22).
+    @MainActor
+    private func presentChallengeIfRequested(_ id: UUID?) async {
+        guard let id, let environment else { return }
+        let alarmID = AlarmID(id)
+        let steps = (try? await environment.alarmRepository.alarm(id: alarmID))?
+            .challengePolicy.requiredSteps
+        challengeTarget = ChallengeTarget(id: alarmID, requiredSteps: steps ?? 0)
     }
 
     private var deepLinkErrorPresented: Binding<Bool> {
