@@ -36,7 +36,12 @@ targets:
     # needs this entitlement. Restore the real app with: git checkout yeshdev1/wakeguard-parent-bootstrap
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.app
+        # Signing baked in for branch local/freeaccount-device-test (free Personal Team) so that
+        # `make generate` never wipes the Team/bundle-ID you set. DO NOT MERGE — the real app keeps
+        # com.wakeguard.app and signs under the org team.
+        PRODUCT_BUNDLE_IDENTIFIER: com.yeshthedev.wakeguard.app
+        DEVELOPMENT_TEAM: X72JRDT5VM
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_NAME: WakeGuard
         # Explicit release version + build number (WG-260). MARKETING_VERSION is the user-facing
         # version; CURRENT_PROJECT_VERSION is the build number the TestFlight pipeline bumps per
@@ -45,13 +50,16 @@ targets:
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
+        # AlarmKit's iOS-26 usage string lives in this explicit plist (merged into the generated one)
+        # because Xcode's build system drops INFOPLIST_KEY_NSAlarmKitUsageDescription — see the file.
+        INFOPLIST_FILE: WakeGuard-Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         # Purpose strings for the device capabilities the shipped features touch (AlarmKit for ringing;
         # Core Motion for the walk challenge + pre-alarm awake check; Core Location for low-power travel
         # detection). Required before the app touches each framework — a missing key is a launch crash /
         # App Review rejection. Each names the specific use and minimizes/disclaims data (#41).
-        INFOPLIST_KEY_NSAlarmKitUsageDescription: "WakeGuard schedules system alarms so your wake-up and critical alarms reliably ring — through silent mode and Focus — at the times you set."
+        # NSAlarmKitUsageDescription is set in WakeGuard-Info.plist (Xcode drops the INFOPLIST_KEY_ form).
         INFOPLIST_KEY_NSMotionUsageDescription: "WakeGuard uses step and motion data only to run the wake-up walk challenge and to check whether you're already up just before an alarm. It never uses your location and never reads your saved workouts or health records."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "WakeGuard checks your approximate location only to notice when you've travelled to a new time zone, so it can keep your alarms correct. It uses low-power location (significant changes only), never continuous GPS, and never stores where you are."
         INFOPLIST_KEY_NSHealthShareUsageDescription: "WakeGuard reads your recent sleep from Health only to estimate your sleep duration and consistency and explain your morning readiness — on your device, never stored raw or sent to the cloud. It's optional, and it's a sleep estimate, never a diagnosis."
