@@ -31,6 +31,26 @@ struct CoreMotionLivePedometerAdapter: PedometerSource {
 
     func availability() async -> MotionSourceAvailability { availabilityProvider() }
 
+    /// Trigger the iOS Motion & Fitness prompt when the grant is not-yet-determined (WG-061 in-context ask),
+    /// then re-read. Core Motion has no request API — issuing a pedometer query is what shows the prompt; the
+    /// completion fires once the user answers, after which the status resolves to authorized (`.available`)
+    /// or denied (`.notAuthorized` → the accessible fallback). A definite state is returned unchanged.
+    func requestAuthorization() async -> MotionSourceAvailability {
+        let current = availabilityProvider()
+        guard current == .notAuthorized, CMPedometer.authorizationStatus() == .notDetermined else {
+            return current
+        }
+        let start = now()
+        let pedometer = CMPedometer()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            pedometer.queryPedometerData(from: start.addingTimeInterval(-1), to: start) { _, _ in
+                continuation.resume()
+            }
+        }
+        withExtendedLifetime(pedometer) {}  // keep CMPedometer alive across the query's completion
+        return availabilityProvider()
+    }
+
     func samples() -> AsyncThrowingStream<PedometerSample, Error> {
         let updates = self.updates
         let availabilityProvider = self.availabilityProvider

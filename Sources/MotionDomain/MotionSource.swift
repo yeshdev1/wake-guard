@@ -165,6 +165,17 @@ protocol PedometerSource: Sendable {
     func availability() async -> MotionSourceAvailability
     /// A live stream of samples (see the port contract above).
     func samples() -> AsyncThrowingStream<PedometerSample, Error>
+    /// When Motion & Fitness is **not yet determined**, trigger the system permission prompt (Core Motion
+    /// only asks once a query starts — there is no request API), then return the resolved availability. A
+    /// definite state (authorized / denied / restricted / absent) is returned unchanged. The in-context ask
+    /// the challenge uses (WG-061); only the live CoreMotion adapter overrides it.
+    func requestAuthorization() async -> MotionSourceAvailability
+}
+
+extension PedometerSource {
+    /// Default: nothing to prompt for (test/preview sources and the non-live adapters) — report current
+    /// availability so a caller can treat "no live source" and "denied" identically (the safe fallback).
+    func requestAuthorization() async -> MotionSourceAvailability { await availability() }
 }
 
 /// Classified activity (CMMotionActivity). See the `PedometerSource` `samples()` contract.
