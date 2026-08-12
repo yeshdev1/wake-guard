@@ -213,9 +213,7 @@ actor AlarmCommandProcessor {
             let occurrence = engine.nextOccurrence(
                 for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
         {
-            let request = AlarmScheduleRequest(
-                alarmID: alarm.id, fireTime: occurrence, title: alarm.label,
-                isCritical: alarm.criticality == .critical)
+            let request = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
             let key = Self.outboxKey(alarm.id, alarm.revision, "schedule", occurrence)
             return await runExternal(key, context.command) {
                 try await self.alarmManager.schedule(request)
@@ -354,9 +352,7 @@ extension AlarmCommandProcessor {
             let occurrence = engine.nextOccurrence(
                 for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
         else { return nil }
-        return AlarmScheduleRequest(
-            alarmID: alarm.id, fireTime: occurrence, title: alarm.label,
-            isCritical: alarm.criticality == .critical)
+        return AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
     }
 
     /// Apply one repair via `body`, auditing as `.systemReconciliation` (#46/#50). Uncertain/cancelled

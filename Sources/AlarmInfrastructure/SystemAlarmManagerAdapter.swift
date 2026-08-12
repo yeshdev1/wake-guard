@@ -40,7 +40,8 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     func schedule(_ request: AlarmScheduleRequest) async throws {
         try await scheduleFixed(
             id: request.alarmID.rawValue, at: request.fireTime,
-            title: LocalizedStringResource(stringLiteral: request.title))
+            title: LocalizedStringResource(stringLiteral: request.title),
+            requiredSteps: request.requiredSteps)
     }
 
     func cancel(alarmID: AlarmID) async throws {
@@ -80,7 +81,7 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     func snooze(alarmID: AlarmID, until: Date) async throws {
         // Reschedule the same id to fire at `until` (schedule replaces on id). The
         // original title is not available here, so a generic label is used — minimal.
-        try await scheduleFixed(id: alarmID.rawValue, at: until, title: "Alarm")
+        try await scheduleFixed(id: alarmID.rawValue, at: until, title: "Alarm", requiredSteps: nil)
     }
 
     func scheduledAlarms() async throws -> [ScheduledAlarmSnapshot] {
@@ -100,28 +101,45 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
         }
     }
 
-    private func scheduleFixed(id: UUID, at fireTime: Date, title: LocalizedStringResource)
-        async throws
-    {
+    private func scheduleFixed(
+        id: UUID, at fireTime: Date, title: LocalizedStringResource, requiredSteps: Int?
+    ) async throws {
         // A denial must not be misread as a scheduling failure — surface it as
         // `.notAuthorized` so the caller preserves the last safe alarm (#10).
         guard AlarmManager.shared.authorizationState == .authorized else {
             throw AlarmManagerError.notAuthorized
         }
-        let alert = AlarmPresentation.Alert(
-            title: title,
-            stopButton: AlarmButton(
-                text: "Stop", textColor: .white, systemImageName: "stop.circle.fill"))
-        let attributes = AlarmAttributes<WakeGuardAlarmMetadata>(
-            presentation: AlarmPresentation(alert: alert),
-            metadata: WakeGuardAlarmMetadata(), tintColor: .accentColor)
-        let configuration = AlarmManager.AlarmConfiguration.alarm(
-            schedule: .fixed(fireTime), attributes: attributes)
+        let stop = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle.fill")
         do {
-            _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
+            if requiredSteps != nil {
+                // Challenge alarm: "Start walk" opens the app to the walk challenge (WG-281/282) WITHOUT
+                // stopping the alarm — only a genuine pass stops it (WG-073). The mandatory Stop stays.
+                let alert = AlarmPresentation.Alert(
+                    title: title, stopButton: stop,
+                    secondaryButton: AlarmButton(
+                        text: "Start walk", textColor: .white, systemImageName: "figure.walk"),
+                    secondaryButtonBehavior: .custom)
+                let configuration = AlarmManager.AlarmConfiguration(
+                    schedule: .fixed(fireTime), attributes: Self.attributes(alert: alert),
+                    secondaryIntent: OpenWakeChallengeIntent(alarmID: id.uuidString))
+                _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
+            } else {
+                let alert = AlarmPresentation.Alert(title: title, stopButton: stop)
+                let configuration = AlarmManager.AlarmConfiguration.alarm(
+                    schedule: .fixed(fireTime), attributes: Self.attributes(alert: alert))
+                _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
+            }
         } catch {
             throw Self.map(error)
         }
+    }
+
+    private static func attributes(alert: AlarmPresentation.Alert)
+        -> AlarmAttributes<WakeGuardAlarmMetadata>
+    {
+        AlarmAttributes(
+            presentation: AlarmPresentation(alert: alert),
+            metadata: WakeGuardAlarmMetadata(), tintColor: .accentColor)
     }
 
     private static func map(_ state: AlarmManager.AuthorizationState) -> AlarmAuthorizationState {

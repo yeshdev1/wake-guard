@@ -22,6 +22,15 @@ enum ChallengePolicy: Codable, Sendable, Equatable, Hashable {
         case .walk(let challenge): challenge.accessibleFallback
         }
     }
+
+    /// The walk challenge's required step count, or nil when there is no walk challenge — used to decide
+    /// whether a scheduled system alarm offers the "Start walk" action (WG-281).
+    var requiredSteps: Int? {
+        switch self {
+        case .none: nil
+        case .walk(let challenge): challenge.minimumSteps
+        }
+    }
 }
 
 /// Validated parameters for the ten-second walk challenge. Non-positive

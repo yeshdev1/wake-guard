@@ -33,9 +33,7 @@ struct AlarmReconciler: Sendable {
                 let occurrence = engine.nextOccurrence(
                     for: alarm, after: now, deviceTimeZone: deviceTimeZone)
             else { continue }
-            desiredByID[alarm.id] = AlarmScheduleRequest(
-                alarmID: alarm.id, fireTime: occurrence, title: alarm.label,
-                isCritical: alarm.criticality == .critical)
+            desiredByID[alarm.id] = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
         }
 
         var systemByID: [AlarmID: ScheduledAlarmSnapshot] = [:]
