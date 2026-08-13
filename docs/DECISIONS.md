@@ -4831,3 +4831,34 @@ decisions are recorded above using the ADR template.
 - **No existing invariant weakened.** This *strengthens* enforcement while preserving every safety rule
   (safe fallback, explicit-pass, cancellable, bounded, audited, reconciled). Recorded here per the rule that
   a dismissal-behaviour change needs an ADR + human approval.
+
+### WG-293 (2026-08-13): Commitment lock — invariant #6 amended (human-approved)
+
+- **Decision (product owner approved 2026-08-13).** A **critical + wake-challenge + enabled** alarm becomes
+  **committed at T−60 minutes**: from then until its wake is satisfied (or the bounded ring window ends),
+  `delete`, `disable`, and any weakening or delaying `update` are **rejected outright** by
+  `DefaultAlarmPolicyEngine` — confirmation is no longer sufficient. This amends `SAFETY_INVARIANTS.md` #6
+  (amendment inline there). Full design: `docs/COMMITMENT_LOCK_PLAN.md` (WG-287–294).
+- **Why rejection, not confirmation.** The feature's purpose is a *commitment device*: the user chose, with
+  ≥1 hour of agency, to be forced up. A 5-a.m. confirmation tap is exactly the failure mode the user asked
+  to be protected from. Time-changes are included because moving the alarm out is a trivial escape.
+- **Relentless ring, structurally.** Stopping the ring without a pass re-rings via the **pre-scheduled
+  AlarmKit chain** (every 2 min to a **30-minute bound** — WG-283's `RearmPolicy` default). The chain is
+  scheduled upfront because invariant #9 forbids relying on the app running at stop-time; it survives
+  reboot, so **powering the phone off and on resumes the remaining window with no app involvement**. The
+  wording of #9 is untouched — no background task is required; the chain is ordinary scheduled alarms.
+- **The bound is confidential** (company-side). No user-facing surface may disclose the 30-minute bound or
+  the cycle cadence — and equally may not claim "forever/until you walk" (an over-claim a user could rely
+  on). Shippable copy: *"keeps re-ringing if you stop without completing the walk."*
+- **Deliberate limits (all preserved, none silent).** The accessible alternative stays (#21/#22 — a
+  deliberate-effort exit, required by accessibility law and App Review). The 30-minute bound stays (an
+  un-endable alarm is an emergency hazard). Full data reset stays (#42 outranks the lock; high-friction,
+  double-confirmed, cancels the chain). Uninstall cannot be intercepted (no iOS hook) — deterred in-app on
+  locked alarms with the **honest data-loss message** ("erases all alarms, history, and settings — cannot
+  be restored"; local-only storage makes this true). A **false "you would have to pay again" claim was
+  considered and rejected**: App Store re-downloads/restores are free and Apple-mandated, so it would be a
+  dark pattern and an App Review rejection risk.
+- **Scope guard.** The lock activates only for the combination the user explicitly configured (critical +
+  challenge); standard alarms and challenge-free critical alarms keep today's #6 confirmation behaviour
+  unchanged. Fail-closed: an unreadable alarm/clock/store rejects the mutation. Agent/AI commands remain
+  rejected as before (#31). Every lock rejection and chain schedule/cancel is audited (#46–#50).
