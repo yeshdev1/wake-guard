@@ -123,4 +123,18 @@ final class CommitmentLockPolicyTests: XCTestCase {
             return XCTFail("past the bound the alarm is changeable again (confirmable, not locked)")
         }
     }
+
+    func testRingWindowLockIsComputedWithoutAnyPendingWiring() async throws {
+        // No injected pending read: the engine derives the fired occurrence itself from the schedule
+        // (WG-291 time rule), so the mid-ring lock holds with zero extra wiring.
+        let (engine, alarms) = try makeEngine(now: try iso("2026-08-17T07:10:00Z"))
+        let alarm = try makeAlarm()
+        try await alarms.save(alarm)
+
+        let decision = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: true)
+        guard case .rejected = decision else {
+            return XCTFail("the ring-window lock must hold from the schedule alone")
+        }
+    }
 }

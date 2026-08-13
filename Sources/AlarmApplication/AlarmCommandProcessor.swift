@@ -7,15 +7,17 @@ import Foundation
 /// crash/uncertain recovery (#10; re-arming is reconciliation's, WG-029).
 actor AlarmCommandProcessor {
     private let policy: any AlarmPolicyEngine
-    private let alarms: any AlarmRepository
+    // Internal (not private): the reconcile + wake-chain extensions live in their own files (file-length
+    // budget) and share the actor's collaborators; the actor boundary still serializes access (#2).
+    let alarms: any AlarmRepository
     private let audit: any AuditRepository
     private let outbox: any OutboxRepository
-    private let alarmManager: any AlarmManagerAdapter
-    private let clock: any WallClock
+    let alarmManager: any AlarmManagerAdapter
+    let clock: any WallClock
     private let ids: any IdentifierGenerator
-    private let deviceTimeZone: @Sendable () -> TimeZone
-    private let engine = AlarmSchedulingEngine()
-    private let reconciler = AlarmReconciler()
+    let deviceTimeZone: @Sendable () -> TimeZone
+    let engine = AlarmSchedulingEngine()
+    let reconciler = AlarmReconciler()
 
     init(
         policy: any AlarmPolicyEngine,
@@ -128,6 +130,8 @@ actor AlarmCommandProcessor {
                 context, old: nil, new: nil, outcome: .succeeded,
                 reason: "Alarm stopped after a valid challenge pass.")
         }
+        // Silence the whole re-ring family too (WG-291) — a pass ends the wake, not just one member.
+        await sweepWakeChain(afterPassOf: alarm, context: context)
         return outcome
     }
 
@@ -188,6 +192,7 @@ actor AlarmCommandProcessor {
         _ = await runExternal(key, context.command) {
             try await self.alarmManager.cancel(alarmID: id)
         }
+        await cancelWakeChain(for: alarm)  // a deleted alarm leaves no re-rings behind (WG-291)
         return .applied
     }
 
@@ -215,14 +220,25 @@ actor AlarmCommandProcessor {
         {
             let request = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
             let key = Self.outboxKey(alarm.id, alarm.revision, "schedule", occurrence)
-            return await runExternal(key, context.command) {
+            let outcome = await runExternal(key, context.command) {
                 try await self.alarmManager.schedule(request)
             }
+            // The main occurrence placed → place the re-ring family behind it (WG-291; no-op unless
+            // critical + challenge).
+            if case .applied = outcome {
+                await syncWakeChain(for: alarm, occurrence: occurrence, context: context)
+            }
+            return outcome
         }
         let key = Self.outboxKey(alarm.id, alarm.revision, "cancel", nil)
-        return await runExternal(key, context.command) {
+        let outcome = await runExternal(key, context.command) {
             try await self.alarmManager.cancel(alarmID: alarm.id)
         }
+        // A disabled alarm leaves no re-rings behind (WG-291).
+        if case .applied = outcome {
+            await cancelWakeChain(for: alarm)
+        }
+        return outcome
     }
 
     /// The outbox brackets the external call: `enqueue` dedups on the key; an `applied` entry is done
@@ -288,109 +304,4 @@ actor AlarmCommandProcessor {
         try? await audit.append(event)
     }
 
-}
-
-/// Launch/foreground reconciliation (WG-029). In an extension so the core command path and the
-/// reconciliation path each stay within budget; both are actor-isolated and share the boundary (#2).
-extension AlarmCommandProcessor {
-    /// Make the system authority match persisted desired state via `.systemReconciliation` repairs,
-    /// auditing each (#46/#50). Idempotent; fails safe — an unreadable read repairs nothing (#10).
-    func reconcile() async -> ReconciliationSummary {
-        guard let system = try? await alarmManager.scheduledAlarms() else {
-            return ReconciliationSummary(skipped: true)
-        }
-        guard let desired = try? await alarms.allAlarms() else {
-            return ReconciliationSummary(skipped: true)
-        }
-        let repairs = reconciler.plan(
-            desired: desired, system: system, now: clock.now, deviceTimeZone: deviceTimeZone())
-        var summary = ReconciliationSummary()
-        for repair in repairs {
-            await apply(repair, into: &summary)
-        }
-        return summary
-    }
-
-    /// Apply one repair, folding its outcome into `summary`. Re-validate against *current* desired state
-    /// first (WG-244): a stale — or unreadable — repair is deferred, never applied (fail closed, #10).
-    private func apply(
-        _ repair: ReconciliationRepair, into summary: inout ReconciliationSummary
-    ) async {
-        let current: AlarmScheduleRequest?
-        do { current = try await currentDesiredSchedule(for: repair.alarmID) } catch {
-            summary.stale += 1  // read failed → defer, don't act on unknown state (WG-251)
-            return
-        }
-        let outcome: RepairOutcome
-        let scheduled: Bool
-        switch repair {
-        case .schedule(let request):
-            guard current == request else { summary.stale += 1; return }
-            outcome = await applyRepair(
-                request.alarmID, success: "Re-synced this alarm to your saved settings."
-            ) { try await self.alarmManager.schedule(request) }
-            scheduled = true
-        case .cancel(let id):
-            guard current == nil else { summary.stale += 1; return }
-            outcome = await applyRepair(
-                id, success: "Removed a system alarm that no longer matched your settings."
-            ) { try await self.alarmManager.cancel(alarmID: id) }
-            scheduled = false
-        }
-        switch outcome {
-        case .applied:
-            if scheduled { summary.scheduled += 1 } else { summary.cancelled += 1 }
-        case .uncertain: summary.uncertain += 1
-        case .failed: summary.failed += 1
-        }
-    }
-
-    /// The *current* desired schedule for one alarm (the lost-update guard for #10, WG-244). **Throws** on
-    /// a read failure so the caller defers rather than acting on unknown state (WG-251).
-    private func currentDesiredSchedule(for id: AlarmID) async throws -> AlarmScheduleRequest? {
-        guard let alarm = try await alarms.alarm(id: id), alarm.isEnabled,
-            let occurrence = engine.nextOccurrence(
-                for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
-        else { return nil }
-        return AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
-    }
-
-    /// Apply one repair via `body`, auditing as `.systemReconciliation` (#46/#50). Uncertain/cancelled
-    /// → `.uncertain` (re-checked next pass, #10); a thrown error → `.failed`. The local alarm survives.
-    private func applyRepair(
-        _ id: AlarmID, success: String, _ body: () async throws -> Void
-    ) async -> RepairOutcome {
-        let context = CommandContext(
-            command: .reconcile(id), actor: .systemReconciliation, source: .reconciliation)
-        do {
-            try await body()
-            await appendAudit(context, old: nil, new: nil, outcome: .succeeded, reason: success)
-            return .applied
-        } catch AlarmManagerError.uncertain {
-            return await auditUncertainRepair(context)
-        } catch is CancellationError {
-            return await auditUncertainRepair(context)
-        } catch {
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .failed, reason: Self.reason(for: error))
-            return .failed
-        }
-    }
-
-    /// Record a repair whose external outcome is unknown — audited `.failed` (the safe not-yet-applied
-    /// posture, #10); the next pass re-checks. (A distinct `.uncertain` audit outcome is WG-048.)
-    private func auditUncertainRepair(_ context: CommandContext) async -> RepairOutcome {
-        await appendAudit(
-            context, old: nil, new: nil, outcome: .failed,
-            reason: "The alarm sync outcome was unknown; it will be re-checked on the next sync.")
-        return .uncertain
-    }
-
-    /// The outcome of applying one reconciliation repair against the system authority.
-    private enum RepairOutcome: Sendable {
-        case applied
-        /// Interrupted / cancelled — may or may not have applied; the next pass re-checks (#10).
-        case uncertain
-        case failed
-    }
 }

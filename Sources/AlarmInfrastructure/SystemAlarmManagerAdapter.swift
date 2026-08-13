@@ -38,10 +38,12 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     }
 
     func schedule(_ request: AlarmScheduleRequest) async throws {
+        // A wake-chain member's "Start walk" routes to its parent's challenge (WG-291).
         try await scheduleFixed(
             id: request.alarmID.rawValue, at: request.fireTime,
             title: LocalizedStringResource(stringLiteral: request.title),
-            requiredSteps: request.requiredSteps)
+            requiredSteps: request.requiredSteps,
+            routeID: (request.parentAlarmID ?? request.alarmID).rawValue)
     }
 
     func cancel(alarmID: AlarmID) async throws {
@@ -81,7 +83,9 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     func snooze(alarmID: AlarmID, until: Date) async throws {
         // Reschedule the same id to fire at `until` (schedule replaces on id). The
         // original title is not available here, so a generic label is used — minimal.
-        try await scheduleFixed(id: alarmID.rawValue, at: until, title: "Alarm", requiredSteps: nil)
+        try await scheduleFixed(
+            id: alarmID.rawValue, at: until, title: "Alarm", requiredSteps: nil,
+            routeID: alarmID.rawValue)
     }
 
     func scheduledAlarms() async throws -> [ScheduledAlarmSnapshot] {
@@ -102,7 +106,8 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     }
 
     private func scheduleFixed(
-        id: UUID, at fireTime: Date, title: LocalizedStringResource, requiredSteps: Int?
+        id: UUID, at fireTime: Date, title: LocalizedStringResource, requiredSteps: Int?,
+        routeID: UUID
     ) async throws {
         // A denial must not be misread as a scheduling failure — surface it as
         // `.notAuthorized` so the caller preserves the last safe alarm (#10).
@@ -121,7 +126,7 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
                     secondaryButtonBehavior: .custom)
                 let configuration = AlarmManager.AlarmConfiguration(
                     schedule: .fixed(fireTime), attributes: Self.attributes(alert: alert),
-                    secondaryIntent: OpenWakeChallengeIntent(alarmID: id.uuidString))
+                    secondaryIntent: OpenWakeChallengeIntent(alarmID: routeID.uuidString))
                 _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
             } else {
                 let alert = AlarmPresentation.Alert(title: title, stopButton: stop)
