@@ -9,7 +9,7 @@ These invariants override feature convenience.
 3. Every command must be authorized by `AlarmPolicyEngine`.
 4. LLM components can produce only `AlarmProposal` values.
 5. An `AlarmProposal` is never executable without validation and policy authorization.
-6. Critical alarms cannot be cancelled, delayed, or weakened without explicit user confirmation.
+6. Critical alarms cannot be cancelled, delayed, or weakened without explicit user confirmation. **Amendment (2026-08-13, human-approved — see the WG-293 ADR):** a critical alarm with a required wake challenge that is still enabled at 60 minutes before its fire time is **committed** — from that point until its wake is satisfied (or the bounded ring window ends), it cannot be cancelled, delayed, or weakened *at all*; confirmation is no longer sufficient. The bound, the accessible alternative (#22), and the full-data-reset escape (#42) are the deliberate, ADR-recorded limits of this rule.
 7. No response to a prompt means no mutation.
 8. Movement-based “likely awake” inference never cancels an alarm in the MVP.
 9. A background task is never required for an alarm to ring.

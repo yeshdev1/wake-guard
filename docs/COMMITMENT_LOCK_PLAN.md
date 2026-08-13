@@ -1,10 +1,33 @@
 # WakeGuard — Commitment Lock + Relentless Re-arm Plan (WG-287…294)
 
-Status: **approved in principle 2026-08-13** (product owner): a critical walk-challenge alarm that is not
-cancelled **at least 1 hour before it fires** becomes **locked** — it cannot be deleted, disabled, delayed,
-or weakened — and once it rings, **stopping without completing the challenge just makes it ring again**,
-relentlessly, for **30 minutes**, then it stops for good (the safety bound). The walk (or the accessible
-alternative) is the only true exit. Extends `docs/CHALLENGE_RING_PLAN.md` (WG-280–286).
+Status: **approved 2026-08-13** (product owner — the invariant-#6 amendment is explicitly approved; ADR in
+`DECISIONS.md`): a critical walk-challenge alarm that is not cancelled **at least 1 hour before it fires**
+becomes **locked** — it cannot be deleted, disabled, delayed, or weakened — and once it rings, **stopping
+without completing the challenge just makes it ring again**, relentlessly, for **30 minutes**, then it
+stops for good (the safety bound). The walk (or the accessible alternative) is the only true exit. Extends
+`docs/CHALLENGE_RING_PLAN.md` (WG-280–286).
+
+Additional product decisions (2026-08-13):
+- **The 30-minute bound is confidential** — a company-side parameter. **No user-facing surface** (copy,
+  UI, countdowns, cycle counters, marketing) may disclose the bound or the cycle cadence, in either
+  direction: no "for 30 minutes", and equally no "forever/until you walk" over-claim a user might rely on.
+  User-facing copy says only: *"WakeGuard keeps re-ringing if you stop without completing the walk."* The
+  bound lives in the ADR, the code, and internal docs only.
+- **Uninstall deterrent** — shown in-app on locked alarms (iOS provides **no uninstall hook**, so nothing
+  can be shown at uninstall time). The copy must be the **honest** deterrent: *"Deleting WakeGuard erases
+  all of your alarms, history, and settings — they cannot be restored."* (True: local-only storage, no
+  backend.) A "you would have to pay again" claim is **not shippable**: App Store re-downloads and
+  purchase restores are free and Apple-mandated, so the claim would be false — a dark pattern and an App
+  Review rejection risk. If a paid tier ever exists, restore is still required; the data-loss framing is
+  the strongest deterrent that is true.
+- **Power-off resilience** — required behavior: if the phone is switched off during the ring window and
+  switched on again, the app must ring or stay silent based on elapsed time since the fire and whether the
+  walk was recorded. Delivered **structurally** by the pre-scheduled chain (§2): AlarmKit alarms persist
+  across reboot, so chain entries whose fire times are still in the future ring after power-on with no app
+  involvement; entries missed while off stay missed; a recorded pass cancelled the chain before power-off.
+  App-side, launch reconciliation (WG-292) re-verifies the remaining chain whenever the app next opens
+  inside the window. (The window runs from the **fire time**, and the app cannot run itself at power-on —
+  iOS launches nothing — which is exactly why the chain, not app logic, carries this guarantee.)
 
 ---
 
@@ -105,7 +128,8 @@ Edge cases (all in the test matrix):
 | Accessible alternative (tap/hold) | **Stays.** Required (#21/#22, accessibility law, App Review). It is deliberate effort, not a one-tap out. Optional hardening later: a longer hold for locked alarms — separate decision. |
 | 30-minute bound | **Stays** (approved). An alarm that literally cannot end is an emergency hazard. |
 | Full data reset (Privacy → Delete everything) | **Stays.** The privacy promise (#42) outranks the lock; it is high-friction (double confirm) and cancels the chain. Recorded in the ADR as deliberate. |
-| Uninstall the app / power off the phone | Cannot be prevented (OS). A powered-off iPhone rings no alarm at all — AlarmKit reality, documented honestly. |
+| Uninstall the app | Cannot be prevented (no iOS uninstall hook). Deterred in-app on locked alarms with the **honest** data-loss message (see decisions above) — never a false payment claim. |
+| Power off the phone | While off, nothing rings (OS reality). On power-on the **chain entries still in the future ring by themselves** (AlarmKit alarms survive reboot — device-verified in WG-294); a recorded pass already cancelled them. Documented honestly. |
 | Tap Stop, never open app | **Closed by the pre-scheduled chain** (§2) — this was the real hole. |
 
 ## 5. Safety-invariant change (the reason this needs an ADR)
@@ -124,11 +148,11 @@ creation, visible for ≥ the entire pre-window, and bounded at 30 min of ringin
 |---|---|---|---|
 | **WG-287** | **Anti-shake calibration** *(in flight — hard predecessor)* | Set `CadenceThresholds` from the user's DEBUG walk/shake readings; ADR for the threshold change; device re-test: real walk passes, shake fails | device + CI pins |
 | **WG-288** | Commitment lock (domain + policy) | Pure `CommitmentLock` rule; policy-engine rejection of delete/disable/weaken/delay while locked; fail-closed reads; hysteresis + inside-window-create tests | CI |
-| **WG-289** | Lock UX | Create/edit form disclosure ("locks at 6:00"), list badge + countdown, rejected-action copy, VoiceOver/Dynamic Type per UI rules | CI + sim |
+| **WG-289** | Lock UX | Create/edit form disclosure ("locks at 6:00"), list badge + lock countdown, rejected-action copy, the honest uninstall deterrent on locked alarms, VoiceOver/Dynamic Type per UI rules. **Acceptance: no surface discloses the 30-min bound or cycle cadence** (confidential decision above) | CI + sim |
 | **WG-290** | Pending-wake persistence | `PendingChallengeRecord` (schema v6→v7 + migration test), Core Data `PendingChallengeStore` impl, launch cleanup of stale entries | CI |
 | **WG-291** | Chain scheduling | Deterministic chain IDs; desired-state = main + unsatisfied chain; processor/adapter schedule + cancel-family; outbox idempotency (revision+fireTime keys already distinct); reconciler treats chain as desired (never reaps a live chain, always reaps a satisfied one); **device probe of the AlarmKit alarm cap** + fallback chain length | CI + device |
 | **WG-292** | Device wiring | Alerting observation → `stoppedWithoutPass` when the app *is* running; pass → stop-alerting-member + cancel family; launch reconciliation of a half-consumed chain; chain extension on app-open (if fallback length) | device |
-| **WG-293** | ADR + invariant amendment | `DECISIONS.md` ADR; `SAFETY_INVARIANTS.md` #6 amendment; invariant-map + threat-model updates; **explicit human sign-off recorded** | docs + CI pins |
+| **WG-293** | ADR + invariant amendment | `DECISIONS.md` ADR; `SAFETY_INVARIANTS.md` #6 amendment; invariant-map + threat-model updates; **human sign-off recorded 2026-08-13** | docs + CI pins |
 | **WG-294** | Device matrix + docs | SMK cases below; `TESTABILITY_REPORT.md`/`UAT_PLAN.md`/`IMPLEMENTATION_STATUS.md` updates; port plan to `main` with the feature commits | device |
 
 **Sequencing:** 287 first (blocks honest enforcement). 288–291 are CI-parallel after it; 292 needs a
@@ -155,9 +179,11 @@ the HealthKit/signing/free-team bits), same as the WG-281/282 flow.
 
 ## 8. Honest limitations (shipped copy + docs must not overclaim)
 
-Power-off/dead battery = no ring (OS). Uninstall = full escape. Full data reset = deliberate escape.
-Accessible alternative = deliberate non-walk exit (required). Marketing/product copy says **"won't take no
-for an answer for 30 minutes"** — not "inescapable."
+Power-off/dead battery = no ring while off (chain resumes on power-on for entries still in the future).
+Uninstall = full escape (deterred honestly, never falsely). Full data reset = deliberate escape.
+Accessible alternative = deliberate non-walk exit (required). Copy rule: **no duration claims in either
+direction** — never "for 30 minutes" (confidential bound), never "forever/until you walk" (an over-claim a
+user might rely on). The shippable phrasing: *"keeps re-ringing if you stop without completing the walk."*
 
 ## 9. Immediate next inputs
 

@@ -18,6 +18,10 @@ struct RearmConfiguration: Sendable, Equatable {
 
     /// Every 2 minutes, up to 15 cycles (~30 min), then stop (WG-283 decision 1).
     static let `default` = RearmConfiguration()
+
+    /// The chain's total span — how long a stopped-without-pass alarm keeps coming back. The commitment
+    /// lock's ring window derives from this, so the lock and the chain can never disagree (WG-288).
+    var totalWindow: TimeInterval { interval * Double(maxAttempts) }
 }
 
 /// A **critical** alarm whose ring has not yet been satisfied by a passed challenge (WG-283). Tracked so a
