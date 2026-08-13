@@ -81,15 +81,25 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
         return decision(for: alarm, source: source, userConfirmed: userConfirmed)
     }
 
-    /// Whether `alarm` is inside its commitment window (pre-fire lock, or the ring window of an
-    /// unsatisfied pending wake). Pure rule in `CommitmentLock`; this just feeds it the engine-resolved
-    /// next occurrence and the pending read.
+    /// Whether `alarm` is inside its commitment window (pre-fire lock, or the ring window of a fired
+    /// wake). Pure rule in `CommitmentLock`; this feeds it the engine-resolved next occurrence and the
+    /// ring-window instant. The ring lock is **time-based** (`WakeChain.firedOccurrence`): it holds for
+    /// the whole bounded window even after a pass — a deliberate simplification (WG-291 ADR note; the
+    /// cost is a ≤ ring-window edit delay right after waking, the gain is that the live chain can never
+    /// be deleted out from under an unsatisfied wake). An injected pending read (WG-290, satisfaction-
+    /// aware) can later refine it; until then it defaults nil and the time rule decides.
     private func isCommitted(_ alarm: Alarm) async -> Bool {
         let fire =
             alarm.isEnabled
             ? engine.nextOccurrence(for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
             : nil
-        let pending = await pendingUnsatisfiedFireTime(alarm.id)
+        let pending: Date?
+        if let injected = await pendingUnsatisfiedFireTime(alarm.id) {
+            pending = injected
+        } else {
+            pending = WakeChain.firedOccurrence(
+                for: alarm, now: clock.now, deviceTimeZone: deviceTimeZone())
+        }
         return CommitmentLock.isLocked(
             alarm: alarm, nextFireTime: fire, pendingUnsatisfiedFireTime: pending, now: clock.now)
     }

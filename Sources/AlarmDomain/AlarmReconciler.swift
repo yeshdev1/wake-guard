@@ -24,16 +24,30 @@ struct AlarmReconciler: Sendable {
         desired alarms: [Alarm], system: [ScheduledAlarmSnapshot], now: Date,
         deviceTimeZone: TimeZone
     ) -> [ReconciliationRepair] {
-        // The desired system state: each *enabled* alarm's next occurrence. A disabled
-        // alarm — or one with no upcoming occurrence — is intentionally absent, so any
-        // system alarm standing in for it is "extra" and gets cancelled.
+        // The desired system state: each *enabled* alarm's next occurrence, plus — for a critical
+        // wake-challenge alarm — its pre-scheduled re-ring chain (WG-291), so a chain the app placed
+        // upfront reads as desired, not "extra". A disabled alarm — or one with no upcoming occurrence —
+        // is intentionally absent, so any system alarm standing in for it is "extra" and gets cancelled.
         var desiredByID: [AlarmID: AlarmScheduleRequest] = [:]
+        // A **live** family — an occurrence that fired within the ring window — is mid-enforcement: its
+        // remaining members are neither re-scheduled (a pass explicitly cancelled them; re-adding would
+        // re-ring a satisfied wake) nor reaped as extras (that would silence an unsatisfied one). The
+        // reconciler keeps hands off until the window ends; stale members then reap as ordinary extras.
+        var liveFamily: Set<AlarmID> = []
         for alarm in alarms where alarm.isEnabled {
-            guard
-                let occurrence = engine.nextOccurrence(
-                    for: alarm, after: now, deviceTimeZone: deviceTimeZone)
-            else { continue }
-            desiredByID[alarm.id] = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
+            if let occurrence = engine.nextOccurrence(
+                for: alarm, after: now, deviceTimeZone: deviceTimeZone)
+            {
+                desiredByID[alarm.id] = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
+                for request in WakeChain.requests(for: alarm, occurrence: occurrence) {
+                    desiredByID[request.alarmID] = request
+                }
+            }
+            if let fired = WakeChain.firedOccurrence(
+                for: alarm, now: now, deviceTimeZone: deviceTimeZone)
+            {
+                liveFamily.formUnion(WakeChain.memberIDs(for: alarm, occurrence: fired))
+            }
         }
 
         var systemByID: [AlarmID: ScheduledAlarmSnapshot] = [:]
@@ -49,8 +63,9 @@ struct AlarmReconciler: Sendable {
             }
             repairs.append(.schedule(request))
         }
-        // Extra → a system alarm with no desired counterpart.
-        for snapshot in system where desiredByID[snapshot.alarmID] == nil {
+        // Extra → a system alarm with no desired counterpart (live family members exempt, above).
+        for snapshot in system
+        where desiredByID[snapshot.alarmID] == nil && !liveFamily.contains(snapshot.alarmID) {
             repairs.append(.cancel(snapshot.alarmID))
         }
         // Dictionary iteration is unordered; sort by target id so the plan (and the
