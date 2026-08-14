@@ -16,6 +16,9 @@ actor AlarmCommandProcessor {
     let clock: any WallClock
     private let ids: any IdentifierGenerator
     let deviceTimeZone: @Sendable () -> TimeZone
+    /// Records satisfied wakes so the commitment lock's failsafe can release post-pass (WG-290). Nil in
+    /// graphs that don't wire it — the lock then simply holds for the bounded window (fail-closed).
+    let satisfiedWakes: (any SatisfiedWakeStore)?
     let engine = AlarmSchedulingEngine()
     let reconciler = AlarmReconciler()
 
@@ -27,7 +30,8 @@ actor AlarmCommandProcessor {
         alarmManager: any AlarmManagerAdapter,
         clock: any WallClock,
         ids: any IdentifierGenerator,
-        deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current }
+        deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current },
+        satisfiedWakes: (any SatisfiedWakeStore)? = nil
     ) {
         self.policy = policy
         self.alarms = alarms
@@ -37,6 +41,7 @@ actor AlarmCommandProcessor {
         self.clock = clock
         self.ids = ids
         self.deviceTimeZone = deviceTimeZone
+        self.satisfiedWakes = satisfiedWakes
     }
 
     /// Who/what/where of a command in flight — internal so the pre-alarm handler extension shares it.

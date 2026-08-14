@@ -221,6 +221,28 @@ struct AppEnvironment: Sendable {
                 persistence: persistence, alarms: alarms, settings: settings))
     }
 
+    /// Build the command processor + its policy engine + the satisfied-wake store (WG-290) — extracted so
+    /// `make()` stays within budget. The repos built here are thin per-op wrappers over the same
+    /// controller, so they share state with the ones `make()` exposes (the established helper pattern).
+    private static func makeCommandProcessor(
+        persistence: PersistenceController, clock: any WallClock,
+        ids: any IdentifierGenerator, wiring: SystemWiring
+    ) -> AlarmCommandProcessor {
+        let alarms = CoreDataAlarmRepository(persistence)
+        // The satisfied-wake store: the processor records a genuine pass; the policy engine's
+        // commitment-lock failsafe reads it, so a completed walk releases the ring-window lock.
+        let satisfiedWakes = CoreDataSatisfiedWakeStore(persistence, now: { clock.now })
+        let policy = DefaultAlarmPolicyEngine(
+            alarms: alarms, clock: clock,
+            isWakeSatisfied: { id, fire in
+                await satisfiedWakes.isSatisfied(alarmID: id, fireTime: fire)
+            })
+        return AlarmCommandProcessor(
+            policy: policy, alarms: alarms, audit: CoreDataAuditRepository(persistence),
+            outbox: CoreDataOutboxRepository(persistence), alarmManager: wiring.alarmManager,
+            clock: clock, ids: ids, satisfiedWakes: satisfiedWakes)
+    }
+
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
@@ -231,10 +253,8 @@ struct AppEnvironment: Sendable {
         let audit = CoreDataAuditRepository(persistence)
         let outbox = CoreDataOutboxRepository(persistence)
         let settings = CoreDataSettingsRepository(persistence)
-        let policy = DefaultAlarmPolicyEngine(alarms: alarms, clock: clock)
-        let processor = AlarmCommandProcessor(
-            policy: policy, alarms: alarms, audit: audit, outbox: outbox,
-            alarmManager: wiring.alarmManager, clock: clock, ids: identifierGenerator)
+        let processor = makeCommandProcessor(
+            persistence: persistence, clock: clock, ids: identifierGenerator, wiring: wiring)
         // Wrap the processor so every reconcile() records into the store the diagnostics provider reads.
         let (recorder, reconcileStore) = makeRecordingProcessor(wrapping: processor, clock: clock)
         let promptCoordinator = PreAlarmPromptCoordinator(

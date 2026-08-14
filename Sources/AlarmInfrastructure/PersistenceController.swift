@@ -24,7 +24,8 @@ final class PersistenceController: @unchecked Sendable {
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
     /// v3: + AuditRecord (WG-015). v4: + OutboxRecord (WG-016).
     /// v5: + PreAlarmPromptRecord (WG-089). v6: + PreAlarmFeedbackRecord (WG-090).
-    static let schemaVersion = "6"
+    /// v7: + SatisfiedWakeRecord (WG-290).
+    static let schemaVersion = "7"
 
     let container: NSPersistentContainer
 
@@ -68,7 +69,7 @@ final class PersistenceController: @unchecked Sendable {
     /// migration harness can materialize any historical schema and prove it migrates to the latest.
     private static let versionedEntityBuilders: [@Sendable () -> NSEntityDescription] = [
         makeSettingsEntity, makeAlarmEntity, makeAuditEntity, makeOutboxEntity,
-        makePreAlarmPromptEntity, makePreAlarmFeedbackEntity,
+        makePreAlarmPromptEntity, makePreAlarmFeedbackEntity, makeSatisfiedWakeEntity,
     ]
 
     /// The latest schema version (the number of additive versions).
@@ -200,6 +201,24 @@ final class PersistenceController: @unchecked Sendable {
         // Exactly one feedback row (like SettingsRecord): concurrent inserts of the same key collapse
         // under the store's error merge policy rather than duplicating (WG-090).
         record.uniquenessConstraints = [["singletonKey"]]
+        return record
+    }
+
+    private static func makeSatisfiedWakeEntity() -> NSEntityDescription {
+        let record = NSEntityDescription()
+        record.name = "SatisfiedWakeRecord"
+        record.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        record.properties = [
+            // The (alarm, fire-instant) key — "uuid|epochSeconds". One row means "this wake was
+            // satisfied by a genuine challenge pass" (WG-290): the commitment lock's failsafe reads it
+            // to release the ring-window lock once the walk is done.
+            attribute("wakeKey", .stringAttributeType),
+            // When the pass was recorded — used only to prune stale rows (nothing reads older than the
+            // ring window), keeping the table bounded.
+            attribute("satisfiedAt", .dateAttributeType),
+        ]
+        // At most one row per wake: a duplicate pass collapses instead of duplicating.
+        record.uniquenessConstraints = [["wakeKey"]]
         return record
     }
 

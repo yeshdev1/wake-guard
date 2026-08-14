@@ -30,12 +30,12 @@ final class CommitmentLockPolicyTests: XCTestCase {
     }
 
     private func makeEngine(
-        now: Date, pendingFire: Date? = nil
+        now: Date, satisfied: Bool = false
     ) throws -> (DefaultAlarmPolicyEngine, CoreDataAlarmRepository) {
         let alarms = CoreDataAlarmRepository(try PersistenceController(inMemory: true))
         let engine = DefaultAlarmPolicyEngine(
             alarms: alarms, clock: TestClock(now: now), deviceTimeZone: { .gmt },
-            pendingUnsatisfiedFireTime: { _ in pendingFire })
+            isWakeSatisfied: { _, _ in satisfied })
         return (engine, alarms)
     }
 
@@ -99,13 +99,11 @@ final class CommitmentLockPolicyTests: XCTestCase {
     }
 
     func testUnsatisfiedFireLocksThroughTheRingWindowThenReleases() async throws {
-        let fire = try iso("2026-08-17T07:00:00Z")
         let alarm = try makeAlarm()
 
         // 07:10, wake unsatisfied: the next occurrence is ~tomorrow, but the ring window locks it —
         // the alarm cannot be deleted mid-ring to silence the chain.
-        let (ringing, alarms) = try makeEngine(
-            now: try iso("2026-08-17T07:10:00Z"), pendingFire: fire)
+        let (ringing, alarms) = try makeEngine(now: try iso("2026-08-17T07:10:00Z"))
         try await alarms.save(alarm)
         let midRing = await ringing.authorize(
             .delete(alarm.id), from: .userInterface, userConfirmed: true)
@@ -114,14 +112,31 @@ final class CommitmentLockPolicyTests: XCTestCase {
         }
 
         // 07:40 — past the bounded ring window: the lock releases; #6 confirmation applies again.
-        let (after, alarmsAfter) = try makeEngine(
-            now: try iso("2026-08-17T07:40:00Z"), pendingFire: fire)
+        let (after, alarmsAfter) = try makeEngine(now: try iso("2026-08-17T07:40:00Z"))
         try await alarmsAfter.save(alarm)
         let released = await after.authorize(
             .delete(alarm.id), from: .userInterface, userConfirmed: false)
         guard case .needsConfirmation = released else {
             return XCTFail("past the bound the alarm is changeable again (confirmable, not locked)")
         }
+    }
+
+    func testASatisfiedWakeReleasesTheRingLockImmediately() async throws {
+        // 07:10, walk DONE (the store answers satisfied): the failsafe releases the lock — the alarm
+        // is deletable again through the normal #6 confirmation, right away (WG-290).
+        let (engine, alarms) = try makeEngine(
+            now: try iso("2026-08-17T07:10:00Z"), satisfied: true)
+        let alarm = try makeAlarm()
+        try await alarms.save(alarm)
+
+        let unconfirmed = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: false)
+        guard case .needsConfirmation = unconfirmed else {
+            return XCTFail("a satisfied wake is confirmable, not locked (the failsafe)")
+        }
+        let confirmed = await engine.authorize(
+            .delete(alarm.id), from: .userInterface, userConfirmed: true)
+        XCTAssertEqual(confirmed, .authorized, "confirming deletes it — the walk earned the unlock")
     }
 
     func testRingWindowLockIsComputedWithoutAnyPendingWiring() async throws {
