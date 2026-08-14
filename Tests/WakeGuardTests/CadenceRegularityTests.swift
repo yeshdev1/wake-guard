@@ -62,6 +62,17 @@ final class CadenceRegularityTests: XCTestCase {
         XCTAssertEqual(CadenceRegularity.classify(intervals: [0.5, 0.5, 0.5]), .tooFewSteps)
     }
 
+    func testCalibratedMinimumMatchesRealDeliveryCadence() {
+        // WG-287 device calibration: live CMPedometer yields ~1 interval per ~1 s delivery pair, so a
+        // bar-filling walk produces ~4–7 intervals — under the original minimum of 8, such walks sat
+        // unverified forever (the stuck-screen finding). Four in-band, naturally varied intervals must
+        // corroborate; three (the floor) must not — pinned so neither drifts silently.
+        XCTAssertEqual(
+            CadenceRegularity.classify(intervals: [0.45, 0.55, 0.5, 0.6, 0.48]), .plausibleGait)
+        XCTAssertEqual(
+            CadenceRegularity.classify(intervals: [0.45, 0.55, 0.5, 0.6]), .plausibleGait)
+    }
+
     func testNonFiniteIntervalsAreDropped() {
         // The .nan / 0 / negative are filtered, leaving too few → not a spurious pass.
         let intervals = [0.5, .nan, 0.5, -1, 0.5, 0]

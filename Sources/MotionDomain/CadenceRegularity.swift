@@ -41,8 +41,16 @@ struct CadenceThresholds: Sendable, Equatable, Codable {
     /// Above this coefficient of variation the cadence is erratic (a shake).
     var maxCoefficientOfVariation: Double
 
+    /// **Calibrated on device (WG-287/075, 2026-08-14).** Live CMPedometer delivers *cumulative* updates
+    /// ~once per second, and reconstruction yields one interval per delivery pair — so intervals ≈ seconds
+    /// walked, **not** steps taken. The original `minimumIntervals: 8` therefore demanded ~9 s of continuous
+    /// walking regardless of the step target; a walk that filled the step bar and stopped sat at 6–7/8
+    /// forever (bar full, never corroborated, screen stuck). 4 matches a bar-filling walk at the default
+    /// 12-step target while keeping a meaningful variation statistic; the timing band and the CoV band —
+    /// plus CMPedometer's own step filtering — remain the shake defense (device-verified: walk passes,
+    /// shake still fails).
     static let `default` = CadenceThresholds(
-        minimumIntervals: 8, minStepInterval: 0.25, maxStepInterval: 1.2,
+        minimumIntervals: 4, minStepInterval: 0.25, maxStepInterval: 1.2,
         minCoefficientOfVariation: 0.03, maxCoefficientOfVariation: 0.5)
 }
 
