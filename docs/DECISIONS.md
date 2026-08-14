@@ -4862,3 +4862,30 @@ decisions are recorded above using the ADR template.
   challenge); standard alarms and challenge-free critical alarms keep today's #6 confirmation behaviour
   unchanged. Fail-closed: an unreadable alarm/clock/store rejects the mutation. Agent/AI commands remain
   rejected as before (#31). Every lock rejection and chain schedule/cancel is audited (#46–#50).
+
+### WG-287 (2026-08-14): Anti-shake calibration — `minimumIntervals` 8 → 4 (device-informed)
+
+- **Device finding (the stuck challenge screen).** Live `CMPedometer` delivers **cumulative** updates
+  ~once per second, and `CadenceRegularity.intervals` reconstructs one interval per *delivery pair* — so
+  the interval count ≈ seconds walked, **not** steps taken. `minimumIntervals: 8` therefore demanded ~9 s
+  of continuous walking regardless of the configured step target. A walk that filled the step bar and
+  stopped (the UI said done) sat at 6–7/8 intervals forever: bar full, corroboration `.unavailable`,
+  phase never `.passed`, screen never dismissed. Earlier "it passed" runs were simply longer walks. This
+  is the on-device calibration WG-070 explicitly deferred ("cautious defaults; on-device calibration is
+  required, WG-075").
+- **Change.** `CadenceThresholds.default.minimumIntervals` 8 → **4**, pinned by
+  `testCalibratedMinimumMatchesRealDeliveryCadence` (4 in-band varied intervals corroborate; 3 still
+  `.tooFewSteps`). The per-step timing band (0.25–1.2 s) and the CoV band (0.03–0.5) are **unchanged**.
+- **Why the shake defense holds (the anti-cheat justification).** A pass still requires the count AND
+  corroboration (#19); `.contradicted` still resets banked progress (#20). The discriminators that catch
+  shakes — implausibly fast per-step timing, erratic/metronomic CoV, and CMPedometer's own step-detection
+  filtering (a shake barely registers steps at all) — all operate at 4 intervals. What 8 bought was a
+  tighter variation statistic; what it cost was real walkers stuck on an unverifiable screen — and a
+  rejection here is non-authoritative by design (#21: timeout keeps the alarm; the accessible alternative
+  remains). The known paced-shake residual (WG-070 S1) is unchanged in kind. **Device acceptance: a real
+  bar-filling walk passes; a shake still fails — verified on hardware.**
+- **UI honesty (the second half of the fix).** The bar filling is no longer allowed to read as "done"
+  while the gate is still judging: `ChallengeViewModel.isAwaitingVerification` swaps the copy to
+  "keep walking while we check it's a real walk" (VoiceOver announcement included), so a user with a
+  short-step config never stops right before verification lands. Pinned by
+  `testBarFullButUnverifiedSaysKeepWalking`.
