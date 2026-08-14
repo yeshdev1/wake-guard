@@ -24,6 +24,10 @@ struct RetentionCleanupJob: Sendable {
     /// in-flight op or crash recovery is lost (ground-truth reconciliation drives recovery, not the outbox).
     static let outboxRetention: TimeInterval = 30 * 86_400
 
+    /// Satisfied-wake rows (WG-290) are reaped after this long — nothing reads one past the ring window,
+    /// so two days is generous slack.
+    static let satisfiedWakeRetention: TimeInterval = 2 * 86_400
+
     func run() async {
         let now = clock.now
         let softCutoff = now.addingTimeInterval(-policy.audit)
@@ -36,6 +40,8 @@ struct RetentionCleanupJob: Sendable {
             softCutoff: softCutoff, hardFloor: hardFloor, criticalAlarmIDs: criticalIDs)
         try? await persistence.pruneOutboxRecords(
             before: now.addingTimeInterval(-Self.outboxRetention))
+        try? await persistence.pruneSatisfiedWakes(
+            before: now.addingTimeInterval(-Self.satisfiedWakeRetention))
     }
 
     private func criticalAlarmIDStrings() async -> [String] {

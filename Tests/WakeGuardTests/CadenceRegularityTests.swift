@@ -31,9 +31,15 @@ final class CadenceRegularityTests: XCTestCase {
         XCTAssertEqual(CadenceRegularity.classify(intervals: intervals), .tooErratic)
     }
 
-    func testImplausiblyFastTimingFails() {
-        let intervals = [0.1, 0.12, 0.11, 0.1, 0.13, 0.11, 0.1, 0.12]  // ~10 steps/s — a shake
-        XCTAssertEqual(CadenceRegularity.classify(intervals: intervals), .implausibleTiming)
+    func testImplausiblyFastTimingIsTheShakeSignature() {
+        // ~10 steps/s — a shake. WG-295: fast is its own verdict (the ONLY contradicting one, wiping
+        // banked progress); the pinned behavior "fast never corroborates" is preserved and strengthened.
+        let intervals = [0.1, 0.12, 0.11, 0.1, 0.13, 0.11, 0.1, 0.12]
+        let verdict = CadenceRegularity.classify(intervals: intervals)
+        XCTAssertEqual(verdict, .implausiblyFast)
+        XCTAssertEqual(
+            MovementCorroboration(cadence: verdict), .contradicted,
+            "a fast shake wipes banked progress (#20)")
     }
 
     func testImplausiblySlowTimingFails() {
@@ -60,6 +66,43 @@ final class CadenceRegularityTests: XCTestCase {
 
     func testTooFewIntervalsFails() {
         XCTAssertEqual(CadenceRegularity.classify(intervals: [0.5, 0.5, 0.5]), .tooFewSteps)
+    }
+
+    func testCalibratedMinimumMatchesRealDeliveryCadence() {
+        // WG-287 device calibration: live CMPedometer yields ~1 interval per ~1 s delivery pair, so a
+        // bar-filling walk produces ~4–7 intervals — under the original minimum of 8, such walks sat
+        // unverified forever (the stuck-screen finding). Four in-band, naturally varied intervals must
+        // corroborate; three (the floor) must not — pinned so neither drifts silently.
+        XCTAssertEqual(
+            CadenceRegularity.classify(intervals: [0.45, 0.55, 0.5, 0.6, 0.48]), .plausibleGait)
+        XCTAssertEqual(
+            CadenceRegularity.classify(intervals: [0.45, 0.55, 0.5, 0.6]), .plausibleGait)
+    }
+
+    func testOnlyTheFastShakeSignatureContradicts() {
+        // WG-295 rescope (device-calibrated): on delivery-reconstructed data, erratic/metronomic/slow
+        // verdicts are usually the delivery timer, not shaking — they HOLD (bank, never pass) instead of
+        // wiping a real walker's progress. Only sub-band fast — a true shake signature — contradicts.
+        XCTAssertEqual(MovementCorroboration(cadence: .plausibleGait), .corroborated)
+        XCTAssertEqual(MovementCorroboration(cadence: .implausiblyFast), .contradicted)
+        for held in [CadenceVerdict.tooFewSteps, .implausibleTiming, .tooErratic, .tooRegular] {
+            XCTAssertEqual(MovementCorroboration(cadence: held), .unavailable, "\(held) holds")
+        }
+    }
+
+    func testNoisyPrefixSlidesOutOfTheClassificationWindow() {
+        // WG-295: verdicts are computed over the trailing window, so a catch-up burst or mid-walk pause
+        // can't pin the verdict for the whole session — clean recent walking recovers it.
+        // An 8 s pause pair (4 s/step — out of band), then ~9 s of clean ~2 steps/s walking.
+        var samples = [obs(0, steps: 0), obs(8, steps: 2)]
+        var steps = 2
+        for tick in 0..<9 {
+            steps += 2
+            samples.append(obs(9.0 + Double(tick) + Double(tick % 3) * 0.07, steps: steps))
+        }
+        XCTAssertEqual(
+            CadenceRegularity.verify(samples), .plausibleGait,
+            "clean recent walking displaces the noisy prefix")
     }
 
     func testNonFiniteIntervalsAreDropped() {

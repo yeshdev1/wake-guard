@@ -56,14 +56,14 @@ enum ConsentCopy {
         purpose:
             "Schedules and rings your alarms, including critical alarms that sound through silent mode "
             + "and Focus.",
-        revocationGuidance: "Alarms need this. Manage it in Settings › WakeGuard.",
+        revocationGuidance: "Alarms need this. Manage it in Settings › Alarm Agent.",
         isOptional: false)
 
     private static let notifications = ConsentCategoryInfo(
         category: .notifications, title: "Notifications",
         purpose: "Shows pre-alarm prompts and alarm notifications.",
         revocationGuidance:
-            "Turn off in Settings › Notifications › WakeGuard. Your scheduled alarms still ring.",
+            "Turn off in Settings › Notifications › Alarm Agent. Your scheduled alarms still ring.",
         isOptional: false)
 
     private static let motion = ConsentCategoryInfo(
@@ -88,7 +88,7 @@ enum ConsentCopy {
             "Estimates sleep readiness from sleep data, on device only. It is an estimate, never a "
             + "diagnosis.",
         revocationGuidance:
-            "Turn off in Settings › Privacy › Health › WakeGuard. The rest of the app is unaffected.",
+            "Turn off in Settings › Privacy › Health › Alarm Agent. The rest of the app is unaffected.",
         isOptional: true)
 
     private static let calendar = ConsentCategoryInfo(
@@ -106,7 +106,7 @@ enum ConsentCopy {
             "Off by default. AI runs on device. If you enable cloud AI with separate consent, only "
             + "minimized, redacted data is sent.",
         revocationGuidance:
-            "Turn off any time in WakeGuard Settings. On-device AI and alarms are unaffected.",
+            "Turn off any time in Alarm Agent Settings. On-device AI and alarms are unaffected.",
         isOptional: true)
 }
 

@@ -31,11 +31,20 @@ final class ChallengeViewModel {
 
     // MARK: - Driven by the challenge runtime
 
+    /// Progress was wiped by a contradiction (a shake signature, WG-295) — surfaced so the copy explains
+    /// the reset instead of silently reverting to "Start walking" (indistinguishable from a restart).
+    private(set) var progressWasReset = false
+
     /// Apply a challenge event and emit any resulting haptic cue. Invalid events are no-ops (WG-068).
     func apply(_ event: WakeChallengeEvent) {
         let previousPhase = machine.phase
         let previousCompleted = machine.progress.completed
         machine.apply(event)
+        if machine.phase == .active, previousCompleted > 0, machine.progress.completed == 0 {
+            progressWasReset = true
+        } else if machine.progress.completed > 0 || machine.phase == .passed {
+            progressWasReset = false
+        }
         updateHapticCue(previousPhase: previousPhase, previousCompleted: previousCompleted)
     }
 
@@ -111,11 +120,24 @@ final class ChallengeViewModel {
         }
     }
 
+    /// The step count is complete but the anti-shake gate hasn't corroborated a real gait yet (#19/#20)
+    /// — the walk must continue a moment longer. Surfaced so the copy never says "0 to go" and lets the
+    /// user stop walking right before verification lands (the stuck-screen device finding, WG-287).
+    var isAwaitingVerification: Bool {
+        machine.phase == .active && machine.progress.isComplete
+    }
+
     /// A short supporting line.
     var instruction: String {
         switch machine.phase {
         case .idle, .starting: return "Hold on a moment."
         case .active:
+            if isAwaitingVerification {
+                return "Almost there — keep walking while we check it’s a real walk."
+            }
+            if progressWasReset, stepsCompleted == 0 {
+                return "That didn’t look like a steady walk — start again: \(stepsRequired) steps."
+            }
             return stepsCompleted == 0
                 ? "Start walking — \(stepsRequired) steps."
                 : "Keep walking — \(stepsRemaining) to go."
@@ -133,7 +155,12 @@ final class ChallengeViewModel {
     var accessibilityAnnouncement: String {
         switch machine.phase {
         case .idle, .starting: return "\(statusLabel). Getting ready."
-        case .active: return "Alarm active. \(progressText). Walk to turn off the alarm."
+        case .active:
+            // The awaiting-verification hint must reach VoiceOver users too — stopping right before
+            // the gate corroborates is exactly the stuck-screen trap (WG-287).
+            return isAwaitingVerification
+                ? "Alarm active. \(progressText). Keep walking while the walk is verified."
+                : "Alarm active. \(progressText). Walk to turn off the alarm."
         case .passed: return "Alarm off. Challenge complete."
         case .timedOut, .failed, .unavailable:
             return "\(headline). The alarm is still active. Accessible option available."

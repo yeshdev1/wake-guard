@@ -22,7 +22,7 @@ final class WakeChallengeRuntimeTests: XCTestCase {
     }
 
     private func makeRuntime(
-        pedometer: FakePedometerSource, processor: FakeAlarmCommandProcessor, required: Int = 20
+        pedometer: any PedometerSource, processor: FakeAlarmCommandProcessor, required: Int = 20
     ) -> WakeChallengeRuntime {
         WakeChallengeRuntime(
             alarmID: alarmID, required: required, pedometer: pedometer, processor: processor)
@@ -36,6 +36,7 @@ final class WakeChallengeRuntimeTests: XCTestCase {
         let runtime = makeRuntime(pedometer: pedometer, processor: processor)
 
         await runtime.drive()
+        await runtime.passSubmission?.value  // the stop is submitted off-task (WG-295 D7)
 
         XCTAssertEqual(runtime.viewModel.machine.phase, .passed, "a corroborated walk passes (#19)")
         XCTAssertEqual(
@@ -73,5 +74,33 @@ final class WakeChallengeRuntimeTests: XCTestCase {
         XCTAssertEqual(
             processor.seen, [.markChallengePassed(alarmID)],
             "the accessible alternative submits exactly one stop")
+    }
+
+    func testNotYetAskedRequestsMotionThenProceedsToPass() async {
+        let processor = FakeAlarmCommandProcessor()
+        let pedometer = GrantOnRequestPedometer(
+            granted: samples([0, 2, 4, 7, 9, 11, 14, 16, 18, 20]))
+        let runtime = makeRuntime(pedometer: pedometer, processor: processor)
+
+        await runtime.drive()
+        await runtime.passSubmission?.value  // the stop is submitted off-task (WG-295 D7)
+
+        XCTAssertEqual(
+            runtime.viewModel.machine.phase, .passed,
+            "not-yet-asked triggers the Motion prompt in context, then the walk proceeds (WG-061)")
+        XCTAssertEqual(
+            processor.seen, [.markChallengePassed(alarmID)],
+            "after granting, a valid pass submits exactly one stop")
+    }
+}
+
+/// A pedometer that reports Motion & Fitness as **not-yet-asked**, then **grants** on the in-context request
+/// — modelling the real device flow (WG-061): the challenge triggers the prompt and proceeds after allow.
+private struct GrantOnRequestPedometer: PedometerSource {
+    let granted: [PedometerSample]
+    func availability() async -> MotionSourceAvailability { .notAuthorized }
+    func requestAuthorization() async -> MotionSourceAvailability { .available }
+    func samples() -> AsyncThrowingStream<PedometerSample, Error> {
+        FakeMotionStream.make(granted, availability: .available, failAfter: nil)
     }
 }

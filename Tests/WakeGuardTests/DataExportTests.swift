@@ -28,7 +28,7 @@ final class DataExportTests: XCTestCase {
     func testBundleIsClearlyLabeled() throws {
         let bundle = ExportBuilder.bundle(categories: categories, exportedAt: try date())
         XCTAssertFalse(bundle.label.isEmpty)
-        XCTAssertEqual(bundle.label, "WakeGuard data export")
+        XCTAssertEqual(bundle.label, "Alarm Agent data export")
     }
 
     func testEncodedExportRoundTripsAndCarriesTheVersion() throws {
@@ -42,7 +42,7 @@ final class DataExportTests: XCTestCase {
 
     func testShareableHasADatedJSONFileName() throws {
         let shareable = try ExportBuilder.shareable(categories: categories, exportedAt: try date())
-        XCTAssertEqual(shareable.suggestedFileName, "WakeGuard-export-2026-08-11.json")
+        XCTAssertEqual(shareable.suggestedFileName, "Alarm-Agent-export-2026-08-11.json")
         XCTAssertFalse(shareable.data.isEmpty)
     }
 

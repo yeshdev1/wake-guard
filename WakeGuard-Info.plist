@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- iOS 26 AlarmKit authorization string. Set here (INFOPLIST_FILE, merged with the generated
+	     plist) rather than via INFOPLIST_KEY_NSAlarmKitUsageDescription, because Xcode's build system
+	     does not recognise that brand-new key and silently drops it — leaving AlarmKit authorization to
+	     throw at runtime ("We couldn't turn on alarms"). Required before the app calls AlarmManager. -->
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Alarm Agent schedules system alarms so your wake-up and critical alarms reliably ring — through silent mode and Focus — at the times you set.</string>
+</dict>
+</plist>

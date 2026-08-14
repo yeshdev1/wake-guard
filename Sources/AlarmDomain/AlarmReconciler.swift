@@ -24,35 +24,53 @@ struct AlarmReconciler: Sendable {
         desired alarms: [Alarm], system: [ScheduledAlarmSnapshot], now: Date,
         deviceTimeZone: TimeZone
     ) -> [ReconciliationRepair] {
-        // The desired system state: each *enabled* alarm's next occurrence. A disabled
-        // alarm — or one with no upcoming occurrence — is intentionally absent, so any
-        // system alarm standing in for it is "extra" and gets cancelled.
+        // The desired system state: each *enabled* alarm's next occurrence, plus — for a critical
+        // wake-challenge alarm — its pre-scheduled re-ring chain (WG-291), so a chain the app placed
+        // upfront reads as desired, not "extra". A disabled alarm — or one with no upcoming occurrence —
+        // is intentionally absent, so any system alarm standing in for it is "extra" and gets cancelled.
         var desiredByID: [AlarmID: AlarmScheduleRequest] = [:]
+        // A **live** family — an occurrence that fired within the ring window — is mid-enforcement: its
+        // remaining members are neither re-scheduled (a pass explicitly cancelled them; re-adding would
+        // re-ring a satisfied wake) nor reaped as extras (that would silence an unsatisfied one). The
+        // PARENT id is included (WG-295 D2): a mid-ring `schedule(parent@tomorrow)` would REPLACE the
+        // possibly-alerting alarm — suppression without a pass. The pass path arms the next occurrence
+        // itself (`rearmNextWake`); the reconciler defers the parent until the window ends.
+        var liveFamily: Set<AlarmID> = []
         for alarm in alarms where alarm.isEnabled {
-            guard
-                let occurrence = engine.nextOccurrence(
-                    for: alarm, after: now, deviceTimeZone: deviceTimeZone)
-            else { continue }
-            desiredByID[alarm.id] = AlarmScheduleRequest(
-                alarmID: alarm.id, fireTime: occurrence, title: alarm.label,
-                isCritical: alarm.criticality == .critical)
+            if let occurrence = engine.nextOccurrence(
+                for: alarm, after: now, deviceTimeZone: deviceTimeZone)
+            {
+                desiredByID[alarm.id] = AlarmScheduleRequest(alarm: alarm, fireTime: occurrence)
+                for request in WakeChain.requests(for: alarm, occurrence: occurrence) {
+                    desiredByID[request.alarmID] = request
+                }
+            }
+            if let fired = WakeChain.firedOccurrence(
+                for: alarm, now: now, deviceTimeZone: deviceTimeZone)
+            {
+                liveFamily.formUnion(WakeChain.memberIDs(for: alarm, occurrence: fired))
+                liveFamily.insert(alarm.id)
+            }
         }
 
         var systemByID: [AlarmID: ScheduledAlarmSnapshot] = [:]
         for snapshot in system { systemByID[snapshot.alarmID] = snapshot }
 
         var repairs: [ReconciliationRepair] = []
-        // Missing or divergent → (re)schedule to the desired occurrence.
-        for (id, request) in desiredByID {
-            if let held = systemByID[id], held.fireTime == request.fireTime,
-                held.isCritical == request.isCritical
-            {
+        // Missing or divergent → (re)schedule to the desired occurrence. Criticality is deliberately
+        // NOT compared (WG-295 D2): AlarmKit cannot report it on read-back — the adapter returns
+        // `isCritical: false` for every snapshot — so comparing it declared every critical alarm and
+        // chain member permanently divergent, re-issuing 16 schedules per foreground (including
+        // replacing the alerting alarm mid-ring). Divergence is fire-time only.
+        for (id, request) in desiredByID where !liveFamily.contains(id) {
+            if let held = systemByID[id], held.fireTime == request.fireTime {
                 continue  // already matches — no repair (idempotent).
             }
             repairs.append(.schedule(request))
         }
-        // Extra → a system alarm with no desired counterpart.
-        for snapshot in system where desiredByID[snapshot.alarmID] == nil {
+        // Extra → a system alarm with no desired counterpart (live family members exempt, above).
+        for snapshot in system
+        where desiredByID[snapshot.alarmID] == nil && !liveFamily.contains(snapshot.alarmID) {
             repairs.append(.cancel(snapshot.alarmID))
         }
         // Dictionary iteration is unordered; sort by target id so the plan (and the

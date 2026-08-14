@@ -12,6 +12,8 @@ struct RootView: View {
     @State private var onboarding = OnboardingModel()
     @State private var onboardingResolved = false
     @State private var needsOnboarding = false
+    @State private var challengeInbox = WakeChallengeLaunchInbox.shared
+    @State private var challengeTarget: ChallengeTarget?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -38,7 +40,16 @@ struct RootView: View {
         AlarmListView()
             .task { await startLifecycle() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await runPreAlarmWork() } }
+                if phase == .active {
+                    Task { await runPreAlarmWork() }
+                    Task { await presentChallengeIfRequested(challengeInbox.requestedAlarmID) }
+                }
+            }
+            .onChange(of: challengeInbox.requestedAlarmID) { _, id in
+                Task { await presentChallengeIfRequested(id) }
+            }
+            .fullScreenCover(item: $challengeTarget) { target in
+                ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
             }
             .onOpenURL { url in
                 let route = DeepLinkParser.route(for: url)
@@ -146,6 +157,31 @@ struct RootView: View {
         await environment.preAlarmWork.run(now: environment.clock.now)
     }
 
+    /// Present the walk challenge for an alarm requested by its "Start walk" system-alarm button (WG-282) —
+    /// navigational only, never a mutation. Looks up the alarm's required steps; a missing alarm falls back
+    /// to 0 and the runtime still offers the accessible alternative, so no one is trapped (#21/#22).
+    ///
+    /// **Consume-on-present (WG-295):** the request is cleared the moment the cover is presented — never on
+    /// `onDisappear`. Otherwise a post-pass scenePhase flap (the AlarmKit overlay vanishing as the ring
+    /// stops) re-read the still-set inbox and re-presented a zombie challenge at 0 steps after dismissal.
+    /// Idempotent: a repeat request for the alarm already on screen is a no-op, so an intent re-fire or
+    /// scene flap can never tear down a live run.
+    @MainActor
+    private func presentChallengeIfRequested(_ id: UUID?) async {
+        guard let id, let environment else { return }
+        let alarmID = AlarmID(id)
+        guard challengeTarget?.id != alarmID else {
+            challengeInbox.clear()
+            return
+        }
+        let steps = (try? await environment.alarmRepository.alarm(id: alarmID))?
+            .challengePolicy.requiredSteps
+        // Re-check after the await: the request may have been consumed or the cover presented meanwhile.
+        guard challengeInbox.requestedAlarmID == id, challengeTarget?.id != alarmID else { return }
+        challengeTarget = ChallengeTarget(id: alarmID, requiredSteps: steps ?? 0)
+        challengeInbox.clear()
+    }
+
     private var deepLinkErrorPresented: Binding<Bool> {
         Binding(
             get: { deepLink.errorMessage != nil },
@@ -165,7 +201,7 @@ struct CompositionErrorView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(DesignSystem.Typography.screenTitle)
                 .accessibilityHidden(true)
-            Text("WakeGuard can’t start")
+            Text("Alarm Agent can’t start")
                 .font(DesignSystem.Typography.sectionTitle)
             Text(
                 "Local storage is unavailable, so your alarms could not be loaded. "

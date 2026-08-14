@@ -49,6 +49,25 @@ final class ChallengeViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.lastHapticCue, .passed)
     }
 
+    func testBarFullButUnverifiedSaysKeepWalking() {
+        // WG-287 stuck-screen finding: the count is complete but the anti-shake gate hasn't
+        // corroborated yet — the copy must keep the user walking, never read "0 to go".
+        let viewModel = active(required: 12)
+        viewModel.apply(.observedProgress(cumulative: 0, corroboration: .unavailable))
+        viewModel.apply(.observedProgress(cumulative: 12, corroboration: .unavailable))
+
+        XCTAssertTrue(viewModel.isAlarmActive, "unverified progress never dismisses (#19/#20)")
+        XCTAssertTrue(viewModel.isAwaitingVerification)
+        XCTAssertTrue(viewModel.instruction.contains("keep walking"), "the copy keeps them moving")
+        XCTAssertFalse(viewModel.instruction.contains("0 to go"))
+        XCTAssertTrue(viewModel.accessibilityAnnouncement.contains("Keep walking"))
+
+        // Corroboration arrives a moment later → the pass lands and the hint clears.
+        viewModel.apply(.observedProgress(cumulative: 12, corroboration: .corroborated))
+        XCTAssertFalse(viewModel.isAlarmActive)
+        XCTAssertFalse(viewModel.isAwaitingVerification)
+    }
+
     func testTimeoutKeepsAlarmActiveWithWarningHaptic() {
         let viewModel = active()
         viewModel.apply(.timeout)

@@ -41,7 +41,7 @@ struct ShareableExport: Sendable, Equatable {
 /// already-collected category payloads and encodes it to JSON for the system share sheet. It performs **no
 /// network access** — the export is never auto-transmitted.
 enum ExportBuilder {
-    static let label = "WakeGuard data export"
+    static let label = "Alarm Agent data export"
 
     static func bundle(categories: [ExportCategory], exportedAt: Date) -> ExportBundle {
         ExportBundle(
@@ -76,6 +76,6 @@ enum ExportBuilder {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         let stamp = String(
             format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-        return "WakeGuard-export-\(stamp).json"
+        return "Alarm-Agent-export-\(stamp).json"
     }
 }

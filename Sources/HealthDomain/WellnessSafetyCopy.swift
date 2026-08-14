@@ -6,7 +6,7 @@ import Foundation
 enum WellnessSafetyCopy {
     /// The app's scope — general wellness, explicitly **not medical**.
     static let scope =
-        "WakeGuard offers general sleep and wellness information to help you plan your day. It is not "
+        "Alarm Agent offers general sleep and wellness information to help you plan your day. It is not "
         + "medical advice and does not diagnose, treat, or prevent any condition."
 
     /// Figures are estimates, not clinical measurements.
@@ -16,7 +16,7 @@ enum WellnessSafetyCopy {
     /// The standing notice + the **medical-emergency** referral: urgent/medical concerns are out of
     /// scope, and the assistant will not try to handle them.
     static let urgentSymptoms =
-        "WakeGuard can't help with urgent or medical concerns, and its assistant won't try to. If "
+        "Alarm Agent can't help with urgent or medical concerns, and its assistant won't try to. If "
         + "something about your health worries you, please talk to a healthcare professional. In an "
         + "emergency, contact your local emergency services."
 
@@ -24,7 +24,7 @@ enum WellnessSafetyCopy {
     /// than only "emergency services". (A locale-correct crisis-line **number** is an E11 localization
     /// follow-up; this copy stays locale-neutral for now.)
     static let mentalHealthCrisis =
-        "It sounds like you may be going through something really hard, and WakeGuard isn't the right "
+        "It sounds like you may be going through something really hard, and Alarm Agent isn't the right "
         + "tool for this — but you don't have to face it alone. Please reach out to a crisis line or a "
         + "mental health professional. If you might be in danger, contact your local emergency services "
         + "right away."

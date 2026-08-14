@@ -42,8 +42,35 @@ struct ChallengeHostView: View {
                     }
                 }
         }
+        #if DEBUG
+            .overlay(alignment: .top) { cadenceDebugReadout }
+        #endif
         .accessibilityIdentifier("challengeHost")
     }
+
+    #if DEBUG
+        /// On-device anti-shake calibration readout (WG-075) — DEBUG only. Live interval count vs the
+        /// required minimum, coefficient of variation vs the plausible-gait band, mean pace, and verdict —
+        /// so a real walk and a shake can be compared to set the thresholds.
+        @ViewBuilder private var cadenceDebugReadout: some View {
+            if runtime.cadenceDebug != nil {
+                Text(cadenceDebugText)
+                    .font(DesignSystem.Typography.caption)
+                    .padding(DesignSystem.Spacing.xs)
+                    .background(.thinMaterial, in: .capsule)
+                    .padding(.top, DesignSystem.Spacing.xs)
+            }
+        }
+
+        private var cadenceDebugText: String {
+            guard let stats = runtime.cadenceDebug else { return "" }
+            let cov = stats.coefficientOfVariation.formatted(.number.precision(.fractionLength(2)))
+            let pace = stats.meanSecondsPerStep.formatted(.number.precision(.fractionLength(2)))
+            let minIntervals = CadenceThresholds.default.minimumIntervals
+            return "int \(stats.intervalCount)/\(minIntervals) · CoV \(cov) · s/step \(pace) · "
+                + stats.verdict.rawValue
+        }
+    #endif
 }
 
 /// Identifies the alarm whose walk challenge is being tested — drives the full-screen cover.

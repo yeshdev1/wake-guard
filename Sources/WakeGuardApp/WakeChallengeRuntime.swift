@@ -19,6 +19,14 @@ final class WakeChallengeRuntime {
     private let coordinator: ChallengeStopCoordinator
     private var observations: [MovementObservation] = []
     private var task: Task<Void, Never>?
+    /// The in-flight authorized-stop submission after a pass (WG-295 D7) — unstructured so the view's
+    /// dismissal (which cancels `task`) can never cancel the stop itself. Never cancelled by `stop()`.
+    private(set) var passSubmission: Task<Void, Never>?
+    #if DEBUG
+        /// Live anti-shake cadence stats for on-device calibration (WG-075) — DEBUG only, compiled out of
+        /// Release; read by the diagnostics overlay on the challenge screen.
+        private(set) var cadenceDebug: CadenceDiagnostics?
+    #endif
 
     init(
         alarmID: AlarmID, required: Int, pedometer: any PedometerSource,
@@ -52,7 +60,13 @@ final class WakeChallengeRuntime {
     /// (not `private`) so a test can drive it deterministically; production calls it via `start()`.
     func drive() async {
         viewModel.apply(.start)
-        guard await pedometer.availability() == .available else {
+        var availability = await pedometer.availability()
+        if availability == .notAuthorized {
+            // Motion & Fitness may just be not-yet-asked — trigger the system prompt in context (WG-061),
+            // then re-read. A denial stays `.notAuthorized` → the accessible alternative (#21/#22).
+            availability = await pedometer.requestAuthorization()
+        }
+        guard availability == .available else {
             viewModel.apply(.sensorsUnavailable)  // offer the accessible alternative (#21/#22)
             return
         }
@@ -60,15 +74,27 @@ final class WakeChallengeRuntime {
         do {
             for try await sample in pedometer.samples() {
                 observations.append(MovementObservation.from(pedometer: sample))
+                #if DEBUG
+                    cadenceDebug = CadenceRegularity.diagnose(observations)
+                #endif
                 viewModel.apply(ChallengeObservationReducer.event(from: observations))
                 if viewModel.machine.phase == .passed {
-                    await coordinator.walkChallengeReached(.passed)
+                    // Submit the stop OUTSIDE this task (WG-295 D7): the pass dismisses the view, whose
+                    // onDisappear cancels this task — an in-task await here could cancel the very
+                    // submission that stops the ring. An unstructured task survives the dismissal; the
+                    // handle is kept so tests (and any caller) can await the submission.
+                    let coordinator = self.coordinator
+                    passSubmission = Task { await coordinator.walkChallengeReached(.passed) }
                     return
                 }
             }
+            // A cancelled consume (`stop()` / view teardown) is NOT an outcome — never write a terminal
+            // phase into a machine that may still be displayed (WG-295, UI finding 2).
+            guard !Task.isCancelled else { return }
             // The stream ended without a corroborated pass — the walk didn't complete in the window.
             if viewModel.machine.phase != .passed { viewModel.apply(.timeout) }
         } catch {
+            guard !Task.isCancelled else { return }
             // The sensor dropped out mid-attempt — keep the alarm active, offer the fallback (#21).
             if viewModel.machine.phase != .passed { viewModel.apply(.sensorsUnavailable) }
         }

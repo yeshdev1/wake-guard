@@ -17,7 +17,8 @@ struct AlarmHistoryView: View {
                 AlarmListMessageView(
                     systemImage: "externaldrive.badge.exclamationmark",
                     title: "History unavailable",
-                    message: "WakeGuard couldn’t open local storage, so this alarm’s history isn’t "
+                    message:
+                        "Alarm Agent couldn’t open local storage, so this alarm’s history isn’t "
                         + "available. Reopen the app to try again.",
                     identifier: "historyUnavailable")
             }

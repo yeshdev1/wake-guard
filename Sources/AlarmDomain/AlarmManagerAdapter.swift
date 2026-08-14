@@ -87,6 +87,32 @@ struct AlarmScheduleRequest: Sendable, Equatable, Hashable {
     /// Critical alarms present with heightened urgency and must ring through silent/
     /// focus modes. The policy engine — not the model — assigns criticality (#31).
     let isCritical: Bool
+    /// The walk challenge's required step count, or nil when the alarm has no walk challenge. When set, the
+    /// scheduled system alarm offers a "Start walk" action that opens the app to the challenge (WG-281/282).
+    let requiredSteps: Int?
+    /// For a wake-chain member (WG-291): the alarm this re-ring belongs to. The "Start walk" intent routes
+    /// to the **parent's** challenge, and reconciliation re-validates the member against the parent's
+    /// current chain. Nil for a main occurrence.
+    var parentAlarmID: AlarmID?
+
+    init(
+        alarmID: AlarmID, fireTime: Date, title: String, isCritical: Bool, requiredSteps: Int? = nil
+    ) {
+        self.alarmID = alarmID
+        self.fireTime = fireTime
+        self.title = title
+        self.isCritical = isCritical
+        self.requiredSteps = requiredSteps
+    }
+
+    /// Build the request for an alarm's computed occurrence — the single place that maps criticality + the
+    /// walk-challenge step count into the system request (WG-281).
+    init(alarm: Alarm, fireTime: Date) {
+        self.init(
+            alarmID: alarm.id, fireTime: fireTime, title: alarm.label,
+            isCritical: alarm.criticality == .critical,
+            requiredSteps: alarm.challengePolicy.requiredSteps)
+    }
 }
 
 /// A read-back of one alarm scheduled in the system authority, for reconciliation.

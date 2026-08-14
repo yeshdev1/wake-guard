@@ -4796,3 +4796,145 @@ decisions are recorded above using the ADR template.
 - **Critical-path rule.** The sink enqueues and returns (TelemetryDeck batches + uploads on its own queue);
   an offline device or a telemetry failure must never affect an alarm firing. Consent-off is the
   kill-switch — the app has no backend, so there is no server-side switch (documented in WG-279).
+
+### WG-285 (2026-08-12): Enforced walk challenge — ring → challenge → re-arm loop (bounded)
+
+- **Decision (human-approved 2026-08-12).** A **critical** alarm's walk challenge is now *effectively*
+  enforced: the alarm rings (AlarmKit), a **"Start walk"** action opens the app into the WG-073 challenge,
+  and if the ring is stopped **without** a pass it **re-arms** — every **2 minutes, up to 15 cycles (~30 min),
+  then stops**. Full design: `docs/CHALLENGE_RING_PLAN.md`. Reuses WG-073's runtime + accessible fallback
+  unchanged.
+- **Why re-arm, not a lock.** AlarmKit *requires* a Stop button on every system alarm — iOS guarantees a
+  user can always stop a ringing system alarm, and it cannot be removed. Building a custom (non-AlarmKit)
+  alarm to hold the user would sacrifice the one thing that is WakeGuard's thesis: a reliable ring through
+  silent/Focus from a suspended device (only AlarmKit / the hard-to-get Critical-Alerts entitlement deliver
+  it). So enforcement is the **re-arm loop** (it keeps coming back until you walk), with the system Stop as an
+  always-present escape hatch the loop makes pointless.
+- **Safety — this bounds a dismissal-behaviour change (the reason this ADR exists).**
+  - **Bounded + always endable.** The 15-cycle cap is a hard safety requirement — an alarm a user *cannot*
+    end is abuse and dangerous in an emergency. The cap lives in the pure `RearmPolicy` (WG-283), unit-pinned
+    ("at the cap it stops; a degenerate config can't trap the user"). The alarm also remains cancellable via
+    the normal path (critical → #6 confirmation, but still possible).
+  - **Never a trap (#21/#22).** The accessible tap/hold fallback is reachable from every ring; a pedometer
+    that is unavailable/denied/ambiguous presents the accessible alternative, never a dead end.
+  - **Pass is an explicit action, not an inference (#8).** Stopping requires a genuine walk (or the
+    accessible action) through WG-073's anti-shake gate — movement inference alone never stops it.
+  - **Critical-only (decision 2).** Standard alarms keep the plain Stop, no re-arm.
+  - **Trigger = confirmed stop-without-pass only (decision 4).** Backgrounding the app mid-challenge does
+    **not** re-arm (glancing at a text isn't punished).
+- **Design of the re-arm.** A re-arm reschedules the alarm to re-fire at `now + interval` **through the
+  command processor** (policy-authorised as a system-initiated action; every re-arm + stop is an append-only
+  audit event) — no new component calls `AlarmManager` except the existing adapter (#1/#2). Detecting
+  "stopped without a pass" is device-fed (AlarmKit alerting-ended observation on foreground) and is verified
+  on-device (WG-286); the pure decision logic (`RearmPolicy`) and the orchestration
+  (`ChallengeRearmCoordinator`) are CI-tested against fakes.
+- **No existing invariant weakened.** This *strengthens* enforcement while preserving every safety rule
+  (safe fallback, explicit-pass, cancellable, bounded, audited, reconciled). Recorded here per the rule that
+  a dismissal-behaviour change needs an ADR + human approval.
+
+### WG-293 (2026-08-13): Commitment lock — invariant #6 amended (human-approved)
+
+- **Decision (product owner approved 2026-08-13).** A **critical + wake-challenge + enabled** alarm becomes
+  **committed at T−60 minutes**: from then until its wake is satisfied (or the bounded ring window ends),
+  `delete`, `disable`, and any weakening or delaying `update` are **rejected outright** by
+  `DefaultAlarmPolicyEngine` — confirmation is no longer sufficient. This amends `SAFETY_INVARIANTS.md` #6
+  (amendment inline there). Full design: `docs/COMMITMENT_LOCK_PLAN.md` (WG-287–294).
+- **Why rejection, not confirmation.** The feature's purpose is a *commitment device*: the user chose, with
+  ≥1 hour of agency, to be forced up. A 5-a.m. confirmation tap is exactly the failure mode the user asked
+  to be protected from. Time-changes are included because moving the alarm out is a trivial escape.
+- **Relentless ring, structurally.** Stopping the ring without a pass re-rings via the **pre-scheduled
+  AlarmKit chain** (every 2 min to a **30-minute bound** — WG-283's `RearmPolicy` default). The chain is
+  scheduled upfront because invariant #9 forbids relying on the app running at stop-time; it survives
+  reboot, so **powering the phone off and on resumes the remaining window with no app involvement**. The
+  wording of #9 is untouched — no background task is required; the chain is ordinary scheduled alarms.
+- **The bound is confidential** (company-side). No user-facing surface may disclose the 30-minute bound or
+  the cycle cadence — and equally may not claim "forever/until you walk" (an over-claim a user could rely
+  on). Shippable copy: *"keeps re-ringing if you stop without completing the walk."*
+- **Deliberate limits (all preserved, none silent).** The accessible alternative stays (#21/#22 — a
+  deliberate-effort exit, required by accessibility law and App Review). The 30-minute bound stays (an
+  un-endable alarm is an emergency hazard). Full data reset stays (#42 outranks the lock; high-friction,
+  double-confirmed, cancels the chain). Uninstall cannot be intercepted (no iOS hook) — deterred in-app on
+  locked alarms with the **honest data-loss message** ("erases all alarms, history, and settings — cannot
+  be restored"; local-only storage makes this true). A **false "you would have to pay again" claim was
+  considered and rejected**: App Store re-downloads/restores are free and Apple-mandated, so it would be a
+  dark pattern and an App Review rejection risk.
+- **Scope guard.** The lock activates only for the combination the user explicitly configured (critical +
+  challenge); standard alarms and challenge-free critical alarms keep today's #6 confirmation behaviour
+  unchanged. Fail-closed: an unreadable alarm/clock/store rejects the mutation. Agent/AI commands remain
+  rejected as before (#31). Every lock rejection and chain schedule/cancel is audited (#46–#50).
+
+### WG-287 (2026-08-14): Anti-shake calibration — `minimumIntervals` 8 → 4 (device-informed)
+
+- **Device finding (the stuck challenge screen).** Live `CMPedometer` delivers **cumulative** updates
+  ~once per second, and `CadenceRegularity.intervals` reconstructs one interval per *delivery pair* — so
+  the interval count ≈ seconds walked, **not** steps taken. `minimumIntervals: 8` therefore demanded ~9 s
+  of continuous walking regardless of the configured step target. A walk that filled the step bar and
+  stopped (the UI said done) sat at 6–7/8 intervals forever: bar full, corroboration `.unavailable`,
+  phase never `.passed`, screen never dismissed. Earlier "it passed" runs were simply longer walks. This
+  is the on-device calibration WG-070 explicitly deferred ("cautious defaults; on-device calibration is
+  required, WG-075").
+- **Change.** `CadenceThresholds.default.minimumIntervals` 8 → **4**, pinned by
+  `testCalibratedMinimumMatchesRealDeliveryCadence` (4 in-band varied intervals corroborate; 3 still
+  `.tooFewSteps`). The per-step timing band (0.25–1.2 s) and the CoV band (0.03–0.5) are **unchanged**.
+- **Why the shake defense holds (the anti-cheat justification).** A pass still requires the count AND
+  corroboration (#19); `.contradicted` still resets banked progress (#20). The discriminators that catch
+  shakes — implausibly fast per-step timing, erratic/metronomic CoV, and CMPedometer's own step-detection
+  filtering (a shake barely registers steps at all) — all operate at 4 intervals. What 8 bought was a
+  tighter variation statistic; what it cost was real walkers stuck on an unverifiable screen — and a
+  rejection here is non-authoritative by design (#21: timeout keeps the alarm; the accessible alternative
+  remains). The known paced-shake residual (WG-070 S1) is unchanged in kind. **Device acceptance: a real
+  bar-filling walk passes; a shake still fails — verified on hardware.**
+- **UI honesty (the second half of the fix).** The bar filling is no longer allowed to read as "done"
+  while the gate is still judging: `ChallengeViewModel.isAwaitingVerification` swaps the copy to
+  "keep walking while we check it's a real walk" (VoiceOver announcement included), so a user with a
+  short-step config never stops right before verification lands. Pinned by
+  `testBarFullButUnverifiedSaysKeepWalking`.
+
+### WG-295 (2026-08-14): Device-failure deep-dive — five enforcement defects fixed (multi-agent review)
+
+Device symptoms (real user, post-WG-287 build): walk progress reset to 0 mid-challenge; re-rings continued
+after the walk; the awaiting-verification line never appeared. A three-agent adversarial investigation
+(motion red-team, alarm-safety, UI/presentation) converged on five defects; all fixed, `ci-fast` green.
+
+- **D-gate (root of all three symptoms): the anti-shake verdict measured the delivery timer, not the
+  gait.** Intervals reconstructed from ~1 Hz cumulative deliveries are timer-regular: a steady real walk
+  lands at CoV ≈ 0.006–0.02 — *below* the 0.03 "metronomic replay" floor → `.tooRegular` →
+  `.contradicted` → `progress.reset()` wiped the bar (and one out-of-band pause pair pinned the verdict
+  for the whole session, since classification ran on the full series). Fixes, **all anti-cheat-scope
+  changes recorded here per the safety rule**:
+  - Verdicts are computed over a **trailing window** (last 8 intervals), so a noisy prefix slides out.
+  - `minCoefficientOfVariation` 0.03 → **0.005**: an exact replay (CoV ≈ 0) is still caught; a
+    timer-regular human walk corroborates.
+  - The band check splits: a **sub-band-fast** interval (≥4 steps/s across a delivery pair — a shake's
+    positive signature a gait cannot produce) becomes its own verdict `implausiblyFast` and is now **the
+    only contradicting verdict** (strictly stronger than before, when fast merely "held"). Erratic /
+    metronomic / slow verdicts **hold** (`.unavailable`: bank, never pass) instead of wiping — on
+    delivery data they are usually the timer, not shaking. #20 holds: a shake alone still never passes
+    (passing requires a plausible-gait window; the paced-shake residual is unchanged and still pinned).
+  - Honest reset copy: a genuine wipe now says "That didn't look like a steady walk — start again".
+- **D1: the pass's `stopRing` outbox key had no occurrence** — one pass marked `(id, revision,
+  "stopRing")` `.applied` forever, so **every later wake's pass silently skipped the adapter** (with a
+  false "stopped" audit). The key now carries the fired occurrence.
+- **D2: the reconciler compared `isCritical` against a read-back that is always `false`** on device
+  (AlarmKit cannot report it — the adapter's own doc said never to compare it), declaring every critical
+  alarm + chain member permanently divergent: 16 re-schedules per foreground, including **replacing the
+  alerting alarm mid-ring**. Divergence is now fire-time-only (#16 still holds — every issued
+  (re)schedule carries locally-stored criticality; pin rewritten:
+  `testReadBackCriticalityIsNotComparedForDivergence`). The **parent** id joined the mid-window
+  hands-off set, and the **pass path now arms the next occurrence itself** (`rearmNextWake`), so a
+  reconciler deferral can never cost tomorrow's ring for a satisfied wake.
+- **D3/D4/D5: family cleanup drift.** An edit now retires the *prior* occurrence's family (else the old
+  members ring headless); delete/disable cancels **both** families (the fired one via an enabled-probe —
+  a post-fire delete used to leave the live members ringing, the user's exact "have to delete the app"
+  scenario) and does so **unconditionally** on disable; the sweep/cleanup lookback gained slack
+  (+15 min) so a pass during the last member's alert still resolves the fired occurrence. The
+  commitment lock's duration is unchanged (no slack there).
+- **D7 + UI: the pass could cancel itself, and a zombie challenge could re-present.** The stop
+  submission now runs in an unstructured task the view's dismissal cannot cancel; a cancelled pedometer
+  consume no longer writes `.timeout` into a possibly-displayed machine; the challenge request is
+  **consumed on present** (not on `onDisappear`), so a post-pass scenePhase flap can no longer
+  re-present a 0-step zombie challenge.
+- **Why CI was blind:** the fake adapter faithfully echoes `isCritical` and records absent-id calls, and
+  fabricated snapshots claimed a ground truth the real adapter can never produce. New pins encode the
+  device-true contracts; the remaining device-only unknowns (stop-vs-cancel on an alerting member,
+  AlarmKit's alarm-count cap) stay on the WG-294 matrix.
