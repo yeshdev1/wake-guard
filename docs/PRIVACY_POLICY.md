@@ -1,4 +1,4 @@
-# WakeGuard privacy policy (requirements) — WG-188
+# Alarm Agent privacy policy (requirements) — WG-188
 
 The required content for the in-app and web privacy policy. Backed by `PrivacyPolicyRequirementsTests`,
 which checks every required section is present. Wording here is the source of truth for the published
@@ -6,7 +6,7 @@ policy.
 
 ## Collection
 
-WakeGuard is on-device first. In the default build **no personal data is collected** — nothing is
+Alarm Agent is on-device first. In the default build **no personal data is collected** — nothing is
 transmitted off your device. Alarms, sleep journal, motion-derived signals, sleep readiness, calendar-based
 wake plans, and audit history are created and stored **only on your device**.
 
@@ -20,7 +20,7 @@ titles) to compute the latest safe wake time; **Notifications** for pre-alarm pr
 ## Sharing
 
 We do not share your data with third parties. There are no advertising networks, no analytics SDKs, and no
-data brokers. WakeGuard ships **zero** third-party SDKs.
+data brokers. Alarm Agent ships **zero** third-party SDKs.
 
 ## Retention
 
@@ -49,7 +49,7 @@ prohibition is explicit and permanent.
 
 ## No diagnosis
 
-WakeGuard provides wellness estimates, not medical advice. It does **not** diagnose, treat, or make medical
+Alarm Agent provides wellness estimates, not medical advice. It does **not** diagnose, treat, or make medical
 claims.
 
 ## Contact

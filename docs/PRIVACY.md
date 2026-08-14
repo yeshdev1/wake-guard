@@ -5,7 +5,7 @@ ships. It is kept in sync with the code by `PrivacyManifestTests`.
 
 ## SDK inventory
 
-**WakeGuard ships zero third-party SDKs.** The app is first-party Swift plus Apple system frameworks only.
+**Alarm Agent ships zero third-party SDKs.** The app is first-party Swift plus Apple system frameworks only.
 There are no Swift Package, CocoaPods, or Carthage dependencies (`project.yml` declares no `packages:`; the
 only target `dependencies:` are internal test-bundle → app references).
 
@@ -23,14 +23,14 @@ Declared in `PrivacyInfo.xcprivacy` under `NSPrivacyAccessedAPITypes`:
 
 | API category | Reason code | Why |
 |---|---|---|
-| `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Stores the last-known IANA time zone so alarms stay correct across travel (WG-102). Access is to information stored only by WakeGuard itself. |
+| `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Stores the last-known IANA time zone so alarms stay correct across travel (WG-102). Access is to information stored only by Alarm Agent itself. |
 
 No other required-reason APIs are used: no file-timestamp, system-boot-time, disk-space, or
 active-keyboard APIs. The Keychain (cloud-token storage, WG-185) is **not** a required-reason API category.
 
 ## Tracking & collection
 
-- `NSPrivacyTracking`: **false**. WakeGuard does not track users.
+- `NSPrivacyTracking`: **false**. Alarm Agent does not track users.
 - `NSPrivacyTrackingDomains`: **empty**. No tracking domains are contacted.
 - `NSPrivacyCollectedDataTypes`: **empty** in the default build. Health, motion, location, and calendar are
   processed **on device only** and never transmitted. Optional cloud AI (off by default, separate consent)

@@ -71,7 +71,7 @@ final class WellnessDataControlsTests: XCTestCase {
         let payload = try await fixture([record(-1, 7 * 3_600)]).sut.export(now: now)
         let provenance = payload.provenance.lowercased()
         XCTAssertTrue(
-            provenance.contains("wakeguard's own"), "these are the app's derived estimates")
+            provenance.contains("alarm agent's own"), "these are the app's derived estimates")
         XCTAssertTrue(
             provenance.contains("not your apple health"), "not represented as owning the source")
         XCTAssertTrue(

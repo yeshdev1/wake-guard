@@ -42,13 +42,13 @@ enum AIAvailabilityStatusPresenter {
     private static func detail(for reason: ModelUnavailabilityReason) -> String {
         switch reason {
         case .deviceNotEligible:
-            "This device doesn’t support on-device intelligence. WakeGuard uses its built-in logic instead."
+            "This device doesn’t support on-device intelligence. Alarm Agent uses its built-in logic instead."
         case .appleIntelligenceNotEnabled:
             "Turn on Apple Intelligence in Settings to enable private suggestions."
         case .modelNotReady:
             "The on-device model is still downloading or preparing. Suggestions resume once it’s ready."
         case .unknown:
-            "On-device intelligence isn’t available right now. WakeGuard uses its built-in logic instead."
+            "On-device intelligence isn’t available right now. Alarm Agent uses its built-in logic instead."
         }
     }
 }

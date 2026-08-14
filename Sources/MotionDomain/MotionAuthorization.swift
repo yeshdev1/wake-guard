@@ -49,7 +49,7 @@ enum MotionChallengeAuthorizationStep: Sendable, Equatable {
 /// alternative exists — so the request is never a bare, unexplained system prompt.
 enum MotionChallengePurpose {
     static let explanation =
-        "WakeGuard uses Motion & Fitness only to confirm you're up and moving for the wake-up "
+        "Alarm Agent uses Motion & Fitness only to confirm you're up and moving for the wake-up "
         + "walk — your steps and movement while the alarm is going off, never your location, and "
         + "never your saved workouts or health records. Prefer not to? You can use a tap or "
         + "press-and-hold challenge instead."

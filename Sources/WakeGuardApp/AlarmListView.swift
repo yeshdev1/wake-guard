@@ -27,7 +27,7 @@ struct AlarmListView: View {
         } else {
             AlarmListMessageView(
                 systemImage: "externaldrive.badge.exclamationmark", title: "Alarms unavailable",
-                message: "WakeGuard couldn’t open local storage, so your alarms aren’t loaded. "
+                message: "Alarm Agent couldn’t open local storage, so your alarms aren’t loaded. "
                     + "Reopen the app to try again.", identifier: "alarmListUnavailable")
         }
     }

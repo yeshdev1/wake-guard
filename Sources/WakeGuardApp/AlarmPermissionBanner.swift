@@ -121,7 +121,7 @@ private struct AlarmPermissionExplanation: View {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
                     Text("Let your alarms ring").font(DesignSystem.Typography.sectionTitle)
                     Text(
-                        "WakeGuard uses your device’s system alarms so your wake-up and critical "
+                        "Alarm Agent uses your device’s system alarms so your wake-up and critical "
                             + "alarms reliably ring — through silent mode and Focus — at the times you "
                             + "set. You can change or turn this off anytime in Settings."
                     )

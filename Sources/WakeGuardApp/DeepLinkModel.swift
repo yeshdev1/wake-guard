@@ -25,7 +25,7 @@ final class DeepLinkModel {
         alarmToEdit = nil
         errorMessage = nil
         guard let environment else {
-            set(error: "WakeGuard isn’t ready yet. Please reopen the app and try again.", request)
+            set(error: "Alarm Agent isn’t ready yet. Please reopen the app and try again.", request)
             return
         }
         switch route {
