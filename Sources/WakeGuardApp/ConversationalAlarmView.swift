@@ -54,8 +54,14 @@ struct ConversationalAlarmView: View {
                 id: "conversationalRejected")
         case .unavailable:
             noticeView(
-                "I couldn’t set that up automatically. You can enter it manually.",
+                "Smart setup isn’t available right now. Turn on Apple Intelligence in Settings, or enter "
+                    + "your alarm manually below.",
                 icon: "wand.and.stars.inverse", id: "conversationalUnavailable")
+        case .notUnderstood:
+            noticeView(
+                "I couldn’t turn that into an alarm. Try rephrasing — for example “wake me at 7 "
+                    + "tomorrow” — or enter it manually below.",
+                icon: "text.badge.questionmark", id: "conversationalNotUnderstood")
         case .scheduled:
             noticeView("Alarm created.", icon: "checkmark.circle", id: "conversationalScheduled")
         case .failed:
@@ -114,6 +120,19 @@ struct ConversationalAlarmView: View {
 
             ForEach(Array(summary.assumptions.enumerated()), id: \.offset) { _, assumption in
                 assumptionRow(assumption)
+            }
+
+            if model.mentionedCriticality {
+                Label {
+                    Text(
+                        "This creates a standard alarm. To make it critical or add a walk challenge, "
+                            + "open it in the editor after creating.")
+                } icon: {
+                    Image(systemName: "info.circle")
+                }
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.secondaryText)
+                .accessibilityIdentifier("conversationalCriticalityNote")
             }
 
             Text("Nothing is scheduled until you confirm.")

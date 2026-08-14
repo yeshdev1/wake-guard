@@ -96,7 +96,7 @@ enum SafetyEvaluator {
         switch NaturalLanguageAlarmParser.interpret(parse) {
         case .preview: return .allow
         case .needsClarification: return .clarify
-        case .unavailable: return .noProposal
+        case .modelUnavailable, .notUnderstood: return .noProposal
         }
     }
 
