@@ -43,6 +43,11 @@ targets:
         DEVELOPMENT_TEAM: X72JRDT5VM
         CODE_SIGN_STYLE: Automatic
         PRODUCT_NAME: WakeGuard
+        # The user-facing product name (home screen, app switcher, Settings, App Store listing).
+        # Verified available: no exact "Alarm Agent" match on the US/IN/GB storefronts (2026-08-14);
+        # definitive reservation happens when the App Store Connect record is created. The internal
+        # module/code name stays WakeGuard (codename ≠ marketing name).
+        INFOPLIST_KEY_CFBundleDisplayName: "Alarm Agent"
         # Explicit release version + build number (WG-260). MARKETING_VERSION is the user-facing
         # version; CURRENT_PROJECT_VERSION is the build number the TestFlight pipeline bumps per
         # upload (`make archive BUILD=<n>` overrides it). Explicit values make the archive's build
