@@ -31,11 +31,20 @@ final class ChallengeViewModel {
 
     // MARK: - Driven by the challenge runtime
 
+    /// Progress was wiped by a contradiction (a shake signature, WG-295) — surfaced so the copy explains
+    /// the reset instead of silently reverting to "Start walking" (indistinguishable from a restart).
+    private(set) var progressWasReset = false
+
     /// Apply a challenge event and emit any resulting haptic cue. Invalid events are no-ops (WG-068).
     func apply(_ event: WakeChallengeEvent) {
         let previousPhase = machine.phase
         let previousCompleted = machine.progress.completed
         machine.apply(event)
+        if machine.phase == .active, previousCompleted > 0, machine.progress.completed == 0 {
+            progressWasReset = true
+        } else if machine.progress.completed > 0 || machine.phase == .passed {
+            progressWasReset = false
+        }
         updateHapticCue(previousPhase: previousPhase, previousCompleted: previousCompleted)
     }
 
@@ -125,6 +134,9 @@ final class ChallengeViewModel {
         case .active:
             if isAwaitingVerification {
                 return "Almost there — keep walking while we check it’s a real walk."
+            }
+            if progressWasReset, stepsCompleted == 0 {
+                return "That didn’t look like a steady walk — start again: \(stepsRequired) steps."
             }
             return stepsCompleted == 0
                 ? "Start walking — \(stepsRequired) steps."

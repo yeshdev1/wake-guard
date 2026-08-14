@@ -32,7 +32,9 @@ struct AlarmReconciler: Sendable {
         // A **live** family — an occurrence that fired within the ring window — is mid-enforcement: its
         // remaining members are neither re-scheduled (a pass explicitly cancelled them; re-adding would
         // re-ring a satisfied wake) nor reaped as extras (that would silence an unsatisfied one). The
-        // reconciler keeps hands off until the window ends; stale members then reap as ordinary extras.
+        // PARENT id is included (WG-295 D2): a mid-ring `schedule(parent@tomorrow)` would REPLACE the
+        // possibly-alerting alarm — suppression without a pass. The pass path arms the next occurrence
+        // itself (`rearmNextWake`); the reconciler defers the parent until the window ends.
         var liveFamily: Set<AlarmID> = []
         for alarm in alarms where alarm.isEnabled {
             if let occurrence = engine.nextOccurrence(
@@ -47,6 +49,7 @@ struct AlarmReconciler: Sendable {
                 for: alarm, now: now, deviceTimeZone: deviceTimeZone)
             {
                 liveFamily.formUnion(WakeChain.memberIDs(for: alarm, occurrence: fired))
+                liveFamily.insert(alarm.id)
             }
         }
 
@@ -54,11 +57,13 @@ struct AlarmReconciler: Sendable {
         for snapshot in system { systemByID[snapshot.alarmID] = snapshot }
 
         var repairs: [ReconciliationRepair] = []
-        // Missing or divergent → (re)schedule to the desired occurrence.
-        for (id, request) in desiredByID {
-            if let held = systemByID[id], held.fireTime == request.fireTime,
-                held.isCritical == request.isCritical
-            {
+        // Missing or divergent → (re)schedule to the desired occurrence. Criticality is deliberately
+        // NOT compared (WG-295 D2): AlarmKit cannot report it on read-back — the adapter returns
+        // `isCritical: false` for every snapshot — so comparing it declared every critical alarm and
+        // chain member permanently divergent, re-issuing 16 schedules per foreground (including
+        // replacing the alerting alarm mid-ring). Divergence is fire-time only.
+        for (id, request) in desiredByID where !liveFamily.contains(id) {
+            if let held = systemByID[id], held.fireTime == request.fireTime {
                 continue  // already matches — no repair (idempotent).
             }
             repairs.append(.schedule(request))

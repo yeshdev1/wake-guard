@@ -4889,3 +4889,52 @@ decisions are recorded above using the ADR template.
   "keep walking while we check it's a real walk" (VoiceOver announcement included), so a user with a
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
+
+### WG-295 (2026-08-14): Device-failure deep-dive — five enforcement defects fixed (multi-agent review)
+
+Device symptoms (real user, post-WG-287 build): walk progress reset to 0 mid-challenge; re-rings continued
+after the walk; the awaiting-verification line never appeared. A three-agent adversarial investigation
+(motion red-team, alarm-safety, UI/presentation) converged on five defects; all fixed, `ci-fast` green.
+
+- **D-gate (root of all three symptoms): the anti-shake verdict measured the delivery timer, not the
+  gait.** Intervals reconstructed from ~1 Hz cumulative deliveries are timer-regular: a steady real walk
+  lands at CoV ≈ 0.006–0.02 — *below* the 0.03 "metronomic replay" floor → `.tooRegular` →
+  `.contradicted` → `progress.reset()` wiped the bar (and one out-of-band pause pair pinned the verdict
+  for the whole session, since classification ran on the full series). Fixes, **all anti-cheat-scope
+  changes recorded here per the safety rule**:
+  - Verdicts are computed over a **trailing window** (last 8 intervals), so a noisy prefix slides out.
+  - `minCoefficientOfVariation` 0.03 → **0.005**: an exact replay (CoV ≈ 0) is still caught; a
+    timer-regular human walk corroborates.
+  - The band check splits: a **sub-band-fast** interval (≥4 steps/s across a delivery pair — a shake's
+    positive signature a gait cannot produce) becomes its own verdict `implausiblyFast` and is now **the
+    only contradicting verdict** (strictly stronger than before, when fast merely "held"). Erratic /
+    metronomic / slow verdicts **hold** (`.unavailable`: bank, never pass) instead of wiping — on
+    delivery data they are usually the timer, not shaking. #20 holds: a shake alone still never passes
+    (passing requires a plausible-gait window; the paced-shake residual is unchanged and still pinned).
+  - Honest reset copy: a genuine wipe now says "That didn't look like a steady walk — start again".
+- **D1: the pass's `stopRing` outbox key had no occurrence** — one pass marked `(id, revision,
+  "stopRing")` `.applied` forever, so **every later wake's pass silently skipped the adapter** (with a
+  false "stopped" audit). The key now carries the fired occurrence.
+- **D2: the reconciler compared `isCritical` against a read-back that is always `false`** on device
+  (AlarmKit cannot report it — the adapter's own doc said never to compare it), declaring every critical
+  alarm + chain member permanently divergent: 16 re-schedules per foreground, including **replacing the
+  alerting alarm mid-ring**. Divergence is now fire-time-only (#16 still holds — every issued
+  (re)schedule carries locally-stored criticality; pin rewritten:
+  `testReadBackCriticalityIsNotComparedForDivergence`). The **parent** id joined the mid-window
+  hands-off set, and the **pass path now arms the next occurrence itself** (`rearmNextWake`), so a
+  reconciler deferral can never cost tomorrow's ring for a satisfied wake.
+- **D3/D4/D5: family cleanup drift.** An edit now retires the *prior* occurrence's family (else the old
+  members ring headless); delete/disable cancels **both** families (the fired one via an enabled-probe —
+  a post-fire delete used to leave the live members ringing, the user's exact "have to delete the app"
+  scenario) and does so **unconditionally** on disable; the sweep/cleanup lookback gained slack
+  (+15 min) so a pass during the last member's alert still resolves the fired occurrence. The
+  commitment lock's duration is unchanged (no slack there).
+- **D7 + UI: the pass could cancel itself, and a zombie challenge could re-present.** The stop
+  submission now runs in an unstructured task the view's dismissal cannot cancel; a cancelled pedometer
+  consume no longer writes `.timeout` into a possibly-displayed machine; the challenge request is
+  **consumed on present** (not on `onDisappear`), so a post-pass scenePhase flap can no longer
+  re-present a 0-step zombie challenge.
+- **Why CI was blind:** the fake adapter faithfully echoes `isCritical` and records absent-id calls, and
+  fabricated snapshots claimed a ground truth the real adapter can never produce. New pins encode the
+  device-true contracts; the remaining device-only unknowns (stop-vs-cancel on an alerting member,
+  AlarmKit's alarm-count cap) stay on the WG-294 matrix.

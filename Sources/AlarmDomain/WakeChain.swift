@@ -37,20 +37,24 @@ enum WakeChain {
         requests(for: alarm, occurrence: occurrence, config: config).map(\.alarmID)
     }
 
-    /// The occurrence that **fired within the live ring window** (`(now − totalWindow, now]`), or nil.
-    /// While this returns a value the family is mid-enforcement: the reconciler keeps hands off its
-    /// members, and the commitment lock holds (WG-288). Pure — derived entirely from the schedule + `now`.
+    /// The occurrence that **fired within the live ring window** (`(now − totalWindow − slack, now]`),
+    /// or nil. While this returns a value the family is mid-enforcement: the reconciler keeps hands off
+    /// its members, and the commitment lock holds (WG-288). `slack` widens the lookback for *cleanup*
+    /// callers (the pass sweep / delete): the last member starts alerting exactly at `totalWindow`, so a
+    /// pass or delete during its alert must still resolve the fired occurrence (WG-295 D3d) — the lock
+    /// itself uses no slack, so lock duration is unchanged. Pure — derived from the schedule + `now`.
     static func firedOccurrence(
         for alarm: Alarm, now: Date, deviceTimeZone: TimeZone,
-        config: RearmConfiguration = .default
+        config: RearmConfiguration = .default, slack: TimeInterval = 0
     ) -> Date? {
+        let window = config.totalWindow + max(0, slack)
         guard alarm.criticality == .critical, alarm.challengePolicy.isRequired, alarm.isEnabled,
-            config.totalWindow > 0
+            window > 0
         else { return nil }
         let engine = AlarmSchedulingEngine()
         guard
             let occurrence = engine.nextOccurrence(
-                for: alarm, after: now.addingTimeInterval(-config.totalWindow),
+                for: alarm, after: now.addingTimeInterval(-window),
                 deviceTimeZone: deviceTimeZone), occurrence <= now
         else { return nil }
         return occurrence

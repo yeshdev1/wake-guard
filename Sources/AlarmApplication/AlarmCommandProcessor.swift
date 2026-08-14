@@ -109,37 +109,6 @@ actor AlarmCommandProcessor {
         }
     }
 
-    /// A valid challenge pass (WG-073) stops the ringing alarm (#24) via the outbox — racing /
-    /// duplicate passes dedup (adapter called at most once), audited (#46); only the *ring* stops.
-    private func applyChallengePassed(_ context: CommandContext) async -> CommandOutcome {
-        let id = context.command.alarmID
-        guard let alarm = try? await alarms.alarm(id: id) else {
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .noOp, reason: "The alarm no longer exists.")
-            return .noOp
-        }
-        let key = Self.outboxKey(id, alarm.revision, "stopRing", nil)
-        let outcome = await runExternal(key, context.command) {
-            try await self.alarmManager.stopRing(alarmID: id)
-        }
-        switch outcome {
-        case .uncertain:
-            // Outcome unknown — audit `.failed`, not "stopped"; a still-ringing alarm safely re-completes.
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .failed,
-                reason: "Stop requested after a valid pass; outcome unknown.")
-        case .failed(let reason):
-            await appendAudit(context, old: nil, new: nil, outcome: .failed, reason: reason)
-        default:
-            await appendAudit(
-                context, old: nil, new: nil, outcome: .succeeded,
-                reason: "Alarm stopped after a valid challenge pass.")
-        }
-        // Silence the whole re-ring family too (WG-291) — a pass ends the wake, not just one member.
-        await sweepWakeChain(afterPassOf: alarm, context: context)
-        return outcome
-    }
-
     /// Turn off only *today's* occurrence (WG-085): skip this instant, keep the alarm enabled so the
     /// next recurrence rings. A missing alarm / non-upcoming fireTime no-ops; #6-gated in `authorize`.
     private func applyCancelOccurrence(_ context: CommandContext, fireTime: Date) async
@@ -228,9 +197,11 @@ actor AlarmCommandProcessor {
             let outcome = await runExternal(key, context.command) {
                 try await self.alarmManager.schedule(request)
             }
-            // The main occurrence placed → place the re-ring family behind it (WG-291; no-op unless
-            // critical + challenge).
+            // The main occurrence placed → retire the PRIOR occurrence's family (an edit moves the fire
+            // instant; the old members would otherwise ring headless, WG-295 D3a), then place the new
+            // family behind it (WG-291; no-op unless critical + challenge).
             if case .applied = outcome {
+                if let prior { await cancelWakeChain(for: prior) }
                 await syncWakeChain(for: alarm, occurrence: occurrence, context: context)
             }
             return outcome
@@ -239,17 +210,16 @@ actor AlarmCommandProcessor {
         let outcome = await runExternal(key, context.command) {
             try await self.alarmManager.cancel(alarmID: alarm.id)
         }
-        // A disabled alarm leaves no re-rings behind (WG-291).
-        if case .applied = outcome {
-            await cancelWakeChain(for: alarm)
-        }
+        // A disabled alarm leaves no re-rings behind — unconditionally (WG-295 D5): an `.uncertain`
+        // main-cancel must not strand 15 scheduled members; cancel of an absent id is a no-op.
+        await cancelWakeChain(for: alarm)
         return outcome
     }
 
     /// The outbox brackets the external call: `enqueue` dedups on the key; an `applied` entry is done
     /// (idempotent), an exhausted retry / concurrent owner skips the adapter; a stranded entry is
-    /// recovered by reconciliation (#10; WG-029).
-    private func runExternal(
+    /// recovered by reconciliation (#10; WG-029). Internal: the wake-chain extension's pass path uses it.
+    func runExternal(
         _ key: String, _ command: AlarmCommand, _ external: () async throws -> Void
     ) async -> CommandOutcome {
         try? await outbox.enqueue(makeEntry(command, key: key))
