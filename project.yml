@@ -30,18 +30,16 @@ targets:
       - path: Sources           # single app target, feature folders (ADR-003)
       - path: PrivacyInfo.xcprivacy   # Apple privacy manifest (WG-186), bundled as a resource
       - path: Localizable.xcstrings   # String Catalog (WG-206); Xcode extracts LocalizedStringKeys
-    # NOTE — branch `local/freeaccount-device-test` ONLY: the HealthKit entitlement is removed so a FREE
-    # Apple ID can sign the app for on-device testing (HealthKit needs a paid membership). Readiness/Health
-    # then fails closed to "not enough data" (health is optional, #36/#38). DO NOT MERGE — the real app
-    # needs this entitlement. Restore the real app with: git checkout yeshdev1/wakeguard-parent-bootstrap
+    entitlements:
+      path: WakeGuard.entitlements
+      properties:
+        # HealthKit read access (WG-121). Read-only; the app never writes (toShare: []). Required for
+        # real on-device authorization/queries; without it the request fails closed to .restricted and
+        # the app stays functional (health is optional, #36/#38).
+        com.apple.developer.healthkit: true
     settings:
       base:
-        # Signing baked in for branch local/freeaccount-device-test (free Personal Team) so that
-        # `make generate` never wipes the Team/bundle-ID you set. DO NOT MERGE — the real app keeps
-        # com.wakeguard.app and signs under the org team.
-        PRODUCT_BUNDLE_IDENTIFIER: com.yeshthedev.wakeguard.app
-        DEVELOPMENT_TEAM: X72JRDT5VM
-        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.wakeguard.app
         PRODUCT_NAME: WakeGuard
         # The user-facing product name (home screen, app switcher, Settings, App Store listing).
         # Verified available: no exact "Alarm Agent" match on the US/IN/GB storefronts (2026-08-14);

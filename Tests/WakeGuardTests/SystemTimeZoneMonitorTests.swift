@@ -10,21 +10,37 @@ import XCTest
 final class SystemTimeZoneMonitorTests: XCTestCase {
 
     func testStartReconcilesOnceAgainstAMissedChange() throws {
-        let current = try IANATimeZone(TimeZone.current)
-        // A preseeded zone guaranteed to differ from the device's current zone, so a change is detected
-        // regardless of what the host/simulator zone happens to be.
-        let preseed = try IANATimeZone(
-            identifier: current.identifier == "Asia/Tokyo" ? "America/New_York" : "Asia/Tokyo")
-        let store = InMemoryTimeZoneStateStore(preseed)
+        // The current zone is INJECTED (not read from the host): a CI runner sits in UTC — a non-IANA
+        // zone the domain rejects by design (#11) — which made the old host-dependent version fail
+        // there while passing on any geographic machine. Fixed zones make it deterministic everywhere.
+        let store = InMemoryTimeZoneStateStore(try IANATimeZone(identifier: "America/New_York"))
+        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
         let changes = Synchronized<Int>(0)
         let monitor = SystemTimeZoneMonitor(
-            store: store, onChange: { _ in changes.mutate { $0 += 1 } })
+            store: store, onChange: { _ in changes.mutate { $0 += 1 } },
+            currentZone: { tokyo })
 
         monitor.start()
         monitor.stop()
 
         XCTAssertEqual(
             changes.get(), 1, "start() reconciles exactly once against the missed change")
+    }
+
+    func testNonIANACurrentZoneIsSkippedFailClosed() throws {
+        // The CI environment itself, pinned: a UTC/fixed-offset current zone (#11) fires no change and
+        // never crashes — the monitor skips fail-closed until a geographic zone is readable.
+        let store = InMemoryTimeZoneStateStore(try IANATimeZone(identifier: "America/New_York"))
+        let utc = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let changes = Synchronized<Int>(0)
+        let monitor = SystemTimeZoneMonitor(
+            store: store, onChange: { _ in changes.mutate { $0 += 1 } },
+            currentZone: { utc })
+
+        monitor.start()
+        monitor.stop()
+
+        XCTAssertEqual(changes.get(), 0, "a non-IANA zone is skipped, never a spurious change")
     }
 
     func testGraphComposesTheMonitor() throws {

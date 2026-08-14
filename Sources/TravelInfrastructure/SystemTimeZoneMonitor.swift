@@ -15,11 +15,24 @@ import Foundation
 final class SystemTimeZoneMonitor: @unchecked Sendable {
     private let detector: TimeZoneChangeDetector
     private let onChange: @Sendable (TimeZoneChange) -> Void
+    /// The system-zone read — injectable so tests are host-independent (a UTC CI runner is a non-IANA
+    /// zone the domain rejects by design, #11; with the default read, a test's expectation would depend
+    /// on the host's zone). The production default refreshes Foundation's cached zone first, because a
+    /// live notification means the system zone changed underneath the cache.
+    private let currentZone: @Sendable () -> TimeZone
     private var token: (any NSObjectProtocol)?
 
-    init(store: any TimeZoneStateStore, onChange: @escaping @Sendable (TimeZoneChange) -> Void) {
+    init(
+        store: any TimeZoneStateStore,
+        onChange: @escaping @Sendable (TimeZoneChange) -> Void,
+        currentZone: @escaping @Sendable () -> TimeZone = {
+            NSTimeZone.resetSystemTimeZone()
+            return TimeZone.current
+        }
+    ) {
         detector = TimeZoneChangeDetector(store: store)
         self.onChange = onChange
+        self.currentZone = currentZone
     }
 
     /// Reconcile against the current zone (call at launch — seeds the baseline and catches a missed
@@ -39,9 +52,8 @@ final class SystemTimeZoneMonitor: @unchecked Sendable {
     }
 
     private func reconcile() {
-        // A live notification means the system zone changed; refresh Foundation's cached value first.
-        NSTimeZone.resetSystemTimeZone()
-        guard let current = try? IANATimeZone(TimeZone.current) else { return }
+        // Fail-closed on a non-IANA zone (fixed-offset / UTC, #11): no crash, no spurious change.
+        guard let current = try? IANATimeZone(currentZone()) else { return }
         if let change = detector.observe(current: current) { onChange(change) }
     }
 }
