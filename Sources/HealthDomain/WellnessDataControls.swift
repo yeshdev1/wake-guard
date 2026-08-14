@@ -30,9 +30,9 @@ struct WellnessExportPayload: Sendable, Equatable, Codable {
     let records: [DerivedWellnessRecord]
 
     static let provenanceNote =
-        "These are WakeGuard's own on-device estimates derived from your sleep data. They are not your "
+        "These are Alarm Agent's own on-device estimates derived from your sleep data. They are not your "
         + "Apple Health records — that data stays in Apple Health, owned by you. Deleting data in "
-        + "WakeGuard does not change anything in Apple Health."
+        + "Alarm Agent does not change anything in Apple Health."
 }
 
 /// The app's local derived-wellness store (WG-129). The concrete Core Data implementation is a

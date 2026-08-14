@@ -22,7 +22,7 @@ enum JournalExtractionOutcome: Sendable, Equatable, Hashable {
 /// (#39) — so the feature can show patterns without implying causation.
 enum JournalAssociationCopy {
     static let disclaimer =
-        "These are associations, not causes. WakeGuard doesn’t diagnose or give medical advice."
+        "These are associations, not causes. Alarm Agent doesn’t diagnose or give medical advice."
 
     /// A non-causal sentence relating a journaled factor to a sleep-quality band.
     static func association(factor: String, quality: AISleepQualityBand) -> String {

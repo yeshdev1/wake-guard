@@ -68,7 +68,7 @@ struct OnboardingView: View {
 
     private static func title(for step: OnboardingStep) -> String {
         switch step {
-        case .welcome: "Welcome to WakeGuard"
+        case .welcome: "Welcome to Alarm Agent"
         case .enableAlarms: "Turn on alarms"
         case .createFirstAlarm: "Add your first alarm"
         case .ready: "You’re all set"
@@ -79,7 +79,8 @@ struct OnboardingView: View {
         switch step {
         case .welcome:
             "Reliable alarms first. Everything else is optional and asked for later, in context."
-        case .enableAlarms: "WakeGuard needs alarms and notifications so it can reliably wake you."
+        case .enableAlarms:
+            "Alarm Agent needs alarms and notifications so it can reliably wake you."
         case .createFirstAlarm: "Add one now, or skip and add it whenever you like."
         case .ready: "Your alarms are ready. Optional features can be enabled any time in Settings."
         }

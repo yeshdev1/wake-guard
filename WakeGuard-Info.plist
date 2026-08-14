@@ -7,6 +7,6 @@
 	     does not recognise that brand-new key and silently drops it — leaving AlarmKit authorization to
 	     throw at runtime ("We couldn't turn on alarms"). Required before the app calls AlarmManager. -->
 	<key>NSAlarmKitUsageDescription</key>
-	<string>WakeGuard schedules system alarms so your wake-up and critical alarms reliably ring — through silent mode and Focus — at the times you set.</string>
+	<string>Alarm Agent schedules system alarms so your wake-up and critical alarms reliably ring — through silent mode and Focus — at the times you set.</string>
 </dict>
 </plist>

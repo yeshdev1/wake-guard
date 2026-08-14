@@ -1,6 +1,6 @@
 # App Privacy Nutrition Label mapping (WG-187)
 
-Maps every data type WakeGuard touches to its App Store privacy classification. Backed by
+Maps every data type Alarm Agent touches to its App Store privacy classification. Backed by
 `PrivacyNutritionLabel` and checked by `PrivacyNutritionLabelTests`, so the mapping stays matched to app
 behavior and the WG-186 privacy manifest.
 

@@ -15,12 +15,13 @@ struct LocationEducation: Sendable, Equatable, Hashable {
     let worksWithoutPermission: String
 
     static let standard = LocationEducation(
-        purpose: "WakeGuard uses your approximate location only to confirm that a time-zone change "
+        purpose:
+            "Alarm Agent uses your approximate location only to confirm that a time-zone change "
             + "looks like real travel. It never records where you are — only that your device moved.",
         batteryBehavior:
             "It uses low-power significant-location changes (based on cell and Wi-Fi), "
             + "never continuous GPS, so the battery impact is minimal.",
         worksWithoutPermission:
-            "This is optional. WakeGuard still detects time-zone changes and keeps "
+            "This is optional. Alarm Agent still detects time-zone changes and keeps "
             + "your alarms working even if you never grant location access.")
 }

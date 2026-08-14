@@ -201,7 +201,7 @@ struct CompositionErrorView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(DesignSystem.Typography.screenTitle)
                 .accessibilityHidden(true)
-            Text("WakeGuard can’t start")
+            Text("Alarm Agent can’t start")
                 .font(DesignSystem.Typography.sectionTitle)
             Text(
                 "Local storage is unavailable, so your alarms could not be loaded. "

@@ -22,7 +22,7 @@ protocol DiagnosticsProviding: Sendable {
 /// so the report can never contain raw health, location, calendar, journal, or prompt text.
 enum DiagnosticsRenderer {
     static func report(_ snapshot: DiagnosticsSnapshot, now: Date? = nil) -> String {
-        var lines = ["WakeGuard diagnostics"]
+        var lines = ["Alarm Agent diagnostics"]
 
         lines.append("Permissions:")
         for state in snapshot.permissions {
