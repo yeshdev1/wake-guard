@@ -71,19 +71,23 @@ final class AlarmReconcilerTests: XCTestCase {
             "a drifted fire time must be re-scheduled to the correct occurrence")
     }
 
-    func testDivergentCriticalityIsRescheduled() throws {
+    func testReadBackCriticalityIsNotComparedForDivergence() throws {
+        // WG-295 D2 (device finding, supersedes the earlier criticality-divergence pin): AlarmKit does
+        // NOT expose criticality on read-back — the real adapter reports `isCritical: false` for EVERY
+        // snapshot (its doc says so; WG-029 must compare against locally-tracked intent). Comparing it
+        // declared every critical alarm permanently divergent: 16 re-schedules per foreground, including
+        // replacing the alerting alarm mid-ring. Divergence is therefore fire-time only; #16 still holds
+        // because every (re)schedule the reconciler DOES issue carries the locally-stored criticality.
         let alarm = try makeAlarm(criticality: .critical)
         let correct = try nextOccurrence(alarm)
-        // The system holds it at the right time but as NON-critical — a silent downgrade.
-        let downgraded = ScheduledAlarmSnapshot(
+        let asReadBack = ScheduledAlarmSnapshot(
             alarmID: alarm.id, fireTime: correct, isCritical: false)
-        let expected = AlarmScheduleRequest(
-            alarmID: alarm.id, fireTime: correct, title: "wake", isCritical: true)
         let plan = reconciler.plan(
-            desired: [alarm], system: [downgraded], now: now, deviceTimeZone: .gmt)
-        XCTAssertEqual(
-            plan, [.schedule(expected)],
-            "a critical alarm silently downgraded in the system must be re-scheduled critical")
+            desired: [alarm], system: [asReadBack], now: now, deviceTimeZone: .gmt)
+        XCTAssertTrue(
+            plan.isEmpty,
+            "a matching fire time is a match — read-back criticality is unknowable, never divergence"
+        )
     }
 
     func testDisabledAlarmIsExtraAndCancelled() throws {

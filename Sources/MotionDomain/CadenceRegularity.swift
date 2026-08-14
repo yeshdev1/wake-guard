@@ -10,13 +10,18 @@ enum CadenceVerdict: String, Sendable, Equatable, Hashable, CaseIterable, Codabl
     /// Not enough step intervals to judge cadence (rapid irregular motion *without* sustained
     /// pedometer evidence lands here or in `.implausibleTiming`).
     case tooFewSteps
-    /// A step interval falls outside the plausible per-step band (too fast = a shake; too slow = not
-    /// continuous walking).
+    /// A step interval is **faster** than any real walk (`< minStepInterval`) — a shake's signature: a
+    /// sustained ≥4 steps/s across a ~1 s delivery pair, which a genuine gait cannot produce. The one
+    /// verdict that positively **contradicts** (wipes banked progress, WG-295).
+    case implausiblyFast
+    /// A step interval is slower than continuous walking (`> maxStepInterval`) — a pause or coalesced
+    /// delivery, not evidence of a shake; held, never a contradiction.
     case implausibleTiming
-    /// Inter-step intervals vary too much — erratic motion, i.e. a shake, not a gait.
+    /// Inter-step intervals vary too much — on delivery-reconstructed data this is usually mixed
+    /// delivery gaps, not proof of shaking; held, never a contradiction (WG-295).
     case tooErratic
-    /// Inter-step intervals are *implausibly* regular (near-zero variation) — a metronomic tap or a
-    /// replayed loop, which a human gait never produces.
+    /// Inter-step intervals are *implausibly* regular (near-zero variation) — a replayed loop; on
+    /// delivery-reconstructed data a steady walk is timer-regular too, so the floor is set near zero.
     case tooRegular
 
     /// Whether this verdict corroborates a real walk — exactly one case does.
@@ -49,9 +54,18 @@ struct CadenceThresholds: Sendable, Equatable, Codable {
     /// 12-step target while keeping a meaningful variation statistic; the timing band and the CoV band —
     /// plus CMPedometer's own step filtering — remain the shake defense (device-verified: walk passes,
     /// shake still fails).
+    /// WG-295 recalibration: intervals reconstructed from ~1 Hz cumulative deliveries measure the
+    /// **delivery timer**, not the gait — a steady real walk lands at CoV ≈ 0.006–0.02, far below the
+    /// old 0.03 "metronomic" floor, which mis-read steady walkers as replays. The floor now sits at
+    /// 0.005: an exact replayed loop (CoV ≈ 0) is still caught; a timer-regular human walk corroborates.
     static let `default` = CadenceThresholds(
         minimumIntervals: 4, minStepInterval: 0.25, maxStepInterval: 1.2,
-        minCoefficientOfVariation: 0.03, maxCoefficientOfVariation: 0.5)
+        minCoefficientOfVariation: 0.005, maxCoefficientOfVariation: 0.5)
+
+    /// Verdicts are computed over only the most recent intervals (WG-295): the series accumulates for a
+    /// whole session, and a single noisy prefix segment (catch-up burst, mid-walk pause) must not pin
+    /// the verdict forever — the window slides past it as the user keeps walking.
+    static let classificationWindow = 8
 }
 
 /// Anti-shake / anti-replay cadence defense (WG-070) — the shake/replay discriminator WG-069
@@ -94,10 +108,13 @@ enum CadenceRegularity {
     ) -> CadenceVerdict {
         let valid = intervals.filter { $0.isFinite && $0 > 0 }
         guard valid.count >= thresholds.minimumIntervals else { return .tooFewSteps }
-        if valid.contains(where: {
-            $0 < thresholds.minStepInterval || $0 > thresholds.maxStepInterval
+        // Fast is checked first and stands alone: a sub-minimum interval is a positive shake
+        // signature (≥4 steps/s sustained across a delivery pair) and the only contradicting verdict
+        // (WG-295). Slow is a pause/coalesced delivery — held, never a contradiction.
+        if valid.contains(where: { $0 < thresholds.minStepInterval }) {
+            return .implausiblyFast
         }
-        ) {
+        if valid.contains(where: { $0 > thresholds.maxStepInterval }) {
             return .implausibleTiming
         }
         let mean = valid.reduce(0, +) / Double(valid.count)
@@ -109,11 +126,14 @@ enum CadenceRegularity {
         return .plausibleGait
     }
 
-    /// Reconstruct from observations and classify — the end-to-end anti-shake verdict.
+    /// Reconstruct from observations and classify the **trailing window** — the end-to-end anti-shake
+    /// verdict. The window (WG-295) keeps one noisy early segment from pinning the verdict for the whole
+    /// session: as the user keeps walking, clean recent intervals displace the bad ones.
     static func verify(
         _ observations: [MovementObservation], thresholds: CadenceThresholds = .default
     ) -> CadenceVerdict {
-        classify(intervals: intervals(from: observations), thresholds: thresholds)
+        let series = intervals(from: observations).suffix(CadenceThresholds.classificationWindow)
+        return classify(intervals: Array(series), thresholds: thresholds)
     }
 
     /// The cadence stats + verdict for an observation series — surfaces the interval count and coefficient
@@ -122,7 +142,9 @@ enum CadenceRegularity {
     static func diagnose(
         _ observations: [MovementObservation], thresholds: CadenceThresholds = .default
     ) -> CadenceDiagnostics {
-        let series = intervals(from: observations)
+        // Same trailing window as `verify` (WG-295), so the DEBUG readout shows the decided-on stats.
+        let series = Array(
+            intervals(from: observations).suffix(CadenceThresholds.classificationWindow))
         let valid = series.filter { $0.isFinite && $0 > 0 }
         let mean = valid.isEmpty ? 0 : valid.reduce(0, +) / Double(valid.count)
         var coefficientOfVariation = 0.0

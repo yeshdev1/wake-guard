@@ -36,6 +36,7 @@ final class WakeChallengeRuntimeTests: XCTestCase {
         let runtime = makeRuntime(pedometer: pedometer, processor: processor)
 
         await runtime.drive()
+        await runtime.passSubmission?.value  // the stop is submitted off-task (WG-295 D7)
 
         XCTAssertEqual(runtime.viewModel.machine.phase, .passed, "a corroborated walk passes (#19)")
         XCTAssertEqual(
@@ -82,6 +83,7 @@ final class WakeChallengeRuntimeTests: XCTestCase {
         let runtime = makeRuntime(pedometer: pedometer, processor: processor)
 
         await runtime.drive()
+        await runtime.passSubmission?.value  // the stop is submitted off-task (WG-295 D7)
 
         XCTAssertEqual(
             runtime.viewModel.machine.phase, .passed,

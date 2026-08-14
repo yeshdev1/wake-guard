@@ -15,18 +15,21 @@ enum MovementCorroboration: String, Sendable, Equatable, Hashable, Codable {
     case contradicted
     case unavailable
 
-    /// Fuse a cadence verdict into a corroboration signal (WG-243). A plausible gait corroborates; an
-    /// **erratic or metronomic** cadence is a positive shake/replay signal and contradicts; an
-    /// out-of-band (`.implausibleTiming` — too fast *or* too slow) or too-few-steps verdict can't confidently
-    /// judge, so it's `.unavailable` — it never *contradicts* a genuinely slow walker, and (since a pass
-    /// requires corroboration) it never lets a fast shake pass either.
+    /// Fuse a cadence verdict into a corroboration signal (WG-243, rescoped WG-295 after device
+    /// calibration). A plausible gait corroborates. **Only `.implausiblyFast` contradicts** (wipes
+    /// banked progress): a sub-band interval means ≥4 steps/s sustained across a delivery pair — a
+    /// shake's positive signature a real gait cannot produce. Erratic/metronomic verdicts on
+    /// delivery-reconstructed data are usually mixed delivery gaps / the delivery timer itself (the
+    /// device finding that wiped real walkers' progress), so they **hold** (`.unavailable`) rather than
+    /// contradict — progress banks but can never pass on them, keeping #20 intact: a shake alone still
+    /// never passes; only a plausible-gait window does.
     init(cadence verdict: CadenceVerdict) {
         switch verdict {
         case .plausibleGait:
             self = .corroborated
-        case .tooErratic, .tooRegular:
+        case .implausiblyFast:
             self = .contradicted
-        case .tooFewSteps, .implausibleTiming:
+        case .tooFewSteps, .implausibleTiming, .tooErratic, .tooRegular:
             self = .unavailable
         }
     }
