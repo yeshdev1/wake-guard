@@ -135,13 +135,44 @@ final class ConversationalAlarmViewModelTests: XCTestCase {
         XCTAssertEqual(model.stage, .rejected(.inThePast))
     }
 
-    func testModelUnavailableRoutesToManualFallback() async throws {
+    func testUnavailableModelGuidesToSettings() async throws {
+        // A genuinely unavailable model → the `.unavailable` stage (WG-296: distinct "turn it on" copy).
         let spy = CommitSpy()
-        let model = makeModel(.failing(.refused), now: try fixedNow(), commit: spy)
+        let model = makeModel(.failing(.unavailable), now: try fixedNow(), commit: spy)
         model.input = "wake me at 7"
         await model.submit()
         XCTAssertEqual(model.stage, .unavailable)
         XCTAssertEqual(spy.count.get(), 0)
+    }
+
+    func testReachableButUnusableModelRoutesToNotUnderstood() async throws {
+        // The model ran but refused / produced nothing usable → `.notUnderstood` (WG-296), NOT the same
+        // copy as an unavailable model — the user could tell "turn it on" from "rephrase".
+        let spy = CommitSpy()
+        let model = makeModel(.failing(.refused), now: try fixedNow(), commit: spy)
+        model.input = "wake me at 7"
+        await model.submit()
+        XCTAssertEqual(model.stage, .notUnderstood)
+        XCTAssertEqual(spy.count.get(), 0)
+    }
+
+    func testCriticalityRequestIsNotedInPreview() async throws {
+        // The user asked for a critical alarm; parsed alarms are always standard (#31), so the flag is set
+        // for the preview to disclose it honestly (WG-296) rather than silently dropping the request.
+        let model = model(json: futurePreview, now: try fixedNow(), commit: CommitSpy())
+        model.input = "wake me up at 7:30 tomorrow and make it critical"
+        await model.submit()
+        guard case .preview = model.stage else {
+            return XCTFail("expected preview, got \(model.stage)")
+        }
+        XCTAssertTrue(model.mentionedCriticality)
+    }
+
+    func testOrdinaryRequestDoesNotFlagCriticality() async throws {
+        let model = model(json: futurePreview, now: try fixedNow(), commit: CommitSpy())
+        model.input = "wake me at 7:30 tomorrow"
+        await model.submit()
+        XCTAssertFalse(model.mentionedCriticality)
     }
 
     // MARK: manual editor is one tap away

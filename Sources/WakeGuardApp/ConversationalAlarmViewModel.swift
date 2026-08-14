@@ -21,6 +21,7 @@ final class ConversationalAlarmViewModel {
         case rejected(AlarmIntentRejection)
         /// The model was unavailable/refused — use the manual editor.
         case unavailable
+        case notUnderstood
         case scheduled
         /// Confirmed, but the scheduling command failed — the alarm was not created.
         case failed
@@ -28,6 +29,9 @@ final class ConversationalAlarmViewModel {
 
     var input = ""
     private(set) var stage: Stage = .idle
+    /// Whether the last request asked to make the alarm critical/important. Parsed alarms are always
+    /// standard (#31), so the preview says so honestly (WG-296) instead of silently dropping the intent.
+    private(set) var mentionedCriticality = false
     /// Set when the user asks for the manual editor; the parent view presents `CreateAlarmView`.
     private(set) var manualEditorRequested = false
 
@@ -64,11 +68,21 @@ final class ConversationalAlarmViewModel {
         guard !text.isEmpty else { return }
         stage = .parsing
         pending = nil
+        mentionedCriticality = Self.mentionsCriticality(text)
         switch await parser.parse(text) {
         case .preview(let draft): resolve(draft)
         case .needsClarification(let clarification): stage = .clarifying(clarification)
-        case .unavailable: stage = .unavailable
+        case .modelUnavailable: stage = .unavailable
+        case .notUnderstood: stage = .notUnderstood
         }
+    }
+
+    /// Deterministic, presentation-only check for whether the request asked for a critical/important alarm
+    /// (WG-296). It never changes the alarm — parsed alarms stay standard (#31) — it only lets the preview
+    /// tell the user their criticality request was noted but must be set in the editor.
+    static func mentionsCriticality(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return ["critical", "important", "urgent"].contains { lowered.contains($0) }
     }
 
     /// Resolve a clarification the user picked (e.g. the AM or PM reading) into a preview or rejection.
