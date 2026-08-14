@@ -20,22 +20,23 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
     private let alarms: any AlarmRepository
     private let clock: any WallClock
     private let deviceTimeZone: @Sendable () -> TimeZone
-    /// The fire instant of an **unsatisfied** pending wake for this alarm, if one is being tracked —
-    /// extends the commitment lock through the bounded ring window (WG-288). Defaults to "none" until the
-    /// pending-wake store exists (WG-290), which wires the real read here.
-    private let pendingUnsatisfiedFireTime: @Sendable (AlarmID) async -> Date?
+    /// Whether the wake at a given fire instant was satisfied by a genuine challenge pass (WG-290) — the
+    /// commitment lock's **failsafe**: a satisfied wake releases the ring-window lock immediately (normal
+    /// #6 confirmation applies again). Defaults to "not satisfied" (the lock holds for the bounded
+    /// window) in graphs that don't wire the store — fail-closed, never fail-open.
+    private let isWakeSatisfied: @Sendable (AlarmID, Date) async -> Bool
     private let engine = AlarmSchedulingEngine()
 
     init(
         alarms: any AlarmRepository,
         clock: any WallClock,
         deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current },
-        pendingUnsatisfiedFireTime: @escaping @Sendable (AlarmID) async -> Date? = { _ in nil }
+        isWakeSatisfied: @escaping @Sendable (AlarmID, Date) async -> Bool = { _, _ in false }
     ) {
         self.alarms = alarms
         self.clock = clock
         self.deviceTimeZone = deviceTimeZone
-        self.pendingUnsatisfiedFireTime = pendingUnsatisfiedFireTime
+        self.isWakeSatisfied = isWakeSatisfied
     }
 
     func authorize(
@@ -83,22 +84,20 @@ struct DefaultAlarmPolicyEngine: AlarmPolicyEngine {
 
     /// Whether `alarm` is inside its commitment window (pre-fire lock, or the ring window of a fired
     /// wake). Pure rule in `CommitmentLock`; this feeds it the engine-resolved next occurrence and the
-    /// ring-window instant. The ring lock is **time-based** (`WakeChain.firedOccurrence`): it holds for
-    /// the whole bounded window even after a pass — a deliberate simplification (WG-291 ADR note; the
-    /// cost is a ≤ ring-window edit delay right after waking, the gain is that the live chain can never
-    /// be deleted out from under an unsatisfied wake). An injected pending read (WG-290, satisfaction-
-    /// aware) can later refine it; until then it defaults nil and the time rule decides.
+    /// ring-window instant (`WakeChain.firedOccurrence`, computed from the schedule alone). The
+    /// **failsafe** (WG-290): a wake whose pass was recorded reads as satisfied, so the ring lock
+    /// releases immediately and the normal #6 confirmation applies again — while an unsatisfied wake
+    /// stays locked so the live chain can't be deleted out from under it. A store fault reads as "not
+    /// satisfied": the lock holds for the bounded window, never a stuck alarm.
     private func isCommitted(_ alarm: Alarm) async -> Bool {
         let fire =
             alarm.isEnabled
             ? engine.nextOccurrence(for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
             : nil
-        let pending: Date?
-        if let injected = await pendingUnsatisfiedFireTime(alarm.id) {
-            pending = injected
-        } else {
-            pending = WakeChain.firedOccurrence(
-                for: alarm, now: clock.now, deviceTimeZone: deviceTimeZone())
+        var pending = WakeChain.firedOccurrence(
+            for: alarm, now: clock.now, deviceTimeZone: deviceTimeZone())
+        if let fired = pending, await isWakeSatisfied(alarm.id, fired) {
+            pending = nil  // the walk is done — this wake no longer locks the alarm (WG-290)
         }
         return CommitmentLock.isLocked(
             alarm: alarm, nextFireTime: fire, pendingUnsatisfiedFireTime: pending, now: clock.now)

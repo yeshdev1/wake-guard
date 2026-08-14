@@ -14,18 +14,23 @@ final class WakeChainProcessorTests: XCTestCase {
         let processor: AlarmCommandProcessor
         let adapter: FakeAlarmManagerAdapter
         let alarms: CoreDataAlarmRepository
+        let satisfiedWakes: CoreDataSatisfiedWakeStore
     }
 
     private func makeFixture(now: Date) throws -> Fixture {
         let controller = try PersistenceController(inMemory: true)
         let alarms = CoreDataAlarmRepository(controller)
+        let satisfiedWakes = CoreDataSatisfiedWakeStore(controller, now: { now })
         let processor = AlarmCommandProcessor(
             policy: FakeAlarmPolicyEngine(), alarms: alarms,
             audit: CoreDataAuditRepository(controller),
             outbox: CoreDataOutboxRepository(controller),
             alarmManager: fakeAdapter, clock: TestClock(now: now),
-            ids: DeterministicIDGenerator(seed: 42), deviceTimeZone: { .gmt })
-        return Fixture(processor: processor, adapter: fakeAdapter, alarms: alarms)
+            ids: DeterministicIDGenerator(seed: 42), deviceTimeZone: { .gmt },
+            satisfiedWakes: satisfiedWakes)
+        return Fixture(
+            processor: processor, adapter: fakeAdapter, alarms: alarms,
+            satisfiedWakes: satisfiedWakes)
     }
 
     private let fakeAdapter = FakeAlarmManagerAdapter()
@@ -104,5 +109,25 @@ final class WakeChainProcessorTests: XCTestCase {
                 stopped.contains(member) || cancelled.contains(member),
                 "every member is silenced — stopped if alerting, cancelled if scheduled")
         }
+    }
+
+    func testAValidPassRecordsTheSatisfiedWakeForTheLockFailsafe() async throws {
+        // 07:10 — mid ring window of the 07:00 fire (WG-290).
+        let fixture = try makeFixture(now: try iso("2026-08-17T07:10:00Z"))
+        let alarm = try makeAlarm()
+        try await fixture.alarms.save(alarm)
+        let fired = try iso("2026-08-17T07:00:00Z")
+        let before = await fixture.satisfiedWakes.isSatisfied(alarmID: alarm.id, fireTime: fired)
+        XCTAssertFalse(before, "unsatisfied until the pass")
+
+        _ = await fixture.processor.process(
+            .markChallengePassed(alarm.id), from: .userInterface, by: .user)
+
+        let after = await fixture.satisfiedWakes.isSatisfied(alarmID: alarm.id, fireTime: fired)
+        XCTAssertTrue(
+            after, "the pass persists the satisfied wake — the commitment lock's failsafe reads it")
+        let otherOccurrence = await fixture.satisfiedWakes.isSatisfied(
+            alarmID: alarm.id, fireTime: fired.addingTimeInterval(86_400))
+        XCTAssertFalse(otherOccurrence, "satisfaction is per fire instant, not per alarm")
     }
 }

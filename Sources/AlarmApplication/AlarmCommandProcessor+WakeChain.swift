@@ -49,6 +49,9 @@ extension AlarmCommandProcessor {
             let fired = WakeChain.firedOccurrence(
                 for: alarm, now: clock.now, deviceTimeZone: deviceTimeZone())
         else { return }
+        // Record the satisfied wake FIRST (WG-290) — the commitment lock's failsafe releases even if a
+        // member stop below fails; best-effort, and a write fault just leaves the bounded lock in place.
+        await satisfiedWakes?.markSatisfied(alarmID: alarm.id, fireTime: fired)
         for id in WakeChain.memberIDs(for: alarm, occurrence: fired) {
             try? await alarmManager.stopRing(alarmID: id)
             try? await alarmManager.cancel(alarmID: id)

@@ -55,6 +55,17 @@ extension PersistenceController {
         }
     }
 
+    /// Reap satisfied-wake rows older than `cutoff` (WG-290) — nothing reads a row older than the ring
+    /// window, so a short cutoff keeps the table trivially bounded. Store-side, no load.
+    func pruneSatisfiedWakes(before cutoff: Date) async throws {
+        let context = container.newBackgroundContext()
+        try await context.perform {
+            let fetch = NSFetchRequest<any NSFetchRequestResult>(entityName: "SatisfiedWakeRecord")
+            fetch.predicate = NSPredicate(format: "satisfiedAt < %@", cutoff as NSDate)
+            try context.execute(NSBatchDeleteRequest(fetchRequest: fetch))
+        }
+    }
+
     /// The audit events as their **already-stored JSON payloads**, newest first — for the data export
     /// (WG-183) without decoding each into an `AuditEvent` and re-encoding it (the export just needs the
     /// JSON). Faults in batches (`fetchBatchSize`) so peak memory stays bounded even for a large log.
