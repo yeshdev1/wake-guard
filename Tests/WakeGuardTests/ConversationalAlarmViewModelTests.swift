@@ -113,6 +113,32 @@ final class ConversationalAlarmViewModelTests: XCTestCase {
         XCTAssertEqual(spy.count.get(), 0)
     }
 
+    func testTomorrowWithModelSuppliedWeekdayReachesOneTimePreview() async throws {
+        // The reported bug (WG-296): "wake me at 7 tomorrow" — the model returns BOTH tomorrow's weekday
+        // and dayOffset=1, and 7 is meridiem-ambiguous. After choosing a reading the flow must reach a
+        // one-time preview, never the old "I can't set that repeat pattern" rejection.
+        let spy = CommitSpy()
+        let json = #"""
+            {"hour":7,"minute":0,"meridiemSpecified":false,"timeSpecified":true,"weekdays":["tuesday"],"dayOffset":1}
+            """#
+        let model = model(json: json, now: try fixedNow(), commit: spy)
+        model.input = "wake me at 7 tomorrow"
+        await model.submit()
+
+        guard case .clarifying(.meridiem(let morning, _)) = model.stage else {
+            return XCTFail("expected meridiem clarification, got \(model.stage)")
+        }
+        model.choose(morning)
+        guard case .preview(let summary) = model.stage else {
+            return XCTFail("expected a one-time preview, got \(model.stage)")
+        }
+        XCTAssertEqual(summary.time.hour, 7)
+        XCTAssertTrue(
+            summary.assumptions.contains { if case .ringsOn = $0 { true } else { false } },
+            "a one-time alarm shows a concrete date, not a weekly repeat")
+        XCTAssertEqual(spy.count.get(), 0)
+    }
+
     func testMissingTimeAsksForATime() async throws {
         let json = #"""
             {"hour":0,"minute":0,"meridiemSpecified":false,"timeSpecified":false,"weekdays":[],"dayOffset":null}
