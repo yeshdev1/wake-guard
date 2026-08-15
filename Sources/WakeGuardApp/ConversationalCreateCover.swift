@@ -43,10 +43,10 @@ private struct ConversationalCreateHost: View {
         _model = State(
             wrappedValue: ConversationalAlarmViewModel(
                 parser: parser, clock: clock,
-                commit: { intent in
+                commit: { spec in
                     guard
                         let alarm = ConversationalAlarmBuilder.alarm(
-                            from: intent, id: ids.next(), now: clock.now)
+                            from: spec, id: ids.next(), now: clock.now)
                     else { return false }
                     switch await processor.process(
                         .create(alarm), from: .userInterface, by: .user, userConfirmed: false)

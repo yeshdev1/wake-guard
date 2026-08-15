@@ -46,6 +46,25 @@ struct ConversationalAlarmView: View {
             ProgressView("Reading your request…").accessibilityIdentifier("conversationalParsing")
         case .clarifying(let clarification):
             clarificationView(clarification)
+        case .askCritical:
+            choiceView(
+                FollowUpChoice(
+                    question: "Make this a critical alarm?",
+                    detail:
+                        "Critical alarms ring through silent mode and Focus, and are harder to dismiss.",
+                    yes: "Yes, critical", no: "No, standard", id: "conversationalAskCritical"),
+                onYes: { model.answerCritical(true) }, onNo: { model.answerCritical(false) })
+        case .askWalk:
+            choiceView(
+                FollowUpChoice(
+                    question: "Require a walk to turn it off?",
+                    detail:
+                        "You'll need to take a few steps to stop the alarm — a tap alternative is "
+                        + "always available.",
+                    yes: "Yes, add a walk", no: "No", id: "conversationalAskWalk"),
+                onYes: { model.answerWalk(true) }, onNo: { model.answerWalk(false) })
+        case .configureWalk:
+            walkConfigView
         case .preview(let summary):
             previewView(summary)
         case .rejected(let reason):
@@ -122,18 +141,23 @@ struct ConversationalAlarmView: View {
                 assumptionRow(assumption)
             }
 
-            if model.mentionedCriticality {
-                Label {
-                    Text(
-                        "This creates a standard alarm. To make it critical or add a walk challenge, "
-                            + "open it in the editor after creating.")
-                } icon: {
-                    Image(systemName: "info.circle")
-                }
-                .font(DesignSystem.Typography.caption)
-                .foregroundStyle(DesignSystem.Colors.secondaryText)
-                .accessibilityIdentifier("conversationalCriticalityNote")
+            Label {
+                Text(model.isCritical ? "Critical alarm" : "Standard alarm")
+            } icon: {
+                Image(systemName: model.isCritical ? "exclamationmark.triangle.fill" : "bell")
             }
+            .font(DesignSystem.Typography.secondary)
+            .foregroundStyle(DesignSystem.Colors.secondaryText)
+            .accessibilityIdentifier("conversationalPreviewCriticality")
+
+            Label {
+                Text(walkSummaryText)
+            } icon: {
+                Image(systemName: "figure.walk")
+            }
+            .font(DesignSystem.Typography.secondary)
+            .foregroundStyle(DesignSystem.Colors.secondaryText)
+            .accessibilityIdentifier("conversationalPreviewWalk")
 
             Text("Nothing is scheduled until you confirm.")
                 .font(DesignSystem.Typography.caption)
@@ -212,5 +236,72 @@ struct ConversationalAlarmView: View {
         case .inThePast: "That time is in the past. Pick a future time."
         case .unsafeValue: "That request is out of range. Try the manual editor."
         }
+    }
+}
+
+/// The static copy for a yes/no follow-up (WG-298), bundled so the view helper stays under the parameter
+/// limit and the two questions read the same.
+private struct FollowUpChoice {
+    let question: String
+    let detail: String
+    let yes: String
+    let no: String
+    let id: String
+}
+
+/// The WG-298 follow-up screens — kept in an extension so the main view type stays within its body-length
+/// budget.
+extension ConversationalAlarmView {
+
+    /// A yes/no follow-up — critical, or walk. Only shown for a dimension the request didn't already state.
+    fileprivate func choiceView(
+        _ choice: FollowUpChoice, onYes: @escaping () -> Void, onNo: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            Text(choice.question).font(DesignSystem.Typography.cardTitle)
+            Text(choice.detail)
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.secondaryText)
+            Button(choice.yes, action: onYes)
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("\(choice.id)Yes")
+            Button(choice.no, action: onNo)
+                .accessibilityIdentifier("\(choice.id)No")
+        }
+        .accessibilityIdentifier(choice.id)
+    }
+
+    /// The walk's steps + seconds — the same bounded steppers as the manual editor. Changing the duration
+    /// re-bounds the step count so the required cadence stays in the plausible-walk band.
+    fileprivate var walkConfigView: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            Text("How should the walk work?").font(DesignSystem.Typography.cardTitle)
+            Stepper(
+                "Walk for \(model.challengeDraft.durationSeconds) seconds",
+                value: $model.challengeDraft.durationSeconds, in: ChallengeDraft.durationRange,
+                step: 5
+            )
+            .accessibilityIdentifier("conversationalWalkDuration")
+            .onChange(of: model.challengeDraft.durationSeconds) {
+                model.challengeDraft.normalizeSteps()
+            }
+            Stepper(
+                "At least \(model.challengeDraft.minimumSteps) steps",
+                value: $model.challengeDraft.minimumSteps,
+                in: ChallengeDraft.stepsBounds(forDuration: model.challengeDraft.durationSeconds)
+            )
+            .accessibilityIdentifier("conversationalWalkSteps")
+            Button("Next") { model.confirmWalkConfiguration() }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("conversationalWalkNext")
+        }
+        .accessibilityIdentifier("conversationalConfigureWalk")
+    }
+
+    /// The preview's walk line — the confirmed steps + seconds, or that a tap turns it off.
+    fileprivate var walkSummaryText: String {
+        guard model.challengeDraft.kind == .walk else { return "Turn off with a tap (no walk)" }
+        return "Walk \(model.challengeDraft.minimumSteps) steps in "
+            + "\(model.challengeDraft.durationSeconds) seconds to turn it off"
     }
 }
