@@ -111,7 +111,12 @@ final class AlarmListViewModel {
     func load() async {
         loadGeneration += 1
         let generation = loadGeneration
-        state = .loading
+        // Only blank to the spinner on a COLD load (or a retry after failure). A refresh that already has
+        // a resolved list keeps it on screen and swaps in place when the new data lands — otherwise every
+        // foreground, reconcile, and sheet-dismiss reload flashed the whole list to "Loading…" and back,
+        // which read as a glitch (and briefly exposed a dismissing sheet's title over the re-layout). This
+        // is the "last-known list stays visible, never a blanking state" guarantee `reconcile()` promises.
+        if Self.showsLoadingSpinner(whileRefreshing: state) { state = .loading }
         let all: [Alarm]
         do {
             all = try await alarms.allAlarms()
@@ -127,6 +132,16 @@ final class AlarmListViewModel {
         guard generation == loadGeneration else { return }  // superseded by a newer load
         alarmsByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
         state = all.isEmpty ? .empty : .loaded(content(from: all))
+    }
+
+    /// Whether a starting load should show the blocking loading spinner. A refresh that already has a
+    /// **resolved** list (`.loaded`/`.empty`) keeps it visible so the list never blanks/flashes (WG-297);
+    /// a cold start (`.loading`) or a retry after a `.failed` load does show it. Pure — unit-tested.
+    static func showsLoadingSpinner(whileRefreshing state: AlarmListState) -> Bool {
+        switch state {
+        case .loaded, .empty: false
+        case .loading, .failed: true
+        }
     }
 
     // MARK: - Row actions (every mutation routes through the command processor, #2/#3/#46)
