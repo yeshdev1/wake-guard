@@ -210,7 +210,6 @@ struct ConversationalAlarmView: View {
         case .invalidTimeZone: "That time zone isn’t valid. Try the manual editor."
         case .timeOutOfRange: "That time isn’t valid."
         case .inThePast: "That time is in the past. Pick a future time."
-        case .unsupportedRecurrence: "I can’t set that repeat pattern. Try the manual editor."
         case .unsafeValue: "That request is out of range. Try the manual editor."
         }
     }

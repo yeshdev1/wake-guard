@@ -98,8 +98,9 @@ struct NaturalLanguageAlarmParser: Sendable {
             If no time is given, set timeSpecified=false.
             If AM/PM is not clearly stated and 24-hour time is not used, set meridiemSpecified=false and \
             put the 1-12 clock hour in "hour".
-            weekdays lists the days a repeating alarm fires; empty for a one-time alarm.
-            dayOffset is days from today (0=today, 1=tomorrow) for a one-time alarm, or null.
+            Set EITHER weekdays OR dayOffset, never both. A repeating request ("every weekday",
+            "on Mondays") sets weekdays to the day names and dayOffset=null. A single day — including a \
+            relative one like "today" or "tomorrow" — sets weekdays=[] and dayOffset (0=today, 1=tomorrow).
             Output ONLY the JSON object and no other field.
             """
         return PromptSafety.request(instruction: instruction, untrusted: text)

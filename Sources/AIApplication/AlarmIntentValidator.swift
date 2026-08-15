@@ -6,7 +6,6 @@ enum AlarmIntentRejection: String, Sendable, Equatable, Hashable, CaseIterable {
     case invalidTimeZone
     case timeOutOfRange
     case inThePast
-    case unsupportedRecurrence
     case unsafeValue
 }
 
@@ -36,8 +35,9 @@ enum AlarmIntentValidation: Sendable, Equatable, Hashable {
 /// independent of the model** — a pure function of the draft, a time-zone identifier, and `now` — so a
 /// parsed *or* hand-entered intent is held to the same rules. It rejects **invalid zones** (non-IANA /
 /// GMT-family / injection strings, via `IANATimeZone`, #11), **out-of-range times** (via `TimeOfDay`),
-/// **past** one-time alarms, **unsupported recurrence** (a weekly alarm that also carries a one-time
-/// offset), and **unsafe values** (an offset beyond the horizon). It never sets criticality (#31).
+/// **past** one-time alarms, and **unsafe values** (an offset beyond the horizon). A draft that names both
+/// weekdays and a concrete day offset (a common model reading of "tomorrow") resolves to one-time, not a
+/// rejection (WG-296). It never sets criticality (#31).
 struct AlarmIntentValidator: Sendable {
     /// The furthest ahead a one-time alarm may be scheduled; a larger offset is an unsafe value.
     static let maxDayOffset = 366
@@ -52,9 +52,13 @@ struct AlarmIntentValidator: Sendable {
         guard let time = try? TimeOfDay(hour: draft.hour, minute: draft.minute) else {
             return .rejected(.timeOutOfRange)
         }
-        if !draft.weekdays.isEmpty {
-            // A weekly alarm may not also carry a one-time offset — that is a contradictory recurrence.
-            guard draft.dayOffset == nil else { return .rejected(.unsupportedRecurrence) }
+        // A repeating alarm is weekly ONLY when it names days and carries no concrete day offset. When the
+        // model emits both — its common reading of "wake me at 7 tomorrow", where it fills in tomorrow's
+        // weekday AND dayOffset=1 (WG-296) — the explicit relative day is a single occurrence, so one-time
+        // takes precedence over the redundant weekday set rather than a hard rejection. (Defaulting to
+        // weekly instead would silently create a surprise *recurring* alarm.) Every outcome is shown in the
+        // preview before the user confirms.
+        if !draft.weekdays.isEmpty, draft.dayOffset == nil {
             return .valid(intent(time: time, recurrence: .weekly(draft.weekdays), zone: zone))
         }
         return validateOneTime(draft: draft, time: time, zone: zone, now: now, calendar: calendar)

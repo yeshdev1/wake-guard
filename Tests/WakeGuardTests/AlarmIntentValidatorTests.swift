@@ -3,10 +3,10 @@ import XCTest
 
 @testable import WakeGuard
 
-/// WG-165: the deterministic alarm-intent validator. Verifies that **past dates, invalid zones,
-/// unsupported recurrence, and unsafe values reject**, that validation is **independent of the model** (a
-/// pure function; source-scan pinned), and that **adversarial** zone identifiers (injection strings,
-/// GMT-family, unknown zones) are rejected rather than resolved.
+/// WG-165: the deterministic alarm-intent validator. Verifies that **past dates, invalid zones, and unsafe
+/// values reject**, that a draft naming both weekdays and a concrete day offset **resolves to one-time**
+/// (WG-296), that validation is **independent of the model** (a pure function; source-scan pinned), and
+/// that **adversarial** zone identifiers (injection strings, GMT-family, unknown zones) are rejected.
 final class AlarmIntentValidatorTests: XCTestCase {
 
     private let zoneID = "America/New_York"
@@ -74,12 +74,25 @@ final class AlarmIntentValidatorTests: XCTestCase {
         }
     }
 
-    // MARK: rejections — unsupported recurrence
+    // MARK: recurrence reconciliation — weekdays + a concrete day offset resolves to one-time (WG-296)
 
-    func testWeeklyWithAOneTimeOffsetIsUnsupported() throws {
-        XCTAssertEqual(
-            try validate(draft(hour: 6, weekdays: [.monday], dayOffset: 1)),
-            .rejected(.unsupportedRecurrence))
+    func testWeekdaysWithADayOffsetResolveToOneTime() throws {
+        // "wake me at 7 tomorrow": the on-device model commonly fills in tomorrow's weekday AND
+        // dayOffset=1. The concrete relative day wins — a single occurrence — instead of the old hard
+        // rejection to the manual editor. (Defaulting to weekly would create a surprise recurring alarm.)
+        guard
+            case .valid(let intent) = try validate(
+                draft(hour: 6, weekdays: [.monday], dayOffset: 1)),
+            case .oneTime(let fireDate) = intent.recurrence
+        else { return XCTFail("expected a one-time intent, not a rejection") }
+        XCTAssertGreaterThan(fireDate, try fixedNow())
+    }
+
+    func testWeekdaysWithNoOffsetStayWeekly() throws {
+        // Days but no concrete offset is a genuine weekly alarm — unchanged.
+        guard case .valid(let intent) = try validate(draft(hour: 6, weekdays: [.monday])),
+            case .weekly = intent.recurrence
+        else { return XCTFail("expected a weekly intent") }
     }
 
     // MARK: rejections — unsafe / out-of-range values

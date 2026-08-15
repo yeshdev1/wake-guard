@@ -4918,6 +4918,20 @@ threw; manual entry worked throughout. Two root causes, both fixed; `ci-fast` gr
 - Apple Intelligence remains the only model (no OSS model deployed — the user chose to keep AI as-is); the
   on-device-first / no-cloud posture is unchanged.
 
+**Follow-up (same day, once decode was fixed): "wake me at 7 tomorrow" hit "I can't set that repeat
+pattern".** With parsing restored, a second device bug surfaced: the on-device model reads "tomorrow" as
+*both* tomorrow's weekday *and* dayOffset=1, and `AlarmIntentValidator` hard-rejected that contradiction as
+`unsupportedRecurrence` → the manual editor. Fix: a draft is **weekly only when it names days and carries no
+concrete day offset**; when it carries both, the explicit relative day wins and it resolves to a **one-time**
+alarm (never a rejection). One-time — not weekly — is the deliberate precedence: defaulting to weekly would
+silently create a *recurring* alarm the user never asked for, the worse failure for a safety app; and every
+outcome is still shown in the preview before the user confirms (preview-precedes-save intact). The
+`unsupportedRecurrence` rejection is now unreachable and was removed rather than left as dead vocabulary in a
+safety validator. The extraction prompt was also hardened to state weekdays and dayOffset are mutually
+exclusive. This relaxes a fail-closed rejection into an interpretation, so it is recorded here; it weakens no
+safety invariant (no auto-schedule, no criticality (#31), preview + explicit confirm + policy authorization
+all unchanged).
+
 ### WG-295 (2026-08-14): Device-failure deep-dive — five enforcement defects fixed (multi-agent review)
 
 Device symptoms (real user, post-WG-287 build): walk progress reset to 0 mid-challenge; re-rings continued
