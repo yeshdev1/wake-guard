@@ -4890,6 +4890,31 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-298 (2026-08-16): "Describe your alarm" gathers critical / walk / steps+seconds — amends WG-245 Finding A
+
+Human-approved feature request: after the schedule parses, the conversational flow now gathers the same
+enforcement facets the manual editor does — **critical or not**, **walk or not**, and the **steps + seconds**
+(the manual editor's bounded, cadence-normalized steppers, reused via `ChallengeDraft`) — asking only what
+the request didn't already state, then shows everything in the preview for an explicit Confirm.
+
+- **Inference is deterministic, never from the model.** `mentionsCriticality` / `mentionsWalk` are keyword
+  checks over the user's typed text; if a facet is stated, its question is skipped and the choice is
+  pre-set. The on-device model's output schema stays criticality-free — it never emits or assigns
+  criticality. So **#31 ("the policy engine, not the model, assigns criticality") is preserved**: a keyword
+  hint pre-fills a choice the user still confirms, and the policy engine still authorizes on Confirm.
+- **What this amends: WG-245 Finding A**, which hard-locked conversational alarms to `.standard`
+  ("criticality never taken from parsed text"). That stance is relaxed to: parsed text may *propose* a
+  criticality/challenge, but it is only ever applied after the user's **explicit confirmation** in the
+  review step (critical is always shown there, even when inferred — never silently on). Nothing schedules
+  before Confirm (preview-precedes-save intact); the walk always carries its tap alternative (#22, via
+  `WalkChallenge` requiring an `accessibleFallback`); steps stay in the plausible-cadence band exactly as in
+  the manual editor. This is recorded here per the "no safety-stance change without an ADR" rule; it weakens
+  no numbered invariant.
+- The commit payload became `ConversationalAlarmSpec { intent, criticality, challenge }`; `ConversationalAlarmBuilder`
+  applies the confirmed criticality + challenge instead of forcing `.standard`. Pinned: each follow-up is
+  asked only when un-inferred, a stated facet is pre-set and not re-asked, the spec carries the confirmed
+  critical + walk, and steps stay within the cadence band. `ci-fast` green — 1298 tests.
+
 ### WG-296 (2026-08-14): "Describe your alarm" errored out — brittle decode + undifferentiated failure copy
 
 Device symptom (real user, screenshot): describing an alarm ("Wake me up at 7am and make it critical") showed

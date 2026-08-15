@@ -28,6 +28,8 @@ final class ConversationalConfirmConcurrencyTests: XCTestCase {
 
         model.input = "wake me at 7:30 tomorrow"
         await model.submit()
+        model.answerCritical(false)  // reach the preview through the follow-ups (WG-298)
+        model.answerWalk(false)
 
         // Two confirms fired before the first commit resolves — a double-tap.
         async let first: Void = model.confirm()
@@ -41,7 +43,7 @@ final class ConversationalConfirmConcurrencyTests: XCTestCase {
 
 private final class ConfirmCommitSpy: Sendable {
     let count = Synchronized(0)
-    var handler: @Sendable (ValidatedAlarmIntent) async -> Bool {
+    var handler: @Sendable (ConversationalAlarmSpec) async -> Bool {
         { [count] _ in
             await Task.yield()
             count.mutate { $0 += 1 }
