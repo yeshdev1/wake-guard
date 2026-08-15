@@ -33,6 +33,22 @@ struct AlarmListView: View {
     }
 }
 
+/// The one modal the list can present (WG-297) — create, describe, or edit — driven through a single
+/// `.sheet(item:)`. `Identifiable` by a stable key so re-presenting the same kind is a no-op.
+private enum ActiveSheet: Identifiable {
+    case create
+    case describe
+    case edit(Alarm)
+
+    var id: String {
+        switch self {
+        case .create: "create"
+        case .describe: "describe"
+        case .edit(let alarm): "edit-\(alarm.id.rawValue.uuidString)"
+        }
+    }
+}
+
 /// Owns the view model and renders each state. Reloads on appear **and on every foreground**
 /// so the next-ring time never goes stale after an alarm fires. A reconciliation pass shows
 /// a non-blocking banner over the current content, never a blanking state.
@@ -40,9 +56,10 @@ private struct AlarmListScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AlarmListViewModel
     @State private var permission: AlarmPermissionModel
-    @State private var showingCreate = false
-    @State private var showingDescribe = false
-    @State private var editingAlarm: Alarm?
+    /// One presentation at a time (WG-297): a single `.sheet(item:)` instead of three stacked `.sheet`
+    /// modifiers, whose overlapping present/dismiss transitions could flash one sheet's content over
+    /// another's. The challenge is a separate full-screen cover (a different presentation style).
+    @State private var activeSheet: ActiveSheet?
     @State private var challengeTarget: ChallengeTarget?
     private let processor: any AlarmCommandProcessing
     private let clock: any WallClock
@@ -103,13 +120,13 @@ private struct AlarmListScreen: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button {
-                            showingDescribe = true
+                            activeSheet = .describe
                         } label: {
                             Label("Describe your alarm", systemImage: "text.bubble")
                         }
                         .accessibilityIdentifier("describeAlarmButton")
                         Button {
-                            showingCreate = true
+                            activeSheet = .create
                         } label: {
                             Label("Add manually", systemImage: "slider.horizontal.3")
                         }
@@ -121,14 +138,19 @@ private struct AlarmListScreen: View {
                 }
             }
             .sheet(
-                isPresented: $showingCreate,
-                onDismiss: { Task { await model.load() } },  // reload so a new alarm appears
-                content: { CreateAlarmView(processor: processor, clock: clock, ids: ids) }
-            )
-            .sheet(
-                isPresented: $showingDescribe,
-                onDismiss: { Task { await model.load() } },
-                content: { ConversationalCreateCover(onCreated: { Task { await model.load() } }) }
+                item: $activeSheet, onDismiss: { Task { await model.load() } },
+                content: { sheet in
+                    switch sheet {
+                    case .create:
+                        CreateAlarmView(processor: processor, clock: clock, ids: ids)
+                    case .describe:
+                        ConversationalCreateCover(onCreated: { Task { await model.load() } })
+                    case .edit(let alarm):
+                        CreateAlarmView(
+                            editing: alarm, processor: processor, clock: clock, ids: ids,
+                            feedbackStore: feedbackStore)
+                    }
+                }
             )
             .safeAreaInset(edge: .bottom) {
                 if schedulesInSystem {
@@ -137,15 +159,6 @@ private struct AlarmListScreen: View {
                     SchedulingDisabledBanner()
                 }
             }
-            .sheet(
-                item: $editingAlarm,
-                onDismiss: { Task { await model.load() } },
-                content: {
-                    CreateAlarmView(
-                        editing: $0, processor: processor, clock: clock, ids: ids,
-                        feedbackStore: feedbackStore)
-                }
-            )
             .fullScreenCover(item: $challengeTarget) { target in
                 ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
             }
@@ -188,11 +201,11 @@ private struct AlarmListScreen: View {
             AlarmListMessageView(
                 systemImage: "alarm", title: "No alarms yet",
                 message: "Alarms you create will appear here.", identifier: "alarmListEmpty",
-                actionTitle: "Add alarm", action: { showingCreate = true })
+                actionTitle: "Add alarm", action: { activeSheet = .create })
         case .loaded(let content):
             AlarmListLoadedView(
                 content: content, model: model,
-                onEdit: { editingAlarm = model.alarm(for: $0) },
+                onEdit: { if let alarm = model.alarm(for: $0) { activeSheet = .edit(alarm) } },
                 onTestChallenge: { item in
                     challengeTarget = ChallengeTarget(
                         id: item.id, requiredSteps: item.challengeRequiredSteps ?? 0)
