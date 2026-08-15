@@ -4890,6 +4890,48 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-296 (2026-08-14): "Describe your alarm" errored out — brittle decode + undifferentiated failure copy
+
+Device symptom (real user, screenshot): describing an alarm ("Wake me up at 7am and make it critical") showed
+"I couldn’t set that up automatically. You can enter it manually." — the `.unavailable` **parse-leg** stage,
+not the commit-leg `.failed`. So the on-device model call (Apple Intelligence, kept as-is per the user)
+threw; manual entry worked throughout. Two root causes, both fixed; `ci-fast` green (1291 tests, +8).
+
+- **Brittle exact-match decode (prime cause).** `StructuredGenerator.decodeAndValidate` decoded the model's
+  entire returned string as JSON. On-device models routinely wrap the object in prose ("Sure! Here's…") or a
+  ```` ```json ```` fence, so `JSONDecoder` threw → `.malformedOutput` → generic error. Fix: `jsonObject(in:)`
+  extracts the first **balanced** `{ … }` (string-aware — braces inside string values don't change depth)
+  before decoding; no complete object ⇒ fail closed. **Security preserved and re-verified:** recovering an
+  embedded object grants no capability — unknown keys stay inert (WG-161), a parsed draft is never critical
+  (#31), the provider exposes no tools (#30), and the result is only a preview the user must confirm. The
+  adversarial-injection pin still fails closed (its `{"tool":…}` payload lacks the required alarm fields).
+- **Undifferentiated failure copy.** The parser collapsed every failure — unavailable, refused, malformed —
+  into one `.unavailable` outcome, so "turn on Apple Intelligence" and "rephrase your request" were
+  indistinguishable. Fix: `AlarmParseOutcome` splits into `.modelUnavailable` (only a genuinely unavailable
+  model → "Turn on Apple Intelligence in Settings, or enter manually") and `.notUnderstood` (reachable but
+  unusable → "Try rephrasing… or enter manually"). No raw error text is surfaced (#41) — only the coarse
+  typed case is mapped.
+- **Honest criticality disclosure.** Since parsed alarms are always standard (#31), a request that mentions
+  "critical/important/urgent" now shows a preview note ("This creates a standard alarm. To make it critical…
+  use the editor after creating") instead of silently dropping the user's intent. Presentation-only — it
+  never changes the alarm's criticality.
+- Apple Intelligence remains the only model (no OSS model deployed — the user chose to keep AI as-is); the
+  on-device-first / no-cloud posture is unchanged.
+
+**Follow-up (same day, once decode was fixed): "wake me at 7 tomorrow" hit "I can't set that repeat
+pattern".** With parsing restored, a second device bug surfaced: the on-device model reads "tomorrow" as
+*both* tomorrow's weekday *and* dayOffset=1, and `AlarmIntentValidator` hard-rejected that contradiction as
+`unsupportedRecurrence` → the manual editor. Fix: a draft is **weekly only when it names days and carries no
+concrete day offset**; when it carries both, the explicit relative day wins and it resolves to a **one-time**
+alarm (never a rejection). One-time — not weekly — is the deliberate precedence: defaulting to weekly would
+silently create a *recurring* alarm the user never asked for, the worse failure for a safety app; and every
+outcome is still shown in the preview before the user confirms (preview-precedes-save intact). The
+`unsupportedRecurrence` rejection is now unreachable and was removed rather than left as dead vocabulary in a
+safety validator. The extraction prompt was also hardened to state weekdays and dayOffset are mutually
+exclusive. This relaxes a fail-closed rejection into an interpretation, so it is recorded here; it weakens no
+safety invariant (no auto-schedule, no criticality (#31), preview + explicit confirm + policy authorization
+all unchanged).
+
 ### WG-295 (2026-08-14): Device-failure deep-dive — five enforcement defects fixed (multi-agent review)
 
 Device symptoms (real user, post-WG-287 build): walk progress reset to 0 mid-challenge; re-rings continued

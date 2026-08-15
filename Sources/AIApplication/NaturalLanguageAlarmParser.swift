@@ -27,8 +27,14 @@ enum AlarmClarification: Sendable, Equatable, Hashable {
 enum AlarmParseOutcome: Sendable, Equatable, Hashable {
     case preview(AlarmDraftPreview)
     case needsClarification(AlarmClarification)
-    /// The model was unavailable, refused, or produced unusable output — fall back to manual entry.
-    case unavailable
+    /// On-device intelligence isn't available on this device (off, still downloading, or unsupported) —
+    /// guide the user to enable it, with manual entry as the fallback (#33). Distinct from `.notUnderstood`
+    /// (WG-296): previously every failure collapsed here, so "turn it on" and "rephrase" showed identical
+    /// copy and the user couldn't tell which had happened.
+    case modelUnavailable
+    /// The model was reachable but couldn't produce a usable alarm (a refusal or unusable output) — suggest
+    /// rephrasing, with manual entry as the fallback (#33).
+    case notUnderstood
 }
 
 /// Parses a natural-language alarm request into a **preview or a bounded clarification** (WG-164). The
@@ -43,14 +49,19 @@ struct NaturalLanguageAlarmParser: Sendable {
         self.generator = generator
     }
 
-    /// Parse `text`. On any model failure (unavailable / refused / malformed) it returns `.unavailable` so
-    /// the caller offers manual entry — the deterministic fallback (#33).
+    /// Parse `text`. A genuinely unavailable model routes to `.modelUnavailable`; any other failure (refusal
+    /// or unusable output) routes to `.notUnderstood` (WG-296) — both offer manual entry, the deterministic
+    /// fallback (#33), but the caller can now tell the user *which* happened. No raw error text is surfaced
+    /// (#41): only the coarse typed case is mapped.
     func parse(_ text: String) async -> AlarmParseOutcome {
         let parse: AIAlarmParse
         do {
             parse = try await generator.generate(AIAlarmParse.self, for: Self.request(for: text))
         } catch {
-            return .unavailable
+            switch error {
+            case .unavailable: return .modelUnavailable
+            default: return .notUnderstood
+            }
         }
         return Self.interpret(parse)
     }
@@ -87,8 +98,9 @@ struct NaturalLanguageAlarmParser: Sendable {
             If no time is given, set timeSpecified=false.
             If AM/PM is not clearly stated and 24-hour time is not used, set meridiemSpecified=false and \
             put the 1-12 clock hour in "hour".
-            weekdays lists the days a repeating alarm fires; empty for a one-time alarm.
-            dayOffset is days from today (0=today, 1=tomorrow) for a one-time alarm, or null.
+            Set EITHER weekdays OR dayOffset, never both. A repeating request ("every weekday",
+            "on Mondays") sets weekdays to the day names and dayOffset=null. A single day — including a \
+            relative one like "today" or "tomorrow" — sets weekdays=[] and dayOffset (0=today, 1=tomorrow).
             Output ONLY the JSON object and no other field.
             """
         return PromptSafety.request(instruction: instruction, untrusted: text)

@@ -52,9 +52,44 @@ final class StructuredGeneratorTests: XCTestCase {
     }
 
     func testAdversarialOutputFailsClosedNeverADTO() async {
-        // The adversarial script is prose + a fake `cancelAlarm` tool-call — not valid JSON. It can never
-        // decode into an intent, so it can never reach policy; it collapses to `.malformedOutput`.
+        // The adversarial script is prose + a fake `cancelAlarm` tool-call. WG-296 now extracts embedded
+        // JSON, so the `{"tool":…}` object IS recovered — but it lacks every required alarm field, so it
+        // still can't decode into an intent, can never reach policy, and collapses to `.malformedOutput`.
         await expectMalformed(ScriptedLanguageModelProvider.adversarial)
+    }
+
+    // MARK: WG-296 — recover JSON that on-device models wrap in prose or code fences
+
+    func testProseWrappedJSONIsRecoveredAndDecodes() async throws {
+        // The exact "it errored out" cause: the model prepends chatter before the object. Extraction
+        // recovers the balanced object and decodes it, instead of failing closed on the whole string.
+        let output =
+            "Sure! Here's the alarm you asked for:\n"
+            + #"{"hour":7,"minute":0,"recurrence":{"weekdays":[],"date":null},"label":null}"#
+            + "\nLet me know if you'd like anything else."
+        let intent = try await generator(output).generate(AIAlarmIntent.self, for: request)
+        XCTAssertEqual(intent.hour, 7)
+    }
+
+    func testCodeFencedJSONIsRecoveredAndDecodes() async throws {
+        let output =
+            "```json\n"
+            + #"{"hour":6,"minute":15,"recurrence":{"weekdays":["monday"],"date":null},"label":"gym"}"#
+            + "\n```"
+        let intent = try await generator(output).generate(AIAlarmIntent.self, for: request)
+        XCTAssertEqual(intent.minute, 15)
+        XCTAssertEqual(intent.recurrence.weekdays, [.monday])
+    }
+
+    func testBracesInsideStringsDoNotTruncateExtraction() {
+        // A `}` inside a JSON string value must not end the object early — the extractor is string-aware.
+        let raw = #"prefix {"label":"a}b","hour":7} suffix"#
+        XCTAssertEqual(StructuredGenerator.jsonObject(in: raw), #"{"label":"a}b","hour":7}"#)
+    }
+
+    func testProseWithNoCompleteObjectFailsClosed() async {
+        // Chatter with an unterminated object has no balanced `{ … }` — still fail closed.
+        await expectMalformed(ScriptedLanguageModelProvider.returning("I think maybe {\"hour\":7"))
     }
 
     func testOutOfBoundsValueFailsClosedViaValidate() async {

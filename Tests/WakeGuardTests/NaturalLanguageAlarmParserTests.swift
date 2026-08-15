@@ -78,16 +78,26 @@ final class NaturalLanguageAlarmParserTests: XCTestCase {
 
     // MARK: model failure ⇒ manual-entry fallback
 
-    func testModelRefusalFallsBackToUnavailable() async {
+    func testModelRefusalRoutesToNotUnderstood() async {
+        // WG-296: a refusal is a reachable-but-unusable model, distinct from unavailable.
         let generator = StructuredGenerator(
             provider: ScriptedLanguageModelProvider.failing(.refused))
         let outcome = await NaturalLanguageAlarmParser(generator: generator).parse("at 7")
-        XCTAssertEqual(outcome, .unavailable)
+        XCTAssertEqual(outcome, .notUnderstood)
     }
 
-    func testMalformedOutputFallsBackToUnavailable() async {
+    func testUnavailableModelRoutesToModelUnavailable() async {
+        // WG-296: only a genuinely unavailable model gets the "turn it on" route.
+        let generator = StructuredGenerator(
+            provider: ScriptedLanguageModelProvider.failing(.unavailable))
+        let outcome = await NaturalLanguageAlarmParser(generator: generator).parse("at 7")
+        XCTAssertEqual(outcome, .modelUnavailable)
+    }
+
+    func testMalformedOutputRoutesToNotUnderstood() async {
+        // Truly unparseable output (no balanced object) → the model ran but produced nothing usable.
         let outcome = await parser("not json <<< }{").parse("at 7")
-        XCTAssertEqual(outcome, .unavailable)
+        XCTAssertEqual(outcome, .notUnderstood)
     }
 
     // MARK: the parser can never create critical status (#31)
