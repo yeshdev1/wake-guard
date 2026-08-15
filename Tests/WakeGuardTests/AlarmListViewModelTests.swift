@@ -88,6 +88,41 @@ final class AlarmListViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: refresh keeps the list visible — never a blanking flash (WG-297)
+
+    func testLoadingSpinnerShowsOnlyOnColdStartOrRetry() {
+        // A refresh over a resolved list keeps it visible; only a cold start / retry-after-failure blanks.
+        XCTAssertTrue(AlarmListViewModel.showsLoadingSpinner(whileRefreshing: .loading))
+        XCTAssertTrue(
+            AlarmListViewModel.showsLoadingSpinner(whileRefreshing: .failed(reason: "x")))
+        XCTAssertFalse(AlarmListViewModel.showsLoadingSpinner(whileRefreshing: .empty))
+        XCTAssertFalse(
+            AlarmListViewModel.showsLoadingSpinner(
+                whileRefreshing: .loaded(.init(nextAlarm: nil, items: []))))
+    }
+
+    func testReloadKeepsTheLoadedListVisibleAndNeverBlanks() async throws {
+        // The reported glitch: every foreground / sheet-dismiss reload blanked the list to the spinner,
+        // flashing it (and a dismissing sheet's title) mid-transition. A reload must now keep the loaded
+        // list on screen the whole time — observed here while a reload is suspended inside the repository.
+        let repo = GatedAlarmRepository([try makeAlarm(hour: 7)])
+        let vm = makeVM(repo)
+        await vm.load()
+        guard case .loaded = vm.state else {
+            return XCTFail("first load is .loaded, got \(vm.state)")
+        }
+
+        repo.close()  // the next load will suspend inside allAlarms()
+        let reload = Task { await vm.load() }
+        while !repo.hasEntered { await Task.yield() }  // let the reload reach its suspend point
+        guard case .loaded = vm.state else {
+            return XCTFail("a reload must keep the list visible, never blank — got \(vm.state)")
+        }
+        repo.openGate()
+        await reload.value
+        guard case .loaded = vm.state else { return XCTFail("reload resolves to .loaded") }
+    }
+
     func testLoadedComputesNextAlarmSummaryAsSoonest() async throws {
         let repo = try makeRepo()
         let early = try makeAlarm(hour: 6, label: "early")
@@ -254,4 +289,32 @@ private struct FailingAlarmRepository: AlarmRepository {
     func alarm(id: AlarmID) async throws -> Alarm? { throw AlarmRepositoryError.storageUnavailable }
     func allAlarms() async throws -> [Alarm] { throw AlarmRepositoryError.storageUnavailable }
     func deleteAlarm(id: AlarmID) async throws { throw AlarmRepositoryError.storageUnavailable }
+}
+
+/// A repository whose `allAlarms()` can be **held suspended** so a test can observe the view-model's state
+/// while a reload is mid-flight (WG-297). The gate starts open (the first load passes); `close()` makes the
+/// next read suspend inside a `Task.yield()` loop until `openGate()`.
+private final class GatedAlarmRepository: AlarmRepository, @unchecked Sendable {
+    private let alarms: [Alarm]
+    private let open = Synchronized(true)
+    private let entered = Synchronized(false)
+
+    init(_ alarms: [Alarm]) { self.alarms = alarms }
+
+    func allAlarms() async throws -> [Alarm] {
+        entered.mutate { $0 = true }
+        while !open.get() { await Task.yield() }
+        return alarms
+    }
+
+    func close() {
+        open.mutate { $0 = false }
+        entered.mutate { $0 = false }
+    }
+    func openGate() { open.mutate { $0 = true } }
+    var hasEntered: Bool { entered.get() }
+
+    func save(_ alarm: Alarm) async throws {}
+    func alarm(id: AlarmID) async throws -> Alarm? { alarms.first { $0.id == id } }
+    func deleteAlarm(id: AlarmID) async throws {}
 }
