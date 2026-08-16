@@ -12,6 +12,9 @@ struct ReadinessCardView: View {
     /// A motion-based **estimate** of overnight disturbances (WG-310) — shown only as a *fallback* when
     /// HealthKit gives no interruptions, and clearly labelled as an estimate from movement.
     var estimatedDisturbances: SleepDisturbances?
+    /// A motion-based **estimate** of the longest low-activity (rest) stretch overnight (WG-311), in
+    /// seconds — supplemental context, never sleep and never a readiness factor.
+    var estimatedRest: TimeInterval?
 
     private var explanation: ReadinessExplanation { ReadinessExplanation.from(assessment) }
 
@@ -41,7 +44,7 @@ struct ReadinessCardView: View {
                     .font(DesignSystem.Typography.body)
                     .accessibilityIdentifier("readinessInterruptions")
             } else if let estimatedDisturbances {
-                disturbanceEstimate(estimatedDisturbances)
+                motionFallback(disturbances: estimatedDisturbances, rest: estimatedRest)
             }
 
             if !explanation.missingInputs.isEmpty {
@@ -88,10 +91,19 @@ struct ReadinessCardView: View {
         interruptions.awakenings >= 1 ? "sunrise" : "moon.zzz"
     }
 
-    /// The motion fallback line (WG-310): a movement-based estimate, plus an explicit "estimated from
-    /// movement" caveat so it's never mistaken for measured sleep. Icon + text (not colour alone).
-    @ViewBuilder private func disturbanceEstimate(_ disturbances: SleepDisturbances) -> some View {
+    /// The motion fallback (WG-310/311): a rest-window estimate and a disturbance estimate for users without
+    /// measured sleep, under **one** explicit "estimated from movement" caveat so neither is mistaken for
+    /// measured sleep. Each line pairs an SF Symbol with text (not colour alone). This is supplemental — it
+    /// is never folded into the readiness score above.
+    @ViewBuilder private func motionFallback(disturbances: SleepDisturbances, rest: TimeInterval?)
+        -> some View
+    {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            if let rest {
+                Label(restText(rest), systemImage: "moon.zzz")
+                    .font(DesignSystem.Typography.body)
+                    .accessibilityIdentifier("readinessRestEstimate")
+            }
             Label(
                 disturbanceText(disturbances), systemImage: "iphone.gen1.radiowaves.left.and.right"
             )
@@ -100,7 +112,7 @@ struct ReadinessCardView: View {
             Text("Estimated from movement — not measured sleep.")
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.secondaryText)
-                .accessibilityIdentifier("readinessDisturbancesCaveat")
+                .accessibilityIdentifier("readinessMotionCaveat")
         }
     }
 
@@ -108,5 +120,14 @@ struct ReadinessCardView: View {
         guard disturbances.pickups >= 1 else { return "No overnight movement detected." }
         let times = disturbances.pickups == 1 ? "1 time" : "\(disturbances.pickups) times"
         return "Phone moved \(times) overnight"
+    }
+
+    private func restText(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int((seconds / 60).rounded())
+        guard totalMinutes >= 30 else { return "Little low-activity time overnight." }
+        let (hours, minutes) = (totalMinutes / 60, totalMinutes % 60)
+        let span =
+            hours >= 1 ? (minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h") : "\(minutes)m"
+        return "~\(span) of low activity overnight"
     }
 }

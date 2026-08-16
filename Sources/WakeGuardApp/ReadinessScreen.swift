@@ -43,7 +43,8 @@ private struct ReadinessScreenContent: View {
             if let assessment = model.assessment {
                 ReadinessCardView(
                     assessment: assessment, interruptions: model.lastNightInterruptions,
-                    estimatedDisturbances: model.estimatedDisturbances
+                    estimatedDisturbances: model.estimatedDisturbances,
+                    estimatedRest: model.estimatedRest
                 )
                 .padding(DesignSystem.Spacing.lg)
             } else {

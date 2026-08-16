@@ -76,4 +76,34 @@ enum SleepDisturbanceEstimator {
         guard sawData else { return nil }
         return SleepDisturbances(pickups: pickups, movingDuration: movingDuration)
     }
+
+    /// The longest contiguous **low-activity** (non-moving) stretch within the window (WG-311), in seconds
+    /// — a coarse "rest window" estimate for users without measured sleep. Emphatically **not sleep** and
+    /// **not a readiness factor**: a still phone is not a sleeping person (it may sit on a desk for hours),
+    /// so the UI shows this only as a clearly-labelled, supplemental estimate and never folds it into the
+    /// grounded readiness score. A span is "quiet" when its kind is not a `movingKind` (so `.stationary`
+    /// and the frequent low-confidence `.unknown` both count), mirroring `estimate`'s moving/not split.
+    /// `nil` when no sample overlaps the window (unavailable, not fabricated).
+    static func longestRestWindow(samples: [MotionActivitySample], window: DateInterval)
+        -> TimeInterval?
+    {
+        let sorted = samples.sorted { $0.timestamp < $1.timestamp }
+        var longest: TimeInterval = 0
+        var current: TimeInterval = 0
+        var sawData = false
+        for (index, sample) in sorted.enumerated() {
+            let rawEnd = index + 1 < sorted.count ? sorted[index + 1].timestamp : window.end
+            let start = max(sample.timestamp, window.start)
+            let end = min(rawEnd, window.end)
+            guard end > start else { continue }
+            sawData = true
+            if movingKinds.contains(sample.kind) {
+                current = 0
+            } else {
+                current += end.timeIntervalSince(start)
+                longest = max(longest, current)
+            }
+        }
+        return sawData ? longest : nil
+    }
 }

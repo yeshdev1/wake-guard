@@ -79,6 +79,34 @@ final class SleepDisturbanceEstimatorTests: XCTestCase {
             SleepDisturbanceEstimator.estimate(samples: [sample(5_000, .walking)], window: window))
     }
 
+    // MARK: rest window (WG-311)
+
+    func testLongestRestWindowIsTheLongestNonMovingRun() {
+        // still 0–10m, a 5m walk, still 15m–60m: the longest quiet stretch is the 45-minute one.
+        let samples = [sample(0, .stationary), sample(600, .walking), sample(900, .stationary)]
+        XCTAssertEqual(
+            SleepDisturbanceEstimator.longestRestWindow(samples: samples, window: window), 2_700)
+    }
+
+    func testRestWindowTreatsUnknownAsQuietAndMergesWithStationary() {
+        // low-confidence `.unknown` at night counts as quiet, so a still→unknown→still run is continuous.
+        let samples = [sample(0, .stationary), sample(1_200, .unknown), sample(2_400, .stationary)]
+        XCTAssertEqual(
+            SleepDisturbanceEstimator.longestRestWindow(samples: samples, window: window), 3_600,
+            "unknown is quiet, so the whole hour is one rest window")
+    }
+
+    func testRestWindowIsZeroWhenAlwaysMovingButDataExists() {
+        let samples = [sample(0, .walking), sample(1_800, .running)]
+        XCTAssertEqual(
+            SleepDisturbanceEstimator.longestRestWindow(samples: samples, window: window), 0,
+            "moving all window → zero rest, but data existed (not unavailable)")
+    }
+
+    func testRestWindowIsUnavailableWithNoData() {
+        XCTAssertNil(SleepDisturbanceEstimator.longestRestWindow(samples: [], window: window))
+    }
+
     func testOvernightWindowEndsAtNowAndLooksBackByLookback() {
         let now = base
         let derived = SleepDisturbanceEstimator.overnightWindow(endingAt: now, lookback: 8 * 3_600)
