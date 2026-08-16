@@ -1,15 +1,16 @@
 import Foundation
 
-/// A single multiplication problem for the wake-up puzzle (WG-308). Deliberately a *bit* harder than
-/// arithmetic that a groggy brain solves reflexively — a two-digit × single-digit product — so solving
-/// it takes genuine alertness, without being cruel at 3am. Value type; the answer is derived, never stored.
+/// A single multiplication problem for the wake-up puzzle (WG-308). Deliberately harder than arithmetic a
+/// groggy brain solves reflexively — a **two-digit × two-digit** product (WG-308 follow-up: single-digit
+/// multipliers were too easy) — so solving it takes genuine alertness, without being cruel at 3am. Value
+/// type; the answer is derived, never stored.
 public struct WakeMathProblem: Sendable, Equatable, Hashable {
-    public let multiplicand: Int  // two-digit (11…19)
-    public let multiplier: Int  // single-digit (2…9)
+    public let multiplicand: Int  // two-digit (12…29)
+    public let multiplier: Int  // two-digit (12…29)
 
     public var answer: Int { multiplicand * multiplier }
 
-    /// Plain "13 × 7" — the × sign (not "x"/"*") reads correctly as "times" in VoiceOver.
+    /// Plain "23 × 17" — the × sign (not "x"/"*") reads correctly as "times" in VoiceOver.
     public var prompt: String { "\(multiplicand) × \(multiplier)" }
 }
 
@@ -88,8 +89,10 @@ public struct WakeMathPuzzleMachine: Sendable, Equatable {
     }
 
     private static func makeProblem(_ state: inout UInt64) -> WakeMathProblem {
-        let multiplicand = Int(nextRandom(&state) % 9) + 11  // 11…19
-        let multiplier = Int(nextRandom(&state) % 8) + 2  // 2…9
+        // Both factors two-digit (12…29): products reach 841, so the answer is always three digits and
+        // genuinely needs working-out — no reflexive single-digit multiplier, no trivial ×10 / ×11.
+        let multiplicand = Int(nextRandom(&state) % 18) + 12  // 12…29
+        let multiplier = Int(nextRandom(&state) % 18) + 12  // 12…29
         return WakeMathProblem(multiplicand: multiplicand, multiplier: multiplier)
     }
 }

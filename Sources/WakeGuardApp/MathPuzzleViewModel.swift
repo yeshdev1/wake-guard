@@ -17,7 +17,7 @@ final class MathPuzzleViewModel {
     /// Called once when the puzzle is solved — wired to the challenge pass / authorized stop (WG-073).
     var onPassed: () -> Void = {}
 
-    /// Answers top out at 19 × 9 = 171, so three digits is the most anyone ever needs.
+    /// Answers top out at 29 × 29 = 841, so three digits is the most anyone ever needs.
     static let maxEntryDigits = 3
 
     init(machine: WakeMathPuzzleMachine) {
