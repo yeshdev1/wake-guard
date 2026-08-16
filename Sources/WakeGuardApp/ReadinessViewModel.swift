@@ -14,6 +14,10 @@ final class ReadinessViewModel {
     /// **current** data — an unavailable one has no factors.
     private(set) var assessment: ReadinessAssessment?
 
+    /// Last night's mid-sleep interruptions (WG-309), or `nil` when there is no sleep data. Recomputed on
+    /// every refresh from the same samples, so it never outlives a revoked grant.
+    private(set) var lastNightInterruptions: SleepInterruptions?
+
     private let sleepQuery: any SleepSampleQuerying
     private let need: SleepNeed
     private let calendar: Calendar
@@ -36,5 +40,6 @@ final class ReadinessViewModel {
             (try? await sleepQuery.sleepSamples(from: now.addingTimeInterval(-lookback), to: now))
             ?? []
         assessment = ReadinessComputer.readiness(from: samples, need: need, calendar: calendar)
+        lastNightInterruptions = ReadinessComputer.lastNightInterruptions(from: samples)
     }
 }

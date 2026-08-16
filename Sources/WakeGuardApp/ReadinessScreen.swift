@@ -31,8 +31,10 @@ private struct ReadinessScreenContent: View {
     var body: some View {
         ScrollView {
             if let assessment = model.assessment {
-                ReadinessCardView(assessment: assessment)
-                    .padding(DesignSystem.Spacing.lg)
+                ReadinessCardView(
+                    assessment: assessment, interruptions: model.lastNightInterruptions
+                )
+                .padding(DesignSystem.Spacing.lg)
             } else {
                 ProgressView("Checking your sleep readiness…")
                     .padding(DesignSystem.Spacing.xl)
