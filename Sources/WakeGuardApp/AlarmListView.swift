@@ -113,6 +113,8 @@ private struct AlarmListScreen: View {
             if phase == .active {
                 Task { await model.reconcile() }
                 Task { await permission.refresh() }
+                // Pick up Apple Intelligence being enabled while the app was backgrounded (WG-303).
+                availability.refresh()
             }
         }
         .safeAreaInset(edge: .top) {

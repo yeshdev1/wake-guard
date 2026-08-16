@@ -54,12 +54,18 @@ final class AlarmCreationHeaderHintTests: XCTestCase {
             "still preparing → not the 'turn it on' reason")
     }
 
-    func testHintClearsWhenAppleIntelligenceIsTurnedOn() {
+    func testDecisionIsCachedAndClearsOnRefresh() {
+        // WG-303: `decision` is cached (not recomputed per read — that hit the framework every render on
+        // device). It reflects the state at init, and a change is picked up only on `refresh()` (which the
+        // view calls on appear / foreground), so enabling Apple Intelligence and returning clears the hint.
         let provider = StubModelAvailabilityProvider(.unavailable(.appleIntelligenceNotEnabled))
         let model = AIAvailabilityModel(provider: provider)
         XCTAssertEqual(model.decision.unavailabilityReason, .appleIntelligenceNotEnabled)
         provider.set(.available)
-        XCTAssertNil(
-            model.decision.unavailabilityReason, "enabling AI clears the hint on next read")
+        XCTAssertEqual(
+            model.decision.unavailabilityReason, .appleIntelligenceNotEnabled,
+            "cached until refresh — no per-render framework call")
+        model.refresh()
+        XCTAssertNil(model.decision.unavailabilityReason, "refresh picks up the enabled state")
     }
 }
