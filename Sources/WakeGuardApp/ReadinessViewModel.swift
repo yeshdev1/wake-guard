@@ -18,16 +18,24 @@ final class ReadinessViewModel {
     /// every refresh from the same samples, so it never outlives a revoked grant.
     private(set) var lastNightInterruptions: SleepInterruptions?
 
+    /// A motion-based **estimate** of overnight disturbances (WG-310), computed **only** when HealthKit
+    /// gives no interruptions (no Apple sleep tracking) — the fallback for users without a Watch. `nil`
+    /// when unavailable (denied motion access, no history, or HealthKit already answered).
+    private(set) var estimatedDisturbances: SleepDisturbances?
+
     private let sleepQuery: any SleepSampleQuerying
+    private let motionHistory: (any MotionActivityHistorySource)?
     private let need: SleepNeed
     private let calendar: Calendar
     private let lookback: TimeInterval
 
     init(
-        sleepQuery: any SleepSampleQuerying, need: SleepNeed = .default,
+        sleepQuery: any SleepSampleQuerying,
+        motionHistory: (any MotionActivityHistorySource)? = nil, need: SleepNeed = .default,
         calendar: Calendar = Calendar(identifier: .gregorian), lookback: TimeInterval = 14 * 86_400
     ) {
         self.sleepQuery = sleepQuery
+        self.motionHistory = motionHistory
         self.need = need
         self.calendar = calendar
         self.lookback = lookback
@@ -41,5 +49,18 @@ final class ReadinessViewModel {
             ?? []
         assessment = ReadinessComputer.readiness(from: samples, need: need, calendar: calendar)
         lastNightInterruptions = ReadinessComputer.lastNightInterruptions(from: samples)
+        estimatedDisturbances = await motionDisturbances(ifNeeded: lastNightInterruptions, now: now)
+    }
+
+    /// The motion fallback (WG-310): only when HealthKit gave **no** interruptions (no sleep data), and only
+    /// if a motion source is wired. A denied/unavailable/errored query yields `nil` (no estimate shown),
+    /// never a fabricated "undisturbed".
+    private func motionDisturbances(ifNeeded interruptions: SleepInterruptions?, now: Date) async
+        -> SleepDisturbances?
+    {
+        guard interruptions == nil, let motionHistory else { return nil }
+        let window = SleepDisturbanceEstimator.overnightWindow(endingAt: now)
+        guard let samples = try? await motionHistory.activitySamples(in: window) else { return nil }
+        return SleepDisturbanceEstimator.estimate(samples: samples, window: window)
     }
 }

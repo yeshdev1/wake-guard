@@ -24,7 +24,12 @@ private struct ReadinessScreenContent: View {
     private let clock: any WallClock
 
     init(sleepQuery: any SleepSampleQuerying, clock: any WallClock) {
-        _model = State(wrappedValue: ReadinessViewModel(sleepQuery: sleepQuery))
+        // The motion-history source is built here (like the HealthKit auth adapter below) so the readiness
+        // screen can fall back to a motion-based disturbance estimate when HealthKit has no sleep data
+        // (WG-310). On the simulator / denied access it reports unavailable → no estimate is shown.
+        _model = State(
+            wrappedValue: ReadinessViewModel(
+                sleepQuery: sleepQuery, motionHistory: CoreMotionActivityHistoryAdapter()))
         self.clock = clock
     }
 
@@ -32,7 +37,8 @@ private struct ReadinessScreenContent: View {
         ScrollView {
             if let assessment = model.assessment {
                 ReadinessCardView(
-                    assessment: assessment, interruptions: model.lastNightInterruptions
+                    assessment: assessment, interruptions: model.lastNightInterruptions,
+                    estimatedDisturbances: model.estimatedDisturbances
                 )
                 .padding(DesignSystem.Spacing.lg)
             } else {
