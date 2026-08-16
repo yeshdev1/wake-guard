@@ -28,21 +28,21 @@ final class WakeMathPuzzleMachineTests: XCTestCase {
     }
 
     func testProblemsAreAlwaysInTheHarderMultiplicationBand() {
-        // Sweep many seeds and many regenerations: every problem is two-digit × single-digit.
+        // Sweep many seeds and many regenerations: every problem is two-digit × two-digit.
         for seed in UInt64(0)..<200 {
             var puzzle = machine(seed: seed)
             for _ in 0..<8 {
-                XCTAssertTrue((11...19).contains(puzzle.current.multiplicand))
-                XCTAssertTrue((2...9).contains(puzzle.current.multiplier))
+                XCTAssertTrue((12...29).contains(puzzle.current.multiplicand))
+                XCTAssertTrue((12...29).contains(puzzle.current.multiplier))
                 _ = puzzle.submit(-1)  // wrong → next problem
             }
         }
     }
 
     func testPromptUsesTheTimesSignAndDerivedAnswer() {
-        let problem = WakeMathProblem(multiplicand: 13, multiplier: 7)
-        XCTAssertEqual(problem.prompt, "13 × 7")
-        XCTAssertEqual(problem.answer, 91)
+        let problem = WakeMathProblem(multiplicand: 23, multiplier: 17)
+        XCTAssertEqual(problem.prompt, "23 × 17")
+        XCTAssertEqual(problem.answer, 391)
     }
 
     // MARK: - Passing

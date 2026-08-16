@@ -4900,8 +4900,10 @@ asleep. A small math puzzle demands genuine alertness, which is the point of a w
 
 Decision: at the wake screen, "another way" now presents `MathPuzzleView` over the deterministic
 `WakeMathPuzzleMachine` (domain). Design:
-- **Difficulty:** a two-digit × single-digit multiplication (11–19 × 2–9). Harder than reflexive addition,
-  but solvable at 3am; answers top out at 171 (three digits). **Two** correct answers to pass (WG-308 "2").
+- **Difficulty:** a **two-digit × two-digit** multiplication (12–29 × 12–29). The first cut used a
+  single-digit multiplier (11–19 × 2–9); on device that was too easy — a groggy user solved it reflexively —
+  so it was raised to two two-digit factors, which genuinely needs working-out. Answers top out at 841
+  (three digits). **Two** correct answers to pass (WG-308 "2").
 - **Wrong answers never fail the alarm (#21):** a wrong answer hands over a *fresh* problem and never
   advances the count, so brute-forcing one problem is pointless and the user is never trapped — the alarm
   simply stays active until two are solved. Only ever reaches passed, exactly like the walk and the old
