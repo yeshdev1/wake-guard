@@ -28,10 +28,9 @@ struct ConversationalAlarmView: View {
             Text("Describe your alarm")
                 .font(DesignSystem.Typography.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
-            TextField("e.g. wake me at 7 tomorrow", text: $model.input)
+            TextField("e.g. wake me at 7 tomorrow", text: $model.input, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
-                .submitLabel(.go)
-                .onSubmit { Task { await model.submit() } }
+                .lineLimit(3, reservesSpace: true)
                 .accessibilityIdentifier("conversationalAlarmInput")
             Button("Set up") { Task { await model.submit() } }
                 .buttonStyle(PrimaryButtonStyle())
