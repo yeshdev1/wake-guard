@@ -4890,6 +4890,35 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-301 (2026-08-16): Guided generation (`@Generable`) for the describe-alarm parse
+
+Adopt Apple Foundation Models' **guided generation** for the describe-alarm parse: the model emits a
+schema-constrained `GenerableAlarmParse` (`@Generable` + `@Guide`) instead of free JSON text we extract and
+decode. Constrained at generation time → satisfies "constrained structured outputs" (#26) natively, is more
+reliable on the small on-device model, and retires the WG-296 `jsonObject` extraction hack **for this path**.
+
+- **Architecture.** The `@Generable` mirror + mapping live only in `FoundationModelsGuidedAlarmParser`
+  (AIInfrastructure — the sole FoundationModels importer). The domain DTO `AIAlarmParse` and the
+  application layer stay framework-free (Apple frameworks behind protocols). A focused port,
+  `GuidedAlarmParsing`, bridges them. `#if canImport(FoundationModels)`-guarded throughout; the `#else`
+  path fails closed to `.unavailable`.
+- **Fallback (two layers, #33).** `NaturalLanguageAlarmParser` tries guided first; on `.unavailable` (the
+  feature/SDK absent) it falls back to the existing text `StructuredGenerator` path, which itself falls back
+  to the manual editor. Other guided failures propagate (same on-device model — retrying on the text path
+  would just cost a second call). The WG-296 `.modelUnavailable` vs `.notUnderstood` distinction is
+  preserved, so the honest copy + Settings nudge still apply.
+- **Safety unchanged.** No criticality field in the schema (#31); guided generation produces a *value*, not
+  an action — no tools, no AlarmKit, no persistence (#1/#30). Everything still flows through validate →
+  preview → user confirm → policy engine. Untrusted text uses the same `PromptSafety` injection framing
+  (WG-173); nothing is logged (#41). Bounds are still re-validated after mapping (#27). This is a
+  strengthening + additive change — no safety weakening, so a DECISIONS note, not a safety-weakening ADR.
+- **Testing limit.** The real guided call is **device-only** (needs an AI-eligible device), so `ci-fast`
+  pins the *wiring* (guided-first, fallback-on-unavailable, propagate-other-failures, no-port path) with a
+  stub port + the pure mapping; the text path keeps its existing coverage. Device checklist: a matrix of
+  phrasings produces valid guided parses on real hardware.
+- **Scope.** Only the describe-alarm parse; the tomorrow-plan / journal / activity-narration DTOs stay on
+  the text path (migrate later if this proves out).
+
 ### WG-300 (2026-08-16): Creation header on the main screen + honest Apple Intelligence nudge
 
 Human-requested: move the "Describe your alarm" and "Add manually" entries out of the toolbar `+` menu onto

@@ -11,7 +11,8 @@ struct ConversationalCreateCover: View {
             ConversationalCreateHost(
                 processor: environment.alarmCommandProcessor, clock: environment.clock,
                 ids: environment.identifierGenerator,
-                languageModel: environment.languageModelProvider, onCreated: onCreated)
+                languageModel: environment.languageModelProvider,
+                guidedParser: environment.guidedAlarmParser, onCreated: onCreated)
         } else {
             ContentUnavailableView("Unavailable", systemImage: "text.bubble")
                 .accessibilityIdentifier("conversationalUnavailableEnvironment")
@@ -33,13 +34,14 @@ private struct ConversationalCreateHost: View {
 
     init(
         processor: any AlarmCommandProcessing, clock: any WallClock, ids: any IdentifierGenerator,
-        languageModel: any LanguageModelProvider, onCreated: @escaping () -> Void
+        languageModel: any LanguageModelProvider, guidedParser: (any GuidedAlarmParsing)?,
+        onCreated: @escaping () -> Void
     ) {
         self.processor = processor
         self.clock = clock
         self.ids = ids
         let parser = NaturalLanguageAlarmParser(
-            generator: StructuredGenerator(provider: languageModel))
+            generator: StructuredGenerator(provider: languageModel), guided: guidedParser)
         _model = State(
             wrappedValue: ConversationalAlarmViewModel(
                 parser: parser, clock: clock,
