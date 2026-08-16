@@ -64,20 +64,14 @@ struct SystemAlarmManagerAdapter: AlarmManagerAdapter {
     }
 
     func stopRing(alarmID: AlarmID) async throws {
-        // Stop the *currently alerting* alarm. Stopping an id the system does not hold is a no-op
-        // (port contract) — check presence first so a stale/duplicate pass never surfaces a spurious
-        // failure. The full AlarmKit stop/criticality mapping is refined with the real adapter
-        // (WG-026); a cancelled/uncertain call maps to `.uncertain` for reconciliation (#10).
-        if let alarms = try? AlarmManager.shared.alarms,
-            !alarms.contains(where: { $0.id == alarmID.rawValue })
-        {
-            return
-        }
-        do {
-            try AlarmManager.shared.stop(id: alarmID.rawValue)
-        } catch {
-            throw Self.map(error)
-        }
+        // ALWAYS attempt the stop — never presence-gate it (WG-306). A *currently alerting* alarm has
+        // already fired, and on device AlarmKit may no longer list it in `AlarmManager.shared.alarms`
+        // (`scheduledAlarms()` already compact-maps away fired alarms). A presence gate would therefore
+        // silently no-op on exactly the ringing alarm a valid pass must stop — leaving it ringing while
+        // the audit falsely records "stopped". Stopping an id the system no longer holds is harmless, so
+        // this is best-effort: a "no such alarm" (stale/duplicate pass) is swallowed rather than surfaced
+        // as a failure, and the alarm's mandatory Stop button remains the ultimate fallback.
+        try? AlarmManager.shared.stop(id: alarmID.rawValue)
     }
 
     func snooze(alarmID: AlarmID, until: Date) async throws {
