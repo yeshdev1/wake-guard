@@ -28,6 +28,10 @@ struct RetentionCleanupJob: Sendable {
     /// so two days is generous slack.
     static let satisfiedWakeRetention: TimeInterval = 2 * 86_400
 
+    /// Alarm-activity rows (WG-299) are kept this long — a useful recent-wake window that stays bounded
+    /// (#43). Behavioral data, so a bounded, explicit retention rather than indefinite.
+    static let alarmActivityRetention: TimeInterval = 90 * 86_400
+
     func run() async {
         let now = clock.now
         let softCutoff = now.addingTimeInterval(-policy.audit)
@@ -42,6 +46,8 @@ struct RetentionCleanupJob: Sendable {
             before: now.addingTimeInterval(-Self.outboxRetention))
         try? await persistence.pruneSatisfiedWakes(
             before: now.addingTimeInterval(-Self.satisfiedWakeRetention))
+        try? await persistence.pruneAlarmActivities(
+            before: now.addingTimeInterval(-Self.alarmActivityRetention))
     }
 
     private func criticalAlarmIDStrings() async -> [String] {

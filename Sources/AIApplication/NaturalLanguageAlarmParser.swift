@@ -44,9 +44,14 @@ enum AlarmParseOutcome: Sendable, Equatable, Hashable {
 /// always precedes save, which is a later, explicit user action.
 struct NaturalLanguageAlarmParser: Sendable {
     private let generator: StructuredGenerator
+    /// The guided-generation path (WG-301), tried first when present. When it's absent (older SDK) it
+    /// reports `.unavailable` and the parser falls back to the text `generator` — so guided is a
+    /// reliability upgrade layered on the existing path, never a new failure mode.
+    private let guided: (any GuidedAlarmParsing)?
 
-    init(generator: StructuredGenerator) {
+    init(generator: StructuredGenerator, guided: (any GuidedAlarmParsing)? = nil) {
         self.generator = generator
+        self.guided = guided
     }
 
     /// Parse `text`. A genuinely unavailable model routes to `.modelUnavailable`; any other failure (refusal
@@ -56,7 +61,7 @@ struct NaturalLanguageAlarmParser: Sendable {
     func parse(_ text: String) async -> AlarmParseOutcome {
         let parse: AIAlarmParse
         do {
-            parse = try await generator.generate(AIAlarmParse.self, for: Self.request(for: text))
+            parse = try await parseSchema(text)
         } catch {
             switch error {
             case .unavailable: return .modelUnavailable
@@ -64,6 +69,21 @@ struct NaturalLanguageAlarmParser: Sendable {
             }
         }
         return Self.interpret(parse)
+    }
+
+    /// Produce the structured parse — guided generation first (WG-301), falling back to the text path only
+    /// when guided is **unavailable** (the framework feature is absent). Any other guided failure
+    /// propagates, since the text path uses the same on-device model and would only cost a second call.
+    private func parseSchema(_ text: String) async throws(LanguageModelError) -> AIAlarmParse {
+        guard let guided else {
+            return try await generator.generate(AIAlarmParse.self, for: Self.request(for: text))
+        }
+        do {
+            return try await guided.parseAlarm(from: text)
+        } catch {
+            guard error == .unavailable else { throw error }
+            return try await generator.generate(AIAlarmParse.self, for: Self.request(for: text))
+        }
     }
 
     /// Pure, deterministic interpretation of a structured parse into an outcome. No time ⇒ ask; unstated

@@ -4890,6 +4890,134 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-304 (2026-08-16): Travel-update notification when a time-zone change shifts alarms
+
+Human-requested: when the device time zone changes and alarms are recomputed, tell the user (previously the
+reconcile was silent). An informational local notification, not an interactive decision prompt.
+
+- **Fires only** on a real device zone change (the existing `SystemTimeZoneMonitor.onChange`) **and** only
+  when the reconcile actually shifted an enabled alarm (`TravelNotificationPolicy.shouldNotify` —
+  `scheduled > 0 || cancelled > 0`, and never when skipped). No notification if nothing moved (all "stay
+  fixed", or no alarms) — so it's not tied to the routine launch/foreground reconcile, only to travel.
+- **Copy:** "Time zone changed — You've entered a new time zone (<city>). Your alarms have been updated to
+  keep the times you set — tap to review." Zone name is the public IANA city, no sensitive data (#41).
+- **Permission:** reuses the pre-alarm notification permission (alert+sound) — no separate ask; a denial is
+  a no-op and the change stays in History. **Never touches an alarm** — a missed notification is safe (#9).
+- **Wiring:** `TravelUpdateCoordinator` (reconcile → notify-if-changed, unit-tested) + a `TravelUpdateNotifying`
+  port; `SystemTravelUpdateNotifier` (UNUserNotifications) in production, `NoopTravelUpdateNotifier` in the
+  in-memory graph (hermetic). The real post is device-only; ci-fast pins the policy + coordinator.
+- **A VPN does not trigger it** — iOS derives the time zone from Location Services / manual setting, not the
+  network/IP, so a VPN changes neither the device zone nor the alarms. Testing requires real travel or a
+  manual zone change (Settings › General › Date & Time › off "Set Automatically").
+- Note: dormant `TravelPolicyEvaluator`/`TimeZoneChangePrompt` scaffolding exists for a richer *interactive*
+  keep-home-zone vs follow-local choice — the fuller #16 answer for critical alarms, deferred as a future
+  option; this ships the lightweight FYI.
+
+### WG-301 (2026-08-16): Guided generation (`@Generable`) for the describe-alarm parse
+
+Adopt Apple Foundation Models' **guided generation** for the describe-alarm parse: the model emits a
+schema-constrained `GenerableAlarmParse` (`@Generable` + `@Guide`) instead of free JSON text we extract and
+decode. Constrained at generation time → satisfies "constrained structured outputs" (#26) natively, is more
+reliable on the small on-device model, and retires the WG-296 `jsonObject` extraction hack **for this path**.
+
+- **Architecture.** The `@Generable` mirror + mapping live only in `FoundationModelsGuidedAlarmParser`
+  (AIInfrastructure — the sole FoundationModels importer). The domain DTO `AIAlarmParse` and the
+  application layer stay framework-free (Apple frameworks behind protocols). A focused port,
+  `GuidedAlarmParsing`, bridges them. `#if canImport(FoundationModels)`-guarded throughout; the `#else`
+  path fails closed to `.unavailable`.
+- **Fallback (two layers, #33).** `NaturalLanguageAlarmParser` tries guided first; on `.unavailable` (the
+  feature/SDK absent) it falls back to the existing text `StructuredGenerator` path, which itself falls back
+  to the manual editor. Other guided failures propagate (same on-device model — retrying on the text path
+  would just cost a second call). The WG-296 `.modelUnavailable` vs `.notUnderstood` distinction is
+  preserved, so the honest copy + Settings nudge still apply.
+- **Safety unchanged.** No criticality field in the schema (#31); guided generation produces a *value*, not
+  an action — no tools, no AlarmKit, no persistence (#1/#30). Everything still flows through validate →
+  preview → user confirm → policy engine. Untrusted text uses the same `PromptSafety` injection framing
+  (WG-173); nothing is logged (#41). Bounds are still re-validated after mapping (#27). This is a
+  strengthening + additive change — no safety weakening, so a DECISIONS note, not a safety-weakening ADR.
+- **Testing limit.** The real guided call is **device-only** (needs an AI-eligible device), so `ci-fast`
+  pins the *wiring* (guided-first, fallback-on-unavailable, propagate-other-failures, no-port path) with a
+  stub port + the pure mapping; the text path keeps its existing coverage. Device checklist: a matrix of
+  phrasings produces valid guided parses on real hardware.
+- **Scope.** Only the describe-alarm parse; the tomorrow-plan / journal / activity-narration DTOs stay on
+  the text path (migrate later if this proves out).
+
+### WG-300 (2026-08-16): Creation header on the main screen + honest Apple Intelligence nudge
+
+Human-requested: move the "Describe your alarm" and "Add manually" entries out of the toolbar `+` menu onto
+the main screen (above the list), and add short educational text emphasizing critical alarms + walks.
+
+- **Layout.** A tappable **"Describe your alarm"** card (opens the full conversational flow — all
+  follow-ups preserved) and an **"Add manually"** button sit at the top of the list; the alarm list is
+  below; the toolbar `+` menu is removed as redundant; the empty state slims to a one-liner. Pure
+  presentation — no alarm-authority / persistence / safety-invariant impact. Accessibility identifiers
+  (`describeAlarmButton`, `addManualAlarmButton`) are preserved so the flows are unchanged for tests.
+- **Educational text (below the options).** Below the critical and walk follow-up questions, plain text
+  emphasizes why each matters. It is **honest and non-diagnostic** (#39): the critical copy is the
+  commitment-device rationale (rings through silent/Focus/DND); the walk copy is grounded in the
+  well-documented **sleep-inertia** effect (grogginess after waking, reduced by getting up and moving) —
+  **no fabricated citation** and no claim about the individual user. This was human-approved wording.
+- **Apple Intelligence nudge.** When on-device intelligence is off-but-supported
+  (`appleIntelligenceNotEnabled`), the header shows a subtle, non-blocking hint with an **"Open Settings"**
+  action; it never nags on an ineligible device and always states alarms ring regardless (#9). Honest
+  limitation recorded: iOS has **no public deep link to the Apple Intelligence pane**, so the button opens
+  the app's Settings page (`openAppSettings`) and the copy names the path. Availability is read via the
+  existing `FoundationModelsAvailabilityAdapter` (hermetic `FixedModelAvailabilityProvider` in the
+  in-memory graph); the hint condition is pinned by `AlarmCreationHeaderHintTests`.
+- Deferred: an in-flow "Open Settings" button in the describe `.unavailable` stage (the header hint already
+  provides the actionable Settings open before the user enters the flow); the flow's copy still names
+  Settings.
+
+### WG-299 (2026-08-16): "Alarm Activity" — recorded, cached, on-device-AI-narrated wake history
+
+Human-requested feature: a section with a card per rung alarm's challenge (walk or not, steps, duration,
+outcome), phrased in simple English by the on-device model, recorded + cached, with a periodic full summary.
+
+- **Feasibility / data volume.** Trivial: one small record per ring (~a few hundred bytes) → well under
+  1 MB/year even at heavy use; the model runs on demand (per card / summary), not continuously. Storage and
+  compute are non-issues — the constraints are privacy and correctness, not size.
+- **Deterministic facts are the source of truth; the AI only narrates (#32).** `AlarmActivity` records the
+  facts (`AlarmActivityOutcome`, steps, requiredSteps, durationSeconds, walkRequired); its `plainSummary` is
+  a deterministic simple-English line that is ALWAYS shown if the model is unavailable (#33). The
+  `AlarmActivityNarrator` feeds the facts to the grounded `ExplanationGenerator` — every claim must cite a
+  real factor, so the model can never inject a fact that wasn't recorded (pinned:
+  `testNarratorDropsAnUngroundedClaimAndFallsBack`). No medical/sleep-diagnostic claim (#39).
+- **Privacy.** Behavioral data, so **on-device only** (#35/#40), **prompts never logged** (the AI source
+  scan covers the narrator), covered by **full-erase** (`eraseAllEntities` iterates all entities) and an
+  **explicit 90-day retention** sweep (#43, `pruneAlarmActivities`). No label/schedule/health/location value
+  is stored — only interaction facts (#41).
+- **Persistence.** Additive Core Data **v8** (`AlarmActivityRecord`, unique per (alarm, occurrence)), keyed
+  like `SatisfiedWakeRecord`; the migration harness auto-covers it from the builder count.
+- **Capture + advisory.** The challenge runtime records the outcome (pass / timeout / accessible-fallback /
+  interrupted) off the alarm path — best-effort, unstructured, never blocking or affecting an alarm
+  (#8/#9). Scope note: this captures **walk-challenge** wakes (the rich case); recording plain no-walk rings
+  needs a ring-lifecycle hook and is a follow-up. The full summary refreshes per visit ("from time to time").
+
+### WG-298 (2026-08-16): "Describe your alarm" gathers critical / walk / steps+seconds — amends WG-245 Finding A
+
+Human-approved feature request: after the schedule parses, the conversational flow now gathers the same
+enforcement facets the manual editor does — **critical or not**, **walk or not**, and the **steps + seconds**
+(the manual editor's bounded, cadence-normalized steppers, reused via `ChallengeDraft`) — asking only what
+the request didn't already state, then shows everything in the preview for an explicit Confirm.
+
+- **Inference is deterministic, never from the model.** `mentionsCriticality` / `mentionsWalk` are keyword
+  checks over the user's typed text; if a facet is stated, its question is skipped and the choice is
+  pre-set. The on-device model's output schema stays criticality-free — it never emits or assigns
+  criticality. So **#31 ("the policy engine, not the model, assigns criticality") is preserved**: a keyword
+  hint pre-fills a choice the user still confirms, and the policy engine still authorizes on Confirm.
+- **What this amends: WG-245 Finding A**, which hard-locked conversational alarms to `.standard`
+  ("criticality never taken from parsed text"). That stance is relaxed to: parsed text may *propose* a
+  criticality/challenge, but it is only ever applied after the user's **explicit confirmation** in the
+  review step (critical is always shown there, even when inferred — never silently on). Nothing schedules
+  before Confirm (preview-precedes-save intact); the walk always carries its tap alternative (#22, via
+  `WalkChallenge` requiring an `accessibleFallback`); steps stay in the plausible-cadence band exactly as in
+  the manual editor. This is recorded here per the "no safety-stance change without an ADR" rule; it weakens
+  no numbered invariant.
+- The commit payload became `ConversationalAlarmSpec { intent, criticality, challenge }`; `ConversationalAlarmBuilder`
+  applies the confirmed criticality + challenge instead of forcing `.standard`. Pinned: each follow-up is
+  asked only when un-inferred, a stated facet is pre-set and not re-asked, the spec carries the confirmed
+  critical + walk, and steps stay within the cadence band. `ci-fast` green — 1298 tests.
+
 ### WG-296 (2026-08-14): "Describe your alarm" errored out — brittle decode + undifferentiated failure copy
 
 Device symptom (real user, screenshot): describing an alarm ("Wake me up at 7am and make it critical") showed

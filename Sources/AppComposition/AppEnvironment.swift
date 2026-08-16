@@ -87,6 +87,21 @@ struct AppEnvironment: Sendable {
     /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
     /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
     let languageModelProvider: any LanguageModelProvider
+    /// The guided-generation alarm parser (WG-301): the describe flow tries this first for a
+    /// schema-constrained parse (#26), falling back to `languageModelProvider` when it's absent. `nil` in
+    /// the in-memory graph, so tests/previews use the text fallback. Read-only; no alarm authority (#1/#30).
+    let guidedAlarmParser: (any GuidedAlarmParsing)?
+    /// Reports on-device-model availability (WG-162/300): the creation header reads it to show the honest
+    /// "turn on Apple Intelligence" hint when it's off-but-supported. Read-only; no alarm authority (#9).
+    let modelAvailabilityProvider: any ModelAvailabilityProviding
+    /// Opens the system Settings app (WG-300) — used by the AI hint's "Open Settings" action. Production
+    /// opens the app's Settings page; the in-memory graph no-ops (hermetic).
+    let settingsOpener: any SettingsOpener
+    /// The on-device wake-activity history (WG-299): the store the "Alarm Activity" section reads, and the
+    /// recorder the challenge runtime writes to at each outcome. On-device only (#35/#40); advisory — it
+    /// holds no alarm authority and its failure never affects an alarm (#8/#9).
+    let alarmActivityStore: any AlarmActivityStore
+    let alarmActivityRecorder: any AlarmActivityRecording
     /// The sleep-sample source for the readiness card (WG-121). Production reads HealthKit; the in-memory
     /// graph returns no samples (readiness degrades to "not enough data", #36/#38). Read-only, on device,
     /// never stored raw (#41); holds no alarm authority.
@@ -114,9 +129,12 @@ struct AppEnvironment: Sendable {
                 alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
                 schedulesAlarmsInSystem: true,
                 preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
+                travelNotifier: SystemTravelUpdateNotifier(),
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 languageModelProvider: FoundationModelsLanguageModelProvider(),
+                guidedAlarmParser: FoundationModelsGuidedAlarmParser(),
+                modelAvailabilityProvider: FoundationModelsAvailabilityAdapter(),
                 sleepQuery: HealthKitSleepQueryAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
@@ -145,9 +163,12 @@ struct AppEnvironment: Sendable {
                 alarmManager: DeferredAlarmManagerAdapter(), settingsOpener: NoopSettingsOpener(),
                 schedulesAlarmsInSystem: false,
                 preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
+                travelNotifier: NoopTravelUpdateNotifier(),
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
                 languageModelProvider: UnavailableLanguageModelProvider(),
+                guidedAlarmParser: nil,
+                modelAvailabilityProvider: FixedModelAvailabilityProvider(),
                 sleepQuery: UnavailableSleepQuery(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
@@ -178,9 +199,12 @@ struct AppEnvironment: Sendable {
         let settingsOpener: any SettingsOpener
         let schedulesAlarmsInSystem: Bool
         let preAlarmNotifications: any PreAlarmNotificationScheduling
+        let travelNotifier: any TravelUpdateNotifying
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
         let languageModelProvider: any LanguageModelProvider
+        let guidedAlarmParser: (any GuidedAlarmParsing)?
+        let modelAvailabilityProvider: any ModelAvailabilityProviding
         let sleepQuery: any SleepSampleQuerying
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
@@ -243,6 +267,20 @@ struct AppEnvironment: Sendable {
             clock: clock, ids: ids, satisfiedWakes: satisfiedWakes)
     }
 
+    /// Build the wake-activity store + its on-device narrating recorder (WG-299) — extracted so `make()`
+    /// stays within budget. On-device only; the narration is grounded (#32) and its prompt never logged.
+    private static func makeActivityRecording(
+        persistence: PersistenceController, wiring: SystemWiring
+    ) -> (store: CoreDataAlarmActivityStore, recorder: DefaultAlarmActivityRecorder) {
+        let store = CoreDataAlarmActivityStore(persistence)
+        let recorder = DefaultAlarmActivityRecorder(
+            narrator: AlarmActivityNarrator(
+                generator: ExplanationGenerator(
+                    generator: StructuredGenerator(provider: wiring.languageModelProvider))),
+            store: store)
+        return (store, recorder)
+    }
+
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
@@ -270,6 +308,7 @@ struct AppEnvironment: Sendable {
                 coordinator: promptCoordinator),
             notifications: wiring.preAlarmNotifications, deviceTimeZone: { .current })
         let preAlarmFeedback = CoreDataPreAlarmFeedbackStore(persistence)
+        let activity = makeActivityRecording(persistence: persistence, wiring: wiring)
         let privacy = makePrivacyControls(persistence: persistence, clock: clock, wiring: wiring)
         return AppEnvironment(
             clock: clock,
@@ -282,21 +321,21 @@ struct AppEnvironment: Sendable {
             preAlarmPromptCoordinator: promptCoordinator,
             authorizationCoordinator: authorizationCoordinator,
             preAlarmNotifications: wiring.preAlarmNotifications,
-            preAlarmResponder: preAlarmResponder,
-            preAlarmWork: preAlarmWork,
-            preAlarmFeedback: preAlarmFeedback,
-            cloudTokenStore: wiring.cloudTokenStore,
-            dataEraser: privacy.dataEraser,
-            retentionCleanup: privacy.retentionCleanup,
+            preAlarmResponder: preAlarmResponder, preAlarmWork: preAlarmWork,
+            preAlarmFeedback: preAlarmFeedback, cloudTokenStore: wiring.cloudTokenStore,
+            dataEraser: privacy.dataEraser, retentionCleanup: privacy.retentionCleanup,
             consentStatusProvider: privacy.consentStatusProvider,
-            deletionCoordinator: privacy.deletionCoordinator,
-            exportData: privacy.exportData,
-            timeZoneMonitor: makeTimeZoneMonitor(processor: recorder),
+            deletionCoordinator: privacy.deletionCoordinator, exportData: privacy.exportData,
+            timeZoneMonitor: makeTimeZoneMonitor(
+                processor: recorder, notifier: wiring.travelNotifier),
             diagnosticsProvider: DefaultDiagnosticsProvider(
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
             languageModelProvider: wiring.languageModelProvider,
-            sleepQuery: wiring.sleepQuery,
+            guidedAlarmParser: wiring.guidedAlarmParser,
+            modelAvailabilityProvider: wiring.modelAvailabilityProvider,
+            settingsOpener: wiring.settingsOpener, alarmActivityStore: activity.store,
+            alarmActivityRecorder: activity.recorder, sleepQuery: wiring.sleepQuery,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

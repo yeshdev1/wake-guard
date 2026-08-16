@@ -3,13 +3,38 @@ import XCTest
 
 @testable import WakeGuard
 
-/// WG-166: the conversational commit converter (`ValidatedAlarmIntent` → `Alarm`) and the fail-closed
-/// composition. The converter maps recurrence/time/zone onto a `ScheduleRule` and **always** yields a
-/// `.standard` alarm — criticality is never taken from parsed text (#31 / WG-245 Finding A). Over the
-/// hermetic graph (no on-device model), the flow routes to the manual editor (#33).
+/// WG-166 / WG-298: the conversational commit converter (`ConversationalAlarmSpec` → `Alarm`) and the
+/// fail-closed composition. The converter maps recurrence/time/zone onto a `ScheduleRule` and applies the
+/// **user-confirmed** criticality and challenge from the spec — criticality still never comes from the
+/// model's output (#31); it comes from the user's explicit choice. Over the hermetic graph (no on-device
+/// model), the flow routes to the manual editor (#33).
 final class ConversationalAlarmBuilderTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func standardSpec(_ intent: ValidatedAlarmIntent) -> ConversationalAlarmSpec {
+        ConversationalAlarmSpec(intent: intent, criticality: .standard, challenge: .none)
+    }
+
+    func testSpecWithCriticalWalkBuildsACriticalWalkAlarm() throws {
+        // WG-298: the user confirmed critical + a walk in the review step — the built alarm carries both.
+        let intent = ValidatedAlarmIntent(
+            time: try TimeOfDay(hour: 7, minute: 0), recurrence: .weekly([.monday]),
+            timeZone: try IANATimeZone(identifier: "America/New_York"))
+        var draft = ChallengeDraft()
+        draft.kind = .walk
+        let spec = ConversationalAlarmSpec(
+            intent: intent, criticality: .critical, challenge: draft.build())
+
+        let alarm = try XCTUnwrap(
+            ConversationalAlarmBuilder.alarm(from: spec, id: UUID(), now: now))
+
+        XCTAssertEqual(alarm.criticality, .critical, "the user's confirmed criticality is applied")
+        XCTAssertTrue(alarm.challengePolicy.isRequired, "the confirmed walk challenge is applied")
+        XCTAssertNotNil(
+            alarm.challengePolicy.accessibleFallback,
+            "a walk always carries a tap alternative (#22)")
+    }
 
     func testWeeklyIntentBuildsStandardWeeklyAlarm() throws {
         let intent = ValidatedAlarmIntent(
@@ -18,10 +43,9 @@ final class ConversationalAlarmBuilderTests: XCTestCase {
             timeZone: try IANATimeZone(identifier: "America/New_York"))
 
         let alarm = try XCTUnwrap(
-            ConversationalAlarmBuilder.alarm(from: intent, id: UUID(), now: now))
+            ConversationalAlarmBuilder.alarm(from: standardSpec(intent), id: UUID(), now: now))
 
-        XCTAssertEqual(
-            alarm.criticality, .standard, "parsed text never yields a critical alarm (#31)")
+        XCTAssertEqual(alarm.criticality, .standard)
         guard case .weekly(let weekly) = alarm.schedule else {
             return XCTFail("expected a weekly rule")
         }
@@ -38,7 +62,7 @@ final class ConversationalAlarmBuilderTests: XCTestCase {
             timeZone: zone)
 
         let alarm = try XCTUnwrap(
-            ConversationalAlarmBuilder.alarm(from: intent, id: UUID(), now: now))
+            ConversationalAlarmBuilder.alarm(from: standardSpec(intent), id: UUID(), now: now))
 
         XCTAssertEqual(alarm.criticality, .standard)
         guard case .oneTime(let oneTime) = alarm.schedule else {
@@ -88,10 +112,10 @@ final class ConversationalAlarmBuilderTests: XCTestCase {
         let model = ConversationalAlarmViewModel(
             parser: parser, clock: clock,
             deviceTimeZone: { TimeZone(identifier: "America/New_York") ?? .current },
-            commit: { intent in
+            commit: { spec in
                 guard
                     let alarm = ConversationalAlarmBuilder.alarm(
-                        from: intent, id: ids.next(), now: clock.now)
+                        from: spec, id: ids.next(), now: clock.now)
                 else { return false }
                 switch await processor.process(
                     .create(alarm), from: .userInterface, by: .user, userConfirmed: false)
@@ -103,8 +127,11 @@ final class ConversationalAlarmBuilderTests: XCTestCase {
 
         model.input = "weekdays at 07:30"
         await model.submit()
+        // Neither critical nor walk was stated → the flow asks both; answer no to reach the preview.
+        model.answerCritical(false)
+        model.answerWalk(false)
         guard case .preview = model.stage else {
-            return XCTFail("a valid parse should preview; got \(model.stage)")
+            return XCTFail("answering the follow-ups should reach the preview; got \(model.stage)")
         }
         await model.confirm()
         guard case .scheduled = model.stage else {

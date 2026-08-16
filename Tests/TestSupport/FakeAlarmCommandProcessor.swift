@@ -12,6 +12,7 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
         var confirmed: CommandOutcome
         var seen: [AlarmCommand] = []
         var reconcileCount = 0
+        var reconcileSummary = ReconciliationSummary()
     }
     private let state: Synchronized<State>
 
@@ -38,6 +39,11 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
         }
     }
 
+    /// Script the summary `reconcile()` returns — for the travel-notification decision (WG-304).
+    func setReconcileSummary(_ summary: ReconciliationSummary) {
+        state.mutate { $0.reconcileSummary = summary }
+    }
+
     func process(
         _ command: AlarmCommand, from source: CommandSource, by actor: AuditActor,
         userConfirmed: Bool
@@ -53,7 +59,9 @@ final class FakeAlarmCommandProcessor: AlarmCommandProcessing {
 
     func reconcile() async -> ReconciliationSummary {
         await Task.yield()
-        state.mutate { $0.reconcileCount += 1 }
-        return ReconciliationSummary()
+        return state.mutate {
+            $0.reconcileCount += 1
+            return $0.reconcileSummary
+        }
     }
 }

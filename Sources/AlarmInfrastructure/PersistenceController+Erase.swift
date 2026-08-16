@@ -66,6 +66,17 @@ extension PersistenceController {
         }
     }
 
+    /// Reap alarm-activity rows older than `cutoff` (WG-299) — the retention window (#43) that keeps the
+    /// on-device wake history bounded. Store-side batch delete, no load.
+    func pruneAlarmActivities(before cutoff: Date) async throws {
+        let context = container.newBackgroundContext()
+        try await context.perform {
+            let fetch = NSFetchRequest<any NSFetchRequestResult>(entityName: "AlarmActivityRecord")
+            fetch.predicate = NSPredicate(format: "occurredAt < %@", cutoff as NSDate)
+            try context.execute(NSBatchDeleteRequest(fetchRequest: fetch))
+        }
+    }
+
     /// The audit events as their **already-stored JSON payloads**, newest first — for the data export
     /// (WG-183) without decoding each into an `AuditEvent` and re-encoding it (the export just needs the
     /// JSON). Faults in batches (`fetchBatchSize`) so peak memory stays bounded even for a large log.
