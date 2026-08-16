@@ -2,17 +2,43 @@ import XCTest
 
 @testable import WakeGuard
 
-/// WG-300: the creation header's Apple Intelligence hint condition. The header shows the actionable
-/// "turn it on" nudge **only** when the model is off-but-supported (`appleIntelligenceNotEnabled`) — never
-/// when AI is available, and never on an ineligible device (where there's nothing to turn on). This pins
-/// the exact `AIAvailabilityModel.decision` the view branches on, so the nudge can't start showing (or stop)
-/// silently. It refreshes when the reported state flips (e.g. the user enables AI and returns).
+/// WG-300/302: the creation header's Apple Intelligence hint. Pins both the availability decision the view
+/// branches on and the **reason-aware copy** (`AlarmCreationHint`): available → no hint; off-but-supported →
+/// "turn it on" + Open Settings; ineligible / preparing → an honest "not available, add manually" with **no**
+/// Settings button (nothing to flip). This is exactly the "tell the user they can't use the AI function and
+/// ask them to enter manually" behaviour, pinned so it can't regress silently.
 @MainActor
 final class AlarmCreationHeaderHintTests: XCTestCase {
 
     private func reason(for availability: ModelAvailability) -> ModelUnavailabilityReason? {
         AIAvailabilityModel(provider: StubModelAvailabilityProvider(availability))
             .decision.unavailabilityReason
+    }
+
+    private func decision(_ reason: ModelUnavailabilityReason) -> AIAvailabilityDecision {
+        AIAvailabilityDecision(aiFeaturesEnabled: false, unavailabilityReason: reason)
+    }
+
+    func testHintCopyIsReasonAwareAndOffersSettingsOnlyWhenActionable() {
+        XCTAssertNil(AlarmCreationHint.hint(for: .enabled), "AI on → no hint at all")
+
+        let off = AlarmCreationHint.hint(for: decision(.appleIntelligenceNotEnabled))
+        XCTAssertEqual(off?.showsOpenSettings, true, "off-but-supported offers Open Settings")
+        XCTAssertTrue(off?.message.contains("Turn it on") ?? false)
+
+        let ineligible = AlarmCreationHint.hint(for: decision(.deviceNotEligible))
+        XCTAssertEqual(
+            ineligible?.showsOpenSettings, false, "nothing to turn on → no Settings button")
+        XCTAssertTrue(
+            ineligible?.message.lowercased().contains("doesn’t support") ?? false,
+            "ineligible → honest 'this iPhone doesn't support Apple Intelligence'")
+        XCTAssertTrue(
+            ineligible?.message.lowercased().contains("manually") ?? false,
+            "always points the user to manual entry")
+
+        let preparing = AlarmCreationHint.hint(for: decision(.modelNotReady))
+        XCTAssertEqual(preparing?.showsOpenSettings, false)
+        XCTAssertTrue(preparing?.message.lowercased().contains("manually") ?? false)
     }
 
     func testHintShowsOnlyWhenAppleIntelligenceIsOffButSupported() {
