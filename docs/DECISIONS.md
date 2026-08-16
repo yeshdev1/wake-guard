@@ -4890,6 +4890,32 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-300 (2026-08-16): Creation header on the main screen + honest Apple Intelligence nudge
+
+Human-requested: move the "Describe your alarm" and "Add manually" entries out of the toolbar `+` menu onto
+the main screen (above the list), and add short educational text emphasizing critical alarms + walks.
+
+- **Layout.** A tappable **"Describe your alarm"** card (opens the full conversational flow — all
+  follow-ups preserved) and an **"Add manually"** button sit at the top of the list; the alarm list is
+  below; the toolbar `+` menu is removed as redundant; the empty state slims to a one-liner. Pure
+  presentation — no alarm-authority / persistence / safety-invariant impact. Accessibility identifiers
+  (`describeAlarmButton`, `addManualAlarmButton`) are preserved so the flows are unchanged for tests.
+- **Educational text (below the options).** Below the critical and walk follow-up questions, plain text
+  emphasizes why each matters. It is **honest and non-diagnostic** (#39): the critical copy is the
+  commitment-device rationale (rings through silent/Focus/DND); the walk copy is grounded in the
+  well-documented **sleep-inertia** effect (grogginess after waking, reduced by getting up and moving) —
+  **no fabricated citation** and no claim about the individual user. This was human-approved wording.
+- **Apple Intelligence nudge.** When on-device intelligence is off-but-supported
+  (`appleIntelligenceNotEnabled`), the header shows a subtle, non-blocking hint with an **"Open Settings"**
+  action; it never nags on an ineligible device and always states alarms ring regardless (#9). Honest
+  limitation recorded: iOS has **no public deep link to the Apple Intelligence pane**, so the button opens
+  the app's Settings page (`openAppSettings`) and the copy names the path. Availability is read via the
+  existing `FoundationModelsAvailabilityAdapter` (hermetic `FixedModelAvailabilityProvider` in the
+  in-memory graph); the hint condition is pinned by `AlarmCreationHeaderHintTests`.
+- Deferred: an in-flow "Open Settings" button in the describe `.unavailable` stage (the header hint already
+  provides the actionable Settings open before the user enters the flow); the flow's copy still names
+  Settings.
+
 ### WG-299 (2026-08-16): "Alarm Activity" — recorded, cached, on-device-AI-narrated wake history
 
 Human-requested feature: a section with a card per rung alarm's challenge (walk or not, steps, duration,

@@ -52,7 +52,11 @@ struct ConversationalAlarmView: View {
                     question: "Make this a critical alarm?",
                     detail:
                         "Critical alarms ring through silent mode and Focus, and are harder to dismiss.",
-                    yes: "Yes, critical", no: "No, standard", id: "conversationalAskCritical"),
+                    yes: "Yes, critical", no: "No, standard", id: "conversationalAskCritical",
+                    footnote:
+                        "Critical alarms ring through silent mode, Focus, and Do Not Disturb — so the "
+                        + "morning you truly can't miss, it still goes off. For anything that matters, "
+                        + "critical is the safe choice."),
                 onYes: { model.answerCritical(true) }, onNo: { model.answerCritical(false) })
         case .askWalk:
             choiceView(
@@ -61,7 +65,13 @@ struct ConversationalAlarmView: View {
                     detail:
                         "You'll need to take a few steps to stop the alarm — a tap alternative is "
                         + "always available.",
-                    yes: "Yes, add a walk", no: "No", id: "conversationalAskWalk"),
+                    yes: "Yes, add a walk", no: "No", id: "conversationalAskWalk",
+                    footnote:
+                        "The grogginess right after waking — sleep inertia — is what pulls you back to "
+                        + "bed. Getting on your feet and moving is one of the most reliable ways to "
+                        + "shake it off, and a walk makes it genuinely hard to doze off again. A "
+                        + "critical alarm plus a short walk is the most dependable way to actually get "
+                        + "up."),
                 onYes: { model.answerWalk(true) }, onNo: { model.answerWalk(false) })
         case .configureWalk:
             walkConfigView
@@ -247,6 +257,10 @@ private struct FollowUpChoice {
     let yes: String
     let no: String
     let id: String
+    /// Educational emphasis shown **below** the options (WG-300) — why critical / the walk matters. Plain,
+    /// honest, non-diagnostic text (#39); grounded in the commitment-device rationale and the well-known
+    /// sleep-inertia effect, with no fabricated citation.
+    var footnote: String?
 }
 
 /// The WG-298 follow-up screens — kept in an extension so the main view type stays within its body-length
@@ -267,6 +281,12 @@ extension ConversationalAlarmView {
                 .accessibilityIdentifier("\(choice.id)Yes")
             Button(choice.no, action: onNo)
                 .accessibilityIdentifier("\(choice.id)No")
+            if let footnote = choice.footnote {
+                Text(footnote)
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.secondaryText)
+                    .accessibilityIdentifier("\(choice.id)Footnote")
+            }
         }
         .accessibilityIdentifier(choice.id)
     }

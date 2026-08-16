@@ -23,7 +23,9 @@ struct AlarmListView: View {
                 processor: environment.alarmCommandProcessor, ids: environment.identifierGenerator,
                 schedulesInSystem: environment.schedulesAlarmsInSystem,
                 authorizationCoordinator: environment.authorizationCoordinator,
-                feedbackStore: environment.preAlarmFeedback)
+                feedbackStore: environment.preAlarmFeedback,
+                availabilityProvider: environment.modelAvailabilityProvider,
+                settingsOpener: environment.settingsOpener)
         } else {
             AlarmListMessageView(
                 systemImage: "externaldrive.badge.exclamationmark", title: "Alarms unavailable",
@@ -61,129 +63,126 @@ private struct AlarmListScreen: View {
     /// another's. The challenge is a separate full-screen cover (a different presentation style).
     @State private var activeSheet: ActiveSheet?
     @State private var challengeTarget: ChallengeTarget?
+    @State private var availability: AIAvailabilityModel
     private let processor: any AlarmCommandProcessing
     private let clock: any WallClock
     private let ids: any IdentifierGenerator
     private let schedulesInSystem: Bool
     private let feedbackStore: any PreAlarmFeedbackStore
+    private let settingsOpener: any SettingsOpener
 
     init(
         alarms: any AlarmRepository, clock: any WallClock,
         processor: any AlarmCommandProcessing, ids: any IdentifierGenerator,
         schedulesInSystem: Bool,
         authorizationCoordinator: AlarmAuthorizationCoordinator,
-        feedbackStore: any PreAlarmFeedbackStore
+        feedbackStore: any PreAlarmFeedbackStore,
+        availabilityProvider: any ModelAvailabilityProviding,
+        settingsOpener: any SettingsOpener
     ) {
         _model = State(
             wrappedValue: AlarmListViewModel(alarms: alarms, clock: clock, processor: processor))
         _permission = State(
             wrappedValue: AlarmPermissionModel(coordinator: authorizationCoordinator))
+        _availability = State(wrappedValue: AIAvailabilityModel(provider: availabilityProvider))
         self.processor = processor
         self.clock = clock
         self.ids = ids
         self.schedulesInSystem = schedulesInSystem
         self.feedbackStore = feedbackStore
+        self.settingsOpener = settingsOpener
     }
 
     var body: some View {
-        stateContent
-            // Reconcile the system authority against saved alarms on launch and every foreground
-            // (WG-029), then refresh; `reconcile()` reloads the list when it finishes.
-            .task { await model.reconcile() }
-            .task { await permission.refresh() }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    Task { await model.reconcile() }
-                    Task { await permission.refresh() }
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                if model.isReconciling { ReconcilingBanner() }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        PrivacySettingsView()
-                    } label: {
-                        Label("Privacy & data", systemImage: "hand.raised")
-                    }
-                    .accessibilityIdentifier("privacySettingsButton")
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        ReadinessScreen()
-                    } label: {
-                        Label("Readiness", systemImage: "bed.double")
-                    }
-                    .accessibilityIdentifier("readinessButton")
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        AlarmActivityView()
-                    } label: {
-                        Label("Alarm activity", systemImage: "figure.walk.motion")
-                    }
-                    .accessibilityIdentifier("alarmActivityButton")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            activeSheet = .describe
-                        } label: {
-                            Label("Describe your alarm", systemImage: "text.bubble")
-                        }
-                        .accessibilityIdentifier("describeAlarmButton")
-                        Button {
-                            activeSheet = .create
-                        } label: {
-                            Label("Add manually", systemImage: "slider.horizontal.3")
-                        }
-                        .accessibilityIdentifier("addManualAlarmButton")
-                    } label: {
-                        Label("Add alarm", systemImage: "plus")
-                    }
-                    .accessibilityIdentifier("addAlarmButton")
-                }
-            }
-            .sheet(
-                item: $activeSheet, onDismiss: { Task { await model.load() } },
-                content: { sheet in
-                    switch sheet {
-                    case .create:
-                        CreateAlarmView(processor: processor, clock: clock, ids: ids)
-                    case .describe:
-                        ConversationalCreateCover(onCreated: { Task { await model.load() } })
-                    case .edit(let alarm):
-                        CreateAlarmView(
-                            editing: alarm, processor: processor, clock: clock, ids: ids,
-                            feedbackStore: feedbackStore)
-                    }
-                }
+        VStack(spacing: DesignSystem.Spacing.md) {
+            AlarmCreationHeader(
+                onDescribe: { activeSheet = .describe },
+                onManual: { activeSheet = .create },
+                availability: availability,
+                onOpenSettings: { Task { _ = await settingsOpener.openAppSettings() } }
             )
-            .safeAreaInset(edge: .bottom) {
-                if schedulesInSystem {
-                    AlarmPermissionBanner(model: permission)
-                } else {
-                    SchedulingDisabledBanner()
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.top, DesignSystem.Spacing.sm)
+            stateContent
+        }
+        // Reconcile the system authority against saved alarms on launch and every foreground
+        // (WG-029), then refresh; `reconcile()` reloads the list when it finishes.
+        .task { await model.reconcile() }
+        .task { await permission.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await model.reconcile() }
+                Task { await permission.refresh() }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if model.isReconciling { ReconcilingBanner() }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    PrivacySettingsView()
+                } label: {
+                    Label("Privacy & data", systemImage: "hand.raised")
+                }
+                .accessibilityIdentifier("privacySettingsButton")
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    ReadinessScreen()
+                } label: {
+                    Label("Readiness", systemImage: "bed.double")
+                }
+                .accessibilityIdentifier("readinessButton")
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    AlarmActivityView()
+                } label: {
+                    Label("Alarm activity", systemImage: "figure.walk.motion")
+                }
+                .accessibilityIdentifier("alarmActivityButton")
+            }
+        }
+        .sheet(
+            item: $activeSheet, onDismiss: { Task { await model.load() } },
+            content: { sheet in
+                switch sheet {
+                case .create:
+                    CreateAlarmView(processor: processor, clock: clock, ids: ids)
+                case .describe:
+                    ConversationalCreateCover(onCreated: { Task { await model.load() } })
+                case .edit(let alarm):
+                    CreateAlarmView(
+                        editing: alarm, processor: processor, clock: clock, ids: ids,
+                        feedbackStore: feedbackStore)
                 }
             }
-            .fullScreenCover(item: $challengeTarget) { target in
-                ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
+        )
+        .safeAreaInset(edge: .bottom) {
+            if schedulesInSystem {
+                AlarmPermissionBanner(model: permission)
+            } else {
+                SchedulingDisabledBanner()
             }
-            .alert(
-                "Confirm change", isPresented: confirmationPresented,
-                presenting: model.pendingConfirmation
-            ) { _ in
-                Button("Cancel", role: .cancel) { Task { await model.cancelPendingConfirmation() } }
-                Button("Confirm", role: .destructive) { Task { await model.confirmPending() } }
-            } message: {
-                Text($0.reason)
-            }
-            .alert("Couldn’t complete", isPresented: actionErrorPresented) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.actionError ?? "")
-            }
+        }
+        .fullScreenCover(item: $challengeTarget) { target in
+            ChallengeTestCover(alarmID: target.id, required: target.requiredSteps)
+        }
+        .alert(
+            "Confirm change", isPresented: confirmationPresented,
+            presenting: model.pendingConfirmation
+        ) { _ in
+            Button("Cancel", role: .cancel) { Task { await model.cancelPendingConfirmation() } }
+            Button("Confirm", role: .destructive) { Task { await model.confirmPending() } }
+        } message: {
+            Text($0.reason)
+        }
+        .alert("Couldn’t complete", isPresented: actionErrorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.actionError ?? "")
+        }
     }
 
     private var confirmationPresented: Binding<Bool> {
@@ -208,8 +207,8 @@ private struct AlarmListScreen: View {
         case .empty:
             AlarmListMessageView(
                 systemImage: "alarm", title: "No alarms yet",
-                message: "Alarms you create will appear here.", identifier: "alarmListEmpty",
-                actionTitle: "Add alarm", action: { activeSheet = .create })
+                message: "Describe an alarm or add one manually above.",
+                identifier: "alarmListEmpty")
         case .loaded(let content):
             AlarmListLoadedView(
                 content: content, model: model,
