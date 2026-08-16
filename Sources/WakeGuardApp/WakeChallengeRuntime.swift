@@ -15,13 +15,23 @@ import Observation
 @Observable
 final class WakeChallengeRuntime {
     let viewModel: ChallengeViewModel
+    private let alarmID: AlarmID
+    private let required: Int
     private let pedometer: any PedometerSource
     private let coordinator: ChallengeStopCoordinator
+    /// Records the wake's outcome into the on-device activity history (WG-299) — advisory, best-effort,
+    /// off the alarm path (#8/#9). Optional so previews / hermetic tests can omit it.
+    private let activityRecorder: (any AlarmActivityRecording)?
+    private let now: @Sendable () -> Date
+    private var startedAt: Date?
     private var observations: [MovementObservation] = []
     private var task: Task<Void, Never>?
     /// The in-flight authorized-stop submission after a pass (WG-295 D7) — unstructured so the view's
     /// dismissal (which cancels `task`) can never cancel the stop itself. Never cancelled by `stop()`.
     private(set) var passSubmission: Task<Void, Never>?
+    /// The in-flight activity record — unstructured (never cancelled by `stop()`) and exposed so tests can
+    /// await it.
+    private(set) var activitySubmission: Task<Void, Never>?
     #if DEBUG
         /// Live anti-shake cadence stats for on-device calibration (WG-075) — DEBUG only, compiled out of
         /// Release; read by the diagnostics overlay on the challenge screen.
@@ -30,11 +40,28 @@ final class WakeChallengeRuntime {
 
     init(
         alarmID: AlarmID, required: Int, pedometer: any PedometerSource,
-        processor: any AlarmCommandProcessing
+        processor: any AlarmCommandProcessing,
+        activityRecorder: (any AlarmActivityRecording)? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         viewModel = ChallengeViewModel(required: required)
+        self.alarmID = alarmID
+        self.required = required
         self.pedometer = pedometer
+        self.activityRecorder = activityRecorder
+        self.now = now
         coordinator = ChallengeStopCoordinator(alarmID: alarmID, processor: processor)
+    }
+
+    /// Record the wake's outcome into the activity history (WG-299). Fire-and-forget on an unstructured
+    /// task so it never blocks the UI or gets cancelled by the view's teardown; at most one record fires.
+    private func recordActivity(_ outcome: AlarmActivityOutcome) {
+        guard let activityRecorder, let startedAt, activitySubmission == nil else { return }
+        let activity = AlarmActivity(
+            alarmID: alarmID, occurredAt: startedAt, outcome: outcome, walkRequired: true,
+            stepsWalked: viewModel.stepsCompleted, requiredSteps: required,
+            durationSeconds: max(0, Int(now().timeIntervalSince(startedAt))))
+        activitySubmission = Task { await activityRecorder.record(activity) }
     }
 
     /// Begin the challenge in a background task (production). Idempotent.
@@ -54,11 +81,13 @@ final class WakeChallengeRuntime {
     /// exactly one stop.
     func accessibleAlternativePassed() async {
         await coordinator.accessibleAlternativePassed()
+        recordActivity(.tapAlternative)
     }
 
     /// Consume the pedometer stream and drive the machine; on a pass, submit the authorized stop. Exposed
     /// (not `private`) so a test can drive it deterministically; production calls it via `start()`.
     func drive() async {
+        startedAt = now()
         viewModel.apply(.start)
         var availability = await pedometer.availability()
         if availability == .notAuthorized {
@@ -85,6 +114,7 @@ final class WakeChallengeRuntime {
                     // handle is kept so tests (and any caller) can await the submission.
                     let coordinator = self.coordinator
                     passSubmission = Task { await coordinator.walkChallengeReached(.passed) }
+                    recordActivity(.walkedAndPassed)
                     return
                 }
             }
@@ -92,11 +122,17 @@ final class WakeChallengeRuntime {
             // phase into a machine that may still be displayed (WG-295, UI finding 2).
             guard !Task.isCancelled else { return }
             // The stream ended without a corroborated pass — the walk didn't complete in the window.
-            if viewModel.machine.phase != .passed { viewModel.apply(.timeout) }
+            if viewModel.machine.phase != .passed {
+                viewModel.apply(.timeout)
+                recordActivity(.timedOut)
+            }
         } catch {
             guard !Task.isCancelled else { return }
             // The sensor dropped out mid-attempt — keep the alarm active, offer the fallback (#21).
-            if viewModel.machine.phase != .passed { viewModel.apply(.sensorsUnavailable) }
+            if viewModel.machine.phase != .passed {
+                viewModel.apply(.sensorsUnavailable)
+                recordActivity(.interrupted)
+            }
         }
     }
 }

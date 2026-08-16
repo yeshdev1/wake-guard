@@ -117,6 +117,14 @@ private struct AlarmListScreen: View {
                     }
                     .accessibilityIdentifier("readinessButton")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        AlarmActivityView()
+                    } label: {
+                        Label("Alarm activity", systemImage: "figure.walk.motion")
+                    }
+                    .accessibilityIdentifier("alarmActivityButton")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button {
