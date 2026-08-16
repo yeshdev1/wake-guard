@@ -176,6 +176,10 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertEqual(
             model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 600),
             "the motion fallback estimates the overnight disturbance")
+        // Quiet runs: still for 30 min before the walk, 20 min after → longest rest window is 30 min.
+        XCTAssertEqual(
+            model.estimatedRest, 1_800,
+            "the fallback also estimates the longest rest window (WG-311)")
     }
 
     func testMotionFallbackIsSuppressedWhenHealthKitHasSleepData() async throws {
@@ -192,6 +196,8 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertNil(
             model.estimatedDisturbances, "the motion fallback is suppressed when HealthKit has data"
         )
+        XCTAssertNil(
+            model.estimatedRest, "the rest estimate is suppressed too when HealthKit has data")
     }
 }
 

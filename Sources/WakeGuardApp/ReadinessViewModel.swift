@@ -23,6 +23,12 @@ final class ReadinessViewModel {
     /// when unavailable (denied motion access, no history, or HealthKit already answered).
     private(set) var estimatedDisturbances: SleepDisturbances?
 
+    /// A motion-based **estimate** of the longest low-activity (rest) stretch overnight (WG-311), in
+    /// seconds — supplemental context so the screen isn't empty for non-Watch users. **Not sleep and not a
+    /// readiness factor** (a still phone isn't a sleeping person); shown only as a clearly-labelled
+    /// estimate. Same availability rule as `estimatedDisturbances` (both from one motion query).
+    private(set) var estimatedRest: TimeInterval?
+
     private let sleepQuery: any SleepSampleQuerying
     private let motionHistory: (any MotionActivityHistorySource)?
     private let need: SleepNeed
@@ -49,18 +55,21 @@ final class ReadinessViewModel {
             ?? []
         assessment = ReadinessComputer.readiness(from: samples, need: need, calendar: calendar)
         lastNightInterruptions = ReadinessComputer.lastNightInterruptions(from: samples)
-        estimatedDisturbances = await motionDisturbances(ifNeeded: lastNightInterruptions, now: now)
+        await applyMotionFallback(now: now)
     }
 
-    /// The motion fallback (WG-310): only when HealthKit gave **no** interruptions (no sleep data), and only
-    /// if a motion source is wired. A denied/unavailable/errored query yields `nil` (no estimate shown),
-    /// never a fabricated "undisturbed".
-    private func motionDisturbances(ifNeeded interruptions: SleepInterruptions?, now: Date) async
-        -> SleepDisturbances?
-    {
-        guard interruptions == nil, let motionHistory else { return nil }
+    /// The motion fallback (WG-310/311): only when HealthKit gave **no** interruptions (no sleep data) and a
+    /// motion source is wired. One query populates **both** the disturbance and rest estimates; a
+    /// denied/unavailable/errored query leaves them `nil` (no estimate shown), never a fabricated value.
+    /// Both are reset each refresh, so a revoked grant never leaves a stale estimate on screen.
+    private func applyMotionFallback(now: Date) async {
+        estimatedDisturbances = nil
+        estimatedRest = nil
+        guard lastNightInterruptions == nil, let motionHistory else { return }
         let window = SleepDisturbanceEstimator.overnightWindow(endingAt: now)
-        guard let samples = try? await motionHistory.activitySamples(in: window) else { return nil }
-        return SleepDisturbanceEstimator.estimate(samples: samples, window: window)
+        guard let samples = try? await motionHistory.activitySamples(in: window) else { return }
+        estimatedDisturbances = SleepDisturbanceEstimator.estimate(samples: samples, window: window)
+        estimatedRest = SleepDisturbanceEstimator.longestRestWindow(
+            samples: samples, window: window)
     }
 }

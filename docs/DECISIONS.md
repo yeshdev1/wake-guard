@@ -4890,6 +4890,29 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-311 (2026-08-16): A motion "rest window" estimate fills the readiness screen for non-Watch users — but never the readiness score
+
+Human-asked: can we fill the readiness screen right away from the motion history for users with no measured
+sleep? Answer: **partly**, and the boundary is a safety one.
+
+- **What we do:** reuse the WG-310 motion-history query to also compute the **longest contiguous low-activity
+  (non-moving) stretch** overnight (`SleepDisturbanceEstimator.longestRestWindow`), and show it as a
+  supplemental, clearly-labelled line on the readiness card ("~7h of low activity overnight" under the shared
+  "Estimated from movement — not measured sleep." caveat). One motion query populates both the disturbance
+  and rest estimates; both reset each refresh, so a revoked grant leaves no stale value.
+- **What we deliberately do NOT do:** fold this into the readiness **score / level / factors**. A still phone
+  is not a sleeping person (it may sit on a desk for hours), so treating motion stillness as measured sleep
+  would violate `SAFETY_INVARIANTS` — *"missing data returns unavailable, not fabricated"* and the readiness
+  model's grounded/no-black-box guarantee — and Apple's own iPhone Sleep Schedule already produces a far
+  better motion+usage sleep inference (which WG-309 reads when it exists). So `ReadinessModel` still reports
+  "not enough data" when there is no real sleep timeline; the rest estimate is *context beside* the score,
+  never an input to it.
+- **Honesty / privacy:** framed as "low activity", not sleep; no diagnosis (#39); coarse — a single duration,
+  no timestamps (#41); advisory only, never on the alarm path. A "quiet" span is any non-`movingKind`
+  (`.stationary` plus the frequent low-confidence `.unknown`), mirroring the disturbance split. `nil` when
+  there's no motion data (unavailable), `0` when data exists but the device was always moving — never
+  conflated. Tested in `SleepDisturbanceEstimatorTests` + the view-model fallback in `HealthAccessStatesTests`.
+
 ### WG-310 (2026-08-16): Motion-based overnight-disturbance estimate — the fallback for users without Apple sleep tracking
 
 Follow-up to WG-309 (the deferred "step 2"): WG-309 derives interruptions from HealthKit `.awake` segments,
