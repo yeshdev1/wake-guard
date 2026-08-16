@@ -43,8 +43,12 @@ struct ReadinessCardView: View {
                 Label(interruptionText(interruptions), systemImage: interruptionIcon(interruptions))
                     .font(DesignSystem.Typography.body)
                     .accessibilityIdentifier("readinessInterruptions")
-            } else if let estimatedDisturbances {
-                motionFallback(disturbances: estimatedDisturbances, rest: estimatedRest)
+            }
+
+            // The movement summary is always shown when motion data is available (WG-312) — alongside any
+            // HealthKit sleep data, not only as a fallback — and is never folded into the score above.
+            if let estimatedDisturbances {
+                movementSection(disturbances: estimatedDisturbances, rest: estimatedRest)
             }
 
             if !explanation.missingInputs.isEmpty {
@@ -91,14 +95,20 @@ struct ReadinessCardView: View {
         interruptions.awakenings >= 1 ? "sunrise" : "moon.zzz"
     }
 
-    /// The motion fallback (WG-310/311): a rest-window estimate and a disturbance estimate for users without
-    /// measured sleep, under **one** explicit "estimated from movement" caveat so neither is mistaken for
-    /// measured sleep. Each line pairs an SF Symbol with text (not colour alone). This is supplemental — it
-    /// is never folded into the readiness score above.
-    @ViewBuilder private func motionFallback(disturbances: SleepDisturbances, rest: TimeInterval?)
+    /// The always-on **Movement overnight** section (WG-310/311/312): a rest-window estimate and a
+    /// disturbance estimate from motion history, shown alongside any HealthKit sleep data, under **one**
+    /// explicit "estimated from movement" caveat so neither is mistaken for measured sleep. Its own header +
+    /// divider make it a distinct section, not a sleep claim. Each line pairs an SF Symbol with text (not
+    /// colour alone). Supplemental — never folded into the readiness score above.
+    @ViewBuilder private func movementSection(disturbances: SleepDisturbances, rest: TimeInterval?)
         -> some View
     {
+        Divider()
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Text("Movement overnight")
+                .font(DesignSystem.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("readinessMovementHeader")
             if let rest {
                 Label(restText(rest), systemImage: "moon.zzz")
                     .font(DesignSystem.Typography.body)

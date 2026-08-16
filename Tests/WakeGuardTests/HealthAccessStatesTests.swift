@@ -157,10 +157,10 @@ final class HealthAccessStatesTests: XCTestCase {
             "no sleep data → unavailable, not fabricated")
     }
 
-    // MARK: motion-based disturbance fallback (WG-310)
+    // MARK: always-on movement summary (WG-310/311/312)
 
-    func testMotionFallbackEstimatesDisturbancesWhenHealthKitHasNoSleepData() async throws {
-        // No HealthKit sleep data (no Watch), but motion history shows one overnight walk.
+    func testMovementSummaryEstimatesDisturbancesAndRestFromMotion() async throws {
+        // Motion history shows one overnight walk between two still stretches.
         let motion = FixedMotionHistory([
             MotionActivitySample(
                 timestamp: base.addingTimeInterval(-3_600), quality: .high, kind: .stationary),
@@ -172,17 +172,17 @@ final class HealthAccessStatesTests: XCTestCase {
         let model = ReadinessViewModel(
             sleepQuery: MutableSleepSource([]), motionHistory: motion, calendar: makeCalendar())
         await model.refresh(now: base)
-        XCTAssertNil(model.lastNightInterruptions, "no HealthKit sleep data")
         XCTAssertEqual(
             model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 600),
-            "the motion fallback estimates the overnight disturbance")
+            "the movement summary estimates the overnight disturbance")
         // Quiet runs: still for 30 min before the walk, 20 min after → longest rest window is 30 min.
         XCTAssertEqual(
             model.estimatedRest, 1_800,
-            "the fallback also estimates the longest rest window (WG-311)")
+            "the summary also estimates the longest rest window (WG-311)")
     }
 
-    func testMotionFallbackIsSuppressedWhenHealthKitHasSleepData() async throws {
+    func testMovementSummaryShowsAlongsideHealthKitSleepData() async throws {
+        // WG-312: the movement summary is now shown ALWAYS, even when HealthKit already has sleep data.
         let motion = FixedMotionHistory([
             MotionActivitySample(
                 timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking)
@@ -193,11 +193,19 @@ final class HealthAccessStatesTests: XCTestCase {
         await model.refresh(now: base)
         XCTAssertNotNil(
             model.lastNightInterruptions, "HealthKit answered → interruptions available")
-        XCTAssertNil(
-            model.estimatedDisturbances, "the motion fallback is suppressed when HealthKit has data"
+        XCTAssertEqual(
+            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 1_800),
+            "the movement summary shows alongside HealthKit sleep data, no longer suppressed (WG-312)"
         )
-        XCTAssertNil(
-            model.estimatedRest, "the rest estimate is suppressed too when HealthKit has data")
+        XCTAssertEqual(
+            model.estimatedRest, 0, "always moving in-window → zero rest, but data existed")
+    }
+
+    func testMovementSummaryUnavailableWithNoMotionSource() async throws {
+        let model = viewModel(MutableSleepSource(night(dayOffset: -1)))  // no motion source wired
+        await model.refresh(now: base)
+        XCTAssertNil(model.estimatedDisturbances, "no motion source → no movement section")
+        XCTAssertNil(model.estimatedRest)
     }
 }
 
