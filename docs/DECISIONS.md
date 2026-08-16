@@ -4909,9 +4909,10 @@ Mechanism (the "smart way", within iOS limits):
 
 Wiring: `ReadinessViewModel` runs the fallback **only** when HealthKit gave no interruptions (`nil`), and only
 if a motion source is wired; a denied/errored query yields `nil` (no estimate shown), never a fabricated value.
-`ReadinessScreen` constructs `CoreMotionActivityHistoryAdapter()` directly (mirroring how it already builds
-`HealthKitAuthorizationAdapter`) — kept out of `AppEnvironment` to stay a small prototype; a follow-up can move
-it into the graph for hermetic composition.
+The source is composed in `AppEnvironment` (like `sleepQuery`): production wires
+`CoreMotionActivityHistoryAdapter`, and the in-memory graph wires the hermetic `UnavailableMotionActivityHistory`
+(returns no samples) so previews/tests never touch CoreMotion. `ReadinessScreen` injects
+`environment.motionActivityHistory` into the view model.
 
 Honesty / privacy / safety:
 - It is an inference of the phone being **handled**, not confirmed screen-on usage — the card says so

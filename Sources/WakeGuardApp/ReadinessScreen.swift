@@ -9,7 +9,9 @@ struct ReadinessScreen: View {
 
     var body: some View {
         if let environment {
-            ReadinessScreenContent(sleepQuery: environment.sleepQuery, clock: environment.clock)
+            ReadinessScreenContent(
+                sleepQuery: environment.sleepQuery,
+                motionHistory: environment.motionActivityHistory, clock: environment.clock)
         } else {
             ContentUnavailableView("Readiness unavailable", systemImage: "bed.double")
                 .accessibilityIdentifier("readinessUnavailable")
@@ -23,13 +25,16 @@ private struct ReadinessScreenContent: View {
     @State private var model: ReadinessViewModel
     private let clock: any WallClock
 
-    init(sleepQuery: any SleepSampleQuerying, clock: any WallClock) {
-        // The motion-history source is built here (like the HealthKit auth adapter below) so the readiness
-        // screen can fall back to a motion-based disturbance estimate when HealthKit has no sleep data
-        // (WG-310). On the simulator / denied access it reports unavailable → no estimate is shown.
+    init(
+        sleepQuery: any SleepSampleQuerying, motionHistory: any MotionActivityHistorySource,
+        clock: any WallClock
+    ) {
+        // The motion-history source is injected from the composed environment (WG-310) so the readiness
+        // screen can fall back to a motion-based disturbance estimate when HealthKit has no sleep data.
+        // The in-memory graph injects a hermetic no-op; on the simulator / denied access it reports
+        // unavailable → no estimate is shown.
         _model = State(
-            wrappedValue: ReadinessViewModel(
-                sleepQuery: sleepQuery, motionHistory: CoreMotionActivityHistoryAdapter()))
+            wrappedValue: ReadinessViewModel(sleepQuery: sleepQuery, motionHistory: motionHistory))
         self.clock = clock
     }
 
