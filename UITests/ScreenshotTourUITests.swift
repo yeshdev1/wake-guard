@@ -117,7 +117,7 @@ final class ScreenshotTourUITests: XCTestCase {
             snap(app, "17-walk-challenge")
             if find(app, "challengeAccessibleAlternative").waitForExistence(timeout: 4) {
                 find(app, "challengeAccessibleAlternative").tap()
-                _ = find(app, "accessibleChallengeView").waitForExistence(timeout: 6)
+                _ = find(app, "mathPuzzleView").waitForExistence(timeout: 6)
                 snap(app, "18-accessible-fallback")
             }
         }

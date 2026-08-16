@@ -9,14 +9,14 @@ import SwiftUI
 struct ChallengeHostView: View {
     let runtime: WakeChallengeRuntime
     @State private var showingAccessible = false
-    @State private var accessible: AccessibleChallengeViewModel
+    @State private var puzzle: MathPuzzleViewModel
     @Environment(\.dismiss) private var dismiss
 
     init(runtime: WakeChallengeRuntime) {
         self.runtime = runtime
-        _accessible = State(
-            wrappedValue: AccessibleChallengeViewModel(
-                requirements: AccessibleChallengeRequirements(kind: .tapSequence)))
+        _puzzle = State(
+            wrappedValue: MathPuzzleViewModel(
+                machine: WakeMathPuzzleMachine(seed: runtime.puzzleSeed)))
     }
 
     var body: some View {
@@ -31,9 +31,9 @@ struct ChallengeHostView: View {
             if phase == .passed { dismiss() }
         }
         .sheet(isPresented: $showingAccessible) {
-            AccessibleChallengeView(viewModel: accessible)
+            MathPuzzleView(viewModel: puzzle)
                 .onAppear {
-                    accessible.onPassed = {
+                    puzzle.onPassed = {
                         Task {
                             await runtime.accessibleAlternativePassed()
                             showingAccessible = false
