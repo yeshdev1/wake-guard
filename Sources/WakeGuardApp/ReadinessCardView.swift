@@ -9,6 +9,9 @@ struct ReadinessCardView: View {
     /// Last night's mid-sleep interruptions (WG-309), or `nil` when there is no sleep data. Coarse by
     /// design — a count and a total, no times (#41).
     var interruptions: SleepInterruptions?
+    /// A motion-based **estimate** of overnight disturbances (WG-310) — shown only as a *fallback* when
+    /// HealthKit gives no interruptions, and clearly labelled as an estimate from movement.
+    var estimatedDisturbances: SleepDisturbances?
 
     private var explanation: ReadinessExplanation { ReadinessExplanation.from(assessment) }
 
@@ -37,6 +40,8 @@ struct ReadinessCardView: View {
                 Label(interruptionText(interruptions), systemImage: interruptionIcon(interruptions))
                     .font(DesignSystem.Typography.body)
                     .accessibilityIdentifier("readinessInterruptions")
+            } else if let estimatedDisturbances {
+                disturbanceEstimate(estimatedDisturbances)
             }
 
             if !explanation.missingInputs.isEmpty {
@@ -81,5 +86,27 @@ struct ReadinessCardView: View {
 
     private func interruptionIcon(_ interruptions: SleepInterruptions) -> String {
         interruptions.awakenings >= 1 ? "sunrise" : "moon.zzz"
+    }
+
+    /// The motion fallback line (WG-310): a movement-based estimate, plus an explicit "estimated from
+    /// movement" caveat so it's never mistaken for measured sleep. Icon + text (not colour alone).
+    @ViewBuilder private func disturbanceEstimate(_ disturbances: SleepDisturbances) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Label(
+                disturbanceText(disturbances), systemImage: "iphone.gen1.radiowaves.left.and.right"
+            )
+            .font(DesignSystem.Typography.body)
+            .accessibilityIdentifier("readinessDisturbances")
+            Text("Estimated from movement — not measured sleep.")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.secondaryText)
+                .accessibilityIdentifier("readinessDisturbancesCaveat")
+        }
+    }
+
+    private func disturbanceText(_ disturbances: SleepDisturbances) -> String {
+        guard disturbances.pickups >= 1 else { return "No overnight movement detected." }
+        let times = disturbances.pickups == 1 ? "1 time" : "\(disturbances.pickups) times"
+        return "Phone moved \(times) overnight"
     }
 }

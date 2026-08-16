@@ -4890,6 +4890,45 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-310 (2026-08-16): Motion-based overnight-disturbance estimate — the fallback for users without Apple sleep tracking
+
+Follow-up to WG-309 (the deferred "step 2"): WG-309 derives interruptions from HealthKit `.awake` segments,
+which only exist for users with a Watch or the iPhone Sleep schedule. For everyone else there is no sleep
+timeline at all. This adds a **motion-based estimate** of overnight disturbances as a clearly-labelled fallback.
+
+Mechanism (the "smart way", within iOS limits):
+- A **retroactive** `CMMotionActivityManager.queryActivityStarting(from:to:)` over an overnight window — a
+  one-shot, **foreground-only** query on the readiness screen. **No background execution, no continuous
+  accelerometer, no new gated entitlement** (Motion & Fitness is already granted for the walk challenge). It
+  reuses the existing CoreMotion mapping (`CMMotionActivityUpdates.reading(from:)`).
+- `SleepDisturbanceEstimator` (pure domain) counts **maximal runs of moving activity** (walking / running /
+  cycling / automotive) within the window as "pickups", and totals moving time. `.stationary` and `.unknown`
+  are **not** disturbances — `.unknown` is an unconfident classification, so counting it would over-report;
+  the estimator deliberately **under-counts** (a missed disturbance is harmless; a false "you were disturbed"
+  is not).
+
+Wiring: `ReadinessViewModel` runs the fallback **only** when HealthKit gave no interruptions (`nil`), and only
+if a motion source is wired; a denied/errored query yields `nil` (no estimate shown), never a fabricated value.
+`ReadinessScreen` constructs `CoreMotionActivityHistoryAdapter()` directly (mirroring how it already builds
+`HealthKitAuthorizationAdapter`) — kept out of `AppEnvironment` to stay a small prototype; a follow-up can move
+it into the graph for hermetic composition.
+
+Honesty / privacy / safety:
+- It is an inference of the phone being **handled**, not confirmed screen-on usage — the card says so
+  explicitly ("Estimated from movement — not measured sleep."). No medical claim (#39).
+- **Coarse (#41):** a pickup count and total moving time, **no timestamps** — *when* you were disturbed is the
+  sensitive part, so it is never stored or logged. Adapter never logs raw activity/CoreMotion state.
+- **Advisory only**, on the readiness surface — never a wake trigger, never on the alarm path.
+- **Unavailable vs undisturbed** are never conflated: no motion data → `nil`; a genuinely still night →
+  `.none` (0 pickups). The bounded window (~10h, well inside CoreMotion's ~7-day retention) can't scan
+  unbounded history.
+- Not device-unit-tested (the adapter needs a real device — like the historical pedometer); the pure estimator
+  + the view-model fallback are fully tested (`SleepDisturbanceEstimatorTests`, `HealthAccessStatesTests`).
+
+Limitation: if the phone charges away from the bed, no handling is detected — the estimate reads "no overnight
+movement", which is honest (we can only infer what the device felt). This is why it is a *fallback*, not the
+primary signal.
+
 ### WG-309 (2026-08-16): "Interrupted sleep" is derived from HealthKit `.awake` segments — no new sensor, no new permission
 
 Human-requested: the user asked whether we can collect data on the phone being picked up after hours dormant

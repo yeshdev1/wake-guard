@@ -156,6 +156,43 @@ final class HealthAccessStatesTests: XCTestCase {
             ReadinessComputer.lastNightInterruptions(from: []),
             "no sleep data → unavailable, not fabricated")
     }
+
+    // MARK: motion-based disturbance fallback (WG-310)
+
+    func testMotionFallbackEstimatesDisturbancesWhenHealthKitHasNoSleepData() async throws {
+        // No HealthKit sleep data (no Watch), but motion history shows one overnight walk.
+        let motion = FixedMotionHistory([
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-3_600), quality: .high, kind: .stationary),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_200), quality: .high, kind: .stationary),
+        ])
+        let model = ReadinessViewModel(
+            sleepQuery: MutableSleepSource([]), motionHistory: motion, calendar: makeCalendar())
+        await model.refresh(now: base)
+        XCTAssertNil(model.lastNightInterruptions, "no HealthKit sleep data")
+        XCTAssertEqual(
+            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 600),
+            "the motion fallback estimates the overnight disturbance")
+    }
+
+    func testMotionFallbackIsSuppressedWhenHealthKitHasSleepData() async throws {
+        let motion = FixedMotionHistory([
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking)
+        ])
+        let model = ReadinessViewModel(
+            sleepQuery: MutableSleepSource(night(dayOffset: -1)), motionHistory: motion,
+            calendar: makeCalendar())
+        await model.refresh(now: base)
+        XCTAssertNotNil(
+            model.lastNightInterruptions, "HealthKit answered → interruptions available")
+        XCTAssertNil(
+            model.estimatedDisturbances, "the motion fallback is suppressed when HealthKit has data"
+        )
+    }
 }
 
 private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable {
@@ -166,4 +203,10 @@ private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable
         if shouldThrow { throw CancellationError() }
         return samples
     }
+}
+
+private struct FixedMotionHistory: MotionActivityHistorySource {
+    let samples: [MotionActivitySample]
+    init(_ samples: [MotionActivitySample]) { self.samples = samples }
+    func activitySamples(in window: DateInterval) async throws -> [MotionActivitySample] { samples }
 }
