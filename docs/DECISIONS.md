@@ -4890,6 +4890,26 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-307 (2026-08-16): Clear a one-time alarm on completion; keep the "won't fire" warning if it was never completed
+
+Human-requested: after finishing the walk on a one-time alarm, the user saw a lingering "dead" entry in the
+list. They want it gone — but the reconcile already surfaces a **never-completed** past one-time alarm as an
+attention/"won't fire" item (WG-241) so a user is never misled into trusting an alarm that can't ring. Those
+two goals conflict only if "clear" is a **display heuristic** on spentness (an initial filter-by-`isSpent`
+attempt broke `testEnabledAlarmWithNoUpcomingOccurrenceIsAttention` / the critical variant, and would have
+silently hidden a dead **critical** alarm — a safety regression). Completion is the distinguishing signal.
+
+Decision: **completion triggers the delete, not spentness.** `AlarmCommandProcessor.clearIfCompletedOneTime`
+runs on the pass path (after `sweepWakeChain` + `rearmNextWake`): if the alarm is `.oneTime` **and** has no
+next occurrence (its single fire is behind us) it is deleted — mirroring `applyDelete` (delete → audit #46 →
+cancel the system alarm + any wake chain). A one-time alarm the user **never** completed is never touched by
+this path, so it keeps its WG-241 warning; a recurring alarm still has a future occurrence, so the guard
+skips it and `rearmNextWake` keeps it armed. The clear is best-effort and fully audited (actor/reason/old→new).
+
+Tests: `WakeChainProcessorTests.testCompletedOneTimeAlarmIsClearedOnPass` (one-time pass → deleted) and
+`testCompletedRecurringAlarmIsKeptNotCleared` (weekly pass → kept). The WG-241 attention tests still pass
+unchanged — the never-completed dead-alarm warning is preserved.
+
 ### WG-306 (2026-08-16): The ring didn't stop after a valid walk — `stopRing` presence-gate no-op'd on the alerting alarm
 
 Device bug (real user, critical): after completing the walk, the alarm kept ringing even though the walk was
