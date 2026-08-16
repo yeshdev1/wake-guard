@@ -43,6 +43,10 @@ struct ChallengeView: View {
                 .accessibilityValue(viewModel.progressText)
                 .accessibilityAddTraits(.updatesFrequently)
 
+                if viewModel.machine.phase == .starting || viewModel.machine.phase == .active {
+                    keepWalkingDisclaimer
+                }
+
                 Text(viewModel.instruction)
                     .font(DesignSystem.Typography.body)
                     .foregroundStyle(DesignSystem.Colors.secondaryText)
@@ -67,6 +71,28 @@ struct ChallengeView: View {
             playHaptic(cue)
             announce(cue)
         }
+    }
+
+    /// A strong, always-on reminder during the walk (WG-305). The step count is reconstructed from the
+    /// pedometer's ~1-per-second cumulative delivery, so the on-screen number lags real movement by a
+    /// moment — without this, people stop the instant the bar looks full and the walk never verifies.
+    private var keepWalkingDisclaimer: some View {
+        VStack(spacing: DesignSystem.Spacing.xs) {
+            Label("Keep walking!", systemImage: "figure.walk.motion")
+                .font(DesignSystem.Typography.sectionTitle)
+                .foregroundStyle(statusTint)
+            Text("Steps update a moment late — don’t stop early.")
+                .font(DesignSystem.Typography.body)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(DesignSystem.Spacing.md)
+        .background(
+            statusTint.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: DesignSystem.Radius.card)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("challengeKeepWalkingDisclaimer")
     }
 
     private var statusStyle: AlarmStatusStyle {
