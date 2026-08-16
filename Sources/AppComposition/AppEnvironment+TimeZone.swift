@@ -7,10 +7,13 @@ extension AppEnvironment {
     /// `TimeZone.current`. Kept in its own file so `AppEnvironment.swift` — which also names the cloud
     /// token — never mentions UserDefaults (the secret-handling audit's proximity guard).
     static func makeTimeZoneMonitor(
-        processor: any AlarmCommandProcessing
+        processor: any AlarmCommandProcessing, notifier: any TravelUpdateNotifying
     ) -> SystemTimeZoneMonitor {
-        SystemTimeZoneMonitor(
+        // A detected zone change reconciles alarms into the new zone, then posts an FYI **only** if that
+        // actually shifted an alarm (WG-304). The coordinator holds that decision so it's unit-tested.
+        let coordinator = TravelUpdateCoordinator(processor: processor, notifier: notifier)
+        return SystemTimeZoneMonitor(
             store: UserDefaultsTimeZoneStateStore(),
-            onChange: { _ in Task { _ = await processor.reconcile() } })
+            onChange: { change in Task { await coordinator.handleZoneChange(change) } })
     }
 }

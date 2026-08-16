@@ -129,6 +129,7 @@ struct AppEnvironment: Sendable {
                 alarmManager: SystemAlarmManagerAdapter(), settingsOpener: UIKitSettingsOpener(),
                 schedulesAlarmsInSystem: true,
                 preAlarmNotifications: SystemPreAlarmNotificationScheduler(),
+                travelNotifier: SystemTravelUpdateNotifier(),
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 languageModelProvider: FoundationModelsLanguageModelProvider(),
@@ -162,6 +163,7 @@ struct AppEnvironment: Sendable {
                 alarmManager: DeferredAlarmManagerAdapter(), settingsOpener: NoopSettingsOpener(),
                 schedulesAlarmsInSystem: false,
                 preAlarmNotifications: NoopPreAlarmNotificationScheduler(),
+                travelNotifier: NoopTravelUpdateNotifier(),
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
                 languageModelProvider: UnavailableLanguageModelProvider(),
@@ -197,6 +199,7 @@ struct AppEnvironment: Sendable {
         let settingsOpener: any SettingsOpener
         let schedulesAlarmsInSystem: Bool
         let preAlarmNotifications: any PreAlarmNotificationScheduling
+        let travelNotifier: any TravelUpdateNotifying
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
         let languageModelProvider: any LanguageModelProvider
@@ -323,7 +326,8 @@ struct AppEnvironment: Sendable {
             dataEraser: privacy.dataEraser, retentionCleanup: privacy.retentionCleanup,
             consentStatusProvider: privacy.consentStatusProvider,
             deletionCoordinator: privacy.deletionCoordinator, exportData: privacy.exportData,
-            timeZoneMonitor: makeTimeZoneMonitor(processor: recorder),
+            timeZoneMonitor: makeTimeZoneMonitor(
+                processor: recorder, notifier: wiring.travelNotifier),
             diagnosticsProvider: DefaultDiagnosticsProvider(
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
