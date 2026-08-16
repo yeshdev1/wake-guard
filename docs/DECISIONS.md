@@ -4890,6 +4890,28 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-312 (2026-08-16): The motion "Movement overnight" summary is always shown, not only a fallback
+
+Human-asked: the movement data wasn't visible as its own thing — the app has **no tab bar** (no `TabView`;
+Readiness is a toolbar destination off the alarm list), and the motion estimate only appeared *as a fallback*
+when HealthKit had no sleep data. Requested (option b): show a movement summary **always**, even alongside
+HealthKit sleep data.
+
+Change: the motion estimates (WG-310 disturbances + WG-311 rest window) are now computed on **every** readiness
+refresh whenever a motion source is wired — the `lastNightInterruptions == nil` gate is removed — and rendered
+as a distinct **"Movement overnight"** section on the readiness card (its own header + a divider), independent
+of the HealthKit interruption line. So a Watch user sees both: the measured interruption line *and* the
+movement section; a non-Watch user sees just the movement section.
+
+Unchanged safety posture: still **never folded into the readiness score** (a still phone isn't a sleeping
+person); still under the explicit "Estimated from movement — not measured sleep." caveat; still coarse (a
+count + two durations, no timestamps, #41); still advisory, never on the alarm path; still `nil` when no motion
+source/data (section hidden) vs `0` rest / `0` pickups when data exists — never conflated. `ReadinessViewModel`
+resets both each refresh (no stale value after a revoked grant). This is a surfacing change only; no new sensor,
+no new permission, no new invariant surface. (A dedicated tab was considered and rejected — the app is a single
+navigation stack by design; a section on the existing Readiness screen keeps movement honest context *next to*
+the sleep estimate rather than implying it is its own measured metric.)
+
 ### WG-311 (2026-08-16): A motion "rest window" estimate fills the readiness screen for non-Watch users — but never the readiness score
 
 Human-asked: can we fill the readiness screen right away from the motion history for users with no measured
