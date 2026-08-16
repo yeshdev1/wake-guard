@@ -4890,6 +4890,27 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-306 (2026-08-16): The ring didn't stop after a valid walk — `stopRing` presence-gate no-op'd on the alerting alarm
+
+Device bug (real user, critical): after completing the walk, the alarm kept ringing even though the walk was
+recorded (so the runtime reached `.passed` and both the stop submission *and* the activity record fired).
+
+Root cause: `SystemAlarmManagerAdapter.stopRing` presence-gated the stop — it only called
+`AlarmManager.shared.stop(id:)` if the id was still in `AlarmManager.shared.alarms`. But a **currently
+alerting** alarm has already fired, and on device AlarmKit no longer lists fired alarms in `.alarms`
+(`scheduledAlarms()` already compact-maps them away). So the gate made `stop` a **silent no-op on exactly
+the ringing alarm** a valid pass must stop — and, via the outbox, the audit falsely recorded "stopped". This
+was the device-only risk WG-295's review flagged as unverified (WG-294); the device confirmed it.
+
+Fix: **never presence-gate the ring-stop** — always attempt `stop(id:)`. Best-effort: stopping an id the
+system no longer holds is harmless, so a "no such alarm" (stale/duplicate pass) is swallowed rather than
+surfaced as a failure; the alarm's mandatory Stop button remains the ultimate fallback (#24). This also
+fixes the **sweep's per-member stops** (`sweepWakeChain` calls `stopRing` on each wake-chain member): if the
+user passes while a *re-ring* member is alerting, that member is now actually stopped, not gate-skipped. The
+`cancel` presence-gate is left as-is — future (not-yet-fired) chain members are still scheduled and therefore
+present, so the sweep cancels them correctly; only the alerting member is absent, which `stopRing` now
+handles. Adapter is device-only (not unit-tested); verified on the WG-294 device checklist.
+
 ### WG-304 (2026-08-16): Travel-update notification when a time-zone change shifts alarms
 
 Human-requested: when the device time zone changes and alarms are recomputed, tell the user (previously the
