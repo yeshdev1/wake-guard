@@ -22,8 +22,7 @@ final class ScreenshotTourUITests: XCTestCase {
         _ = app.navigationBars["Alarms"].waitForExistence(timeout: 25)
         snap(app, "01-list-empty")
 
-        tap(app, "addAlarmButton")
-        snap(app, "02-add-menu")
+        snap(app, "02-creation-header")
 
         tap(app, "addManualAlarmButton")
         _ = find(app, "saveAlarmButton").waitForExistence(timeout: 10)
@@ -41,7 +40,6 @@ final class ScreenshotTourUITests: XCTestCase {
 
     func testTour2CriticalGateAndEdit() {
         let app = launch()
-        tap(app, "addAlarmButton")
         tap(app, "addManualAlarmButton")
         setCriticalOn(app)
         snap(app, "05-create-critical")
@@ -66,7 +64,6 @@ final class ScreenshotTourUITests: XCTestCase {
 
     func testTour3ConversationalFailClosed() {
         let app = launch()
-        tap(app, "addAlarmButton")
         tap(app, "describeAlarmButton")
         let input = app.textFields["conversationalAlarmInput"]
         if input.waitForExistence(timeout: 10) {
@@ -103,7 +100,6 @@ final class ScreenshotTourUITests: XCTestCase {
 
     func testTour6Challenge() {
         let app = launch()
-        tap(app, "addAlarmButton")
         tap(app, "addManualAlarmButton")
         // Configure a walk challenge so the row exposes "Test challenge".
         if find(app, "challengeKindPicker").waitForExistence(timeout: 8) {

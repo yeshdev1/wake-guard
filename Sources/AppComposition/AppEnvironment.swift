@@ -87,6 +87,12 @@ struct AppEnvironment: Sendable {
     /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
     /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
     let languageModelProvider: any LanguageModelProvider
+    /// Reports on-device-model availability (WG-162/300): the creation header reads it to show the honest
+    /// "turn on Apple Intelligence" hint when it's off-but-supported. Read-only; no alarm authority (#9).
+    let modelAvailabilityProvider: any ModelAvailabilityProviding
+    /// Opens the system Settings app (WG-300) — used by the AI hint's "Open Settings" action. Production
+    /// opens the app's Settings page; the in-memory graph no-ops (hermetic).
+    let settingsOpener: any SettingsOpener
     /// The on-device wake-activity history (WG-299): the store the "Alarm Activity" section reads, and the
     /// recorder the challenge runtime writes to at each outcome. On-device only (#35/#40); advisory — it
     /// holds no alarm authority and its failure never affects an alarm (#8/#9).
@@ -122,6 +128,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 languageModelProvider: FoundationModelsLanguageModelProvider(),
+                modelAvailabilityProvider: FoundationModelsAvailabilityAdapter(),
                 sleepQuery: HealthKitSleepQueryAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
@@ -153,6 +160,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
                 languageModelProvider: UnavailableLanguageModelProvider(),
+                modelAvailabilityProvider: FixedModelAvailabilityProvider(),
                 sleepQuery: UnavailableSleepQuery(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
@@ -186,6 +194,7 @@ struct AppEnvironment: Sendable {
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
         let languageModelProvider: any LanguageModelProvider
+        let modelAvailabilityProvider: any ModelAvailabilityProviding
         let sleepQuery: any SleepSampleQuerying
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
@@ -302,22 +311,19 @@ struct AppEnvironment: Sendable {
             preAlarmPromptCoordinator: promptCoordinator,
             authorizationCoordinator: authorizationCoordinator,
             preAlarmNotifications: wiring.preAlarmNotifications,
-            preAlarmResponder: preAlarmResponder,
-            preAlarmWork: preAlarmWork,
-            preAlarmFeedback: preAlarmFeedback,
-            cloudTokenStore: wiring.cloudTokenStore,
-            dataEraser: privacy.dataEraser,
-            retentionCleanup: privacy.retentionCleanup,
+            preAlarmResponder: preAlarmResponder, preAlarmWork: preAlarmWork,
+            preAlarmFeedback: preAlarmFeedback, cloudTokenStore: wiring.cloudTokenStore,
+            dataEraser: privacy.dataEraser, retentionCleanup: privacy.retentionCleanup,
             consentStatusProvider: privacy.consentStatusProvider,
-            deletionCoordinator: privacy.deletionCoordinator,
-            exportData: privacy.exportData,
+            deletionCoordinator: privacy.deletionCoordinator, exportData: privacy.exportData,
             timeZoneMonitor: makeTimeZoneMonitor(processor: recorder),
             diagnosticsProvider: DefaultDiagnosticsProvider(
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
             languageModelProvider: wiring.languageModelProvider,
-            alarmActivityStore: activity.store, alarmActivityRecorder: activity.recorder,
-            sleepQuery: wiring.sleepQuery,
+            modelAvailabilityProvider: wiring.modelAvailabilityProvider,
+            settingsOpener: wiring.settingsOpener, alarmActivityStore: activity.store,
+            alarmActivityRecorder: activity.recorder, sleepQuery: wiring.sleepQuery,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }
