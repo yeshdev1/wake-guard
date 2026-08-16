@@ -87,6 +87,10 @@ struct AppEnvironment: Sendable {
     /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
     /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
     let languageModelProvider: any LanguageModelProvider
+    /// The guided-generation alarm parser (WG-301): the describe flow tries this first for a
+    /// schema-constrained parse (#26), falling back to `languageModelProvider` when it's absent. `nil` in
+    /// the in-memory graph, so tests/previews use the text fallback. Read-only; no alarm authority (#1/#30).
+    let guidedAlarmParser: (any GuidedAlarmParsing)?
     /// Reports on-device-model availability (WG-162/300): the creation header reads it to show the honest
     /// "turn on Apple Intelligence" hint when it's off-but-supported. Read-only; no alarm authority (#9).
     let modelAvailabilityProvider: any ModelAvailabilityProviding
@@ -128,6 +132,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: CoreMotionHistoricalPedometerAdapter(),
                 pedometerLiveSource: CoreMotionLivePedometerAdapter(),
                 languageModelProvider: FoundationModelsLanguageModelProvider(),
+                guidedAlarmParser: FoundationModelsGuidedAlarmParser(),
                 modelAvailabilityProvider: FoundationModelsAvailabilityAdapter(),
                 sleepQuery: HealthKitSleepQueryAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
@@ -160,6 +165,7 @@ struct AppEnvironment: Sendable {
                 pedometerSource: UnavailablePedometerSource(),
                 pedometerLiveSource: UnavailableLivePedometerSource(),
                 languageModelProvider: UnavailableLanguageModelProvider(),
+                guidedAlarmParser: nil,
                 modelAvailabilityProvider: FixedModelAvailabilityProvider(),
                 sleepQuery: UnavailableSleepQuery(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
@@ -194,6 +200,7 @@ struct AppEnvironment: Sendable {
         let pedometerSource: any HistoricalPedometerSource
         let pedometerLiveSource: any PedometerSource
         let languageModelProvider: any LanguageModelProvider
+        let guidedAlarmParser: (any GuidedAlarmParsing)?
         let modelAvailabilityProvider: any ModelAvailabilityProviding
         let sleepQuery: any SleepSampleQuerying
         let cloudTokenStore: any CloudTokenStore
@@ -321,6 +328,7 @@ struct AppEnvironment: Sendable {
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
             languageModelProvider: wiring.languageModelProvider,
+            guidedAlarmParser: wiring.guidedAlarmParser,
             modelAvailabilityProvider: wiring.modelAvailabilityProvider,
             settingsOpener: wiring.settingsOpener, alarmActivityStore: activity.store,
             alarmActivityRecorder: activity.recorder, sleepQuery: wiring.sleepQuery,
