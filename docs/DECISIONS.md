@@ -4890,6 +4890,31 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-299 (2026-08-16): "Alarm Activity" — recorded, cached, on-device-AI-narrated wake history
+
+Human-requested feature: a section with a card per rung alarm's challenge (walk or not, steps, duration,
+outcome), phrased in simple English by the on-device model, recorded + cached, with a periodic full summary.
+
+- **Feasibility / data volume.** Trivial: one small record per ring (~a few hundred bytes) → well under
+  1 MB/year even at heavy use; the model runs on demand (per card / summary), not continuously. Storage and
+  compute are non-issues — the constraints are privacy and correctness, not size.
+- **Deterministic facts are the source of truth; the AI only narrates (#32).** `AlarmActivity` records the
+  facts (`AlarmActivityOutcome`, steps, requiredSteps, durationSeconds, walkRequired); its `plainSummary` is
+  a deterministic simple-English line that is ALWAYS shown if the model is unavailable (#33). The
+  `AlarmActivityNarrator` feeds the facts to the grounded `ExplanationGenerator` — every claim must cite a
+  real factor, so the model can never inject a fact that wasn't recorded (pinned:
+  `testNarratorDropsAnUngroundedClaimAndFallsBack`). No medical/sleep-diagnostic claim (#39).
+- **Privacy.** Behavioral data, so **on-device only** (#35/#40), **prompts never logged** (the AI source
+  scan covers the narrator), covered by **full-erase** (`eraseAllEntities` iterates all entities) and an
+  **explicit 90-day retention** sweep (#43, `pruneAlarmActivities`). No label/schedule/health/location value
+  is stored — only interaction facts (#41).
+- **Persistence.** Additive Core Data **v8** (`AlarmActivityRecord`, unique per (alarm, occurrence)), keyed
+  like `SatisfiedWakeRecord`; the migration harness auto-covers it from the builder count.
+- **Capture + advisory.** The challenge runtime records the outcome (pass / timeout / accessible-fallback /
+  interrupted) off the alarm path — best-effort, unstructured, never blocking or affecting an alarm
+  (#8/#9). Scope note: this captures **walk-challenge** wakes (the rich case); recording plain no-walk rings
+  needs a ring-lifecycle hook and is a follow-up. The full summary refreshes per visit ("from time to time").
+
 ### WG-298 (2026-08-16): "Describe your alarm" gathers critical / walk / steps+seconds — amends WG-245 Finding A
 
 Human-approved feature request: after the schedule parses, the conversational flow now gathers the same

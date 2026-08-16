@@ -87,6 +87,11 @@ struct AppEnvironment: Sendable {
     /// FoundationModels; the in-memory graph reports it unavailable (the flow fails closed to the manual
     /// editor, #33). It only produces text — no tools, no alarm authority (#1/#30).
     let languageModelProvider: any LanguageModelProvider
+    /// The on-device wake-activity history (WG-299): the store the "Alarm Activity" section reads, and the
+    /// recorder the challenge runtime writes to at each outcome. On-device only (#35/#40); advisory — it
+    /// holds no alarm authority and its failure never affects an alarm (#8/#9).
+    let alarmActivityStore: any AlarmActivityStore
+    let alarmActivityRecorder: any AlarmActivityRecording
     /// The sleep-sample source for the readiness card (WG-121). Production reads HealthKit; the in-memory
     /// graph returns no samples (readiness degrades to "not enough data", #36/#38). Read-only, on device,
     /// never stored raw (#41); holds no alarm authority.
@@ -243,6 +248,20 @@ struct AppEnvironment: Sendable {
             clock: clock, ids: ids, satisfiedWakes: satisfiedWakes)
     }
 
+    /// Build the wake-activity store + its on-device narrating recorder (WG-299) — extracted so `make()`
+    /// stays within budget. On-device only; the narration is grounded (#32) and its prompt never logged.
+    private static func makeActivityRecording(
+        persistence: PersistenceController, wiring: SystemWiring
+    ) -> (store: CoreDataAlarmActivityStore, recorder: DefaultAlarmActivityRecorder) {
+        let store = CoreDataAlarmActivityStore(persistence)
+        let recorder = DefaultAlarmActivityRecorder(
+            narrator: AlarmActivityNarrator(
+                generator: ExplanationGenerator(
+                    generator: StructuredGenerator(provider: wiring.languageModelProvider))),
+            store: store)
+        return (store, recorder)
+    }
+
     private static func make(
         persistence: PersistenceController,
         clock: any WallClock,
@@ -270,6 +289,7 @@ struct AppEnvironment: Sendable {
                 coordinator: promptCoordinator),
             notifications: wiring.preAlarmNotifications, deviceTimeZone: { .current })
         let preAlarmFeedback = CoreDataPreAlarmFeedbackStore(persistence)
+        let activity = makeActivityRecording(persistence: persistence, wiring: wiring)
         let privacy = makePrivacyControls(persistence: persistence, clock: clock, wiring: wiring)
         return AppEnvironment(
             clock: clock,
@@ -296,6 +316,7 @@ struct AppEnvironment: Sendable {
                 consent: privacy.consentStatusProvider, reconcile: reconcileStore),
             pedometerLiveSource: wiring.pedometerLiveSource,
             languageModelProvider: wiring.languageModelProvider,
+            alarmActivityStore: activity.store, alarmActivityRecorder: activity.recorder,
             sleepQuery: wiring.sleepQuery,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }

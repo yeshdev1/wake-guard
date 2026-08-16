@@ -24,8 +24,8 @@ final class PersistenceController: @unchecked Sendable {
     /// v1: SettingsRecord (WG-013). v2: + AlarmRecord (WG-014).
     /// v3: + AuditRecord (WG-015). v4: + OutboxRecord (WG-016).
     /// v5: + PreAlarmPromptRecord (WG-089). v6: + PreAlarmFeedbackRecord (WG-090).
-    /// v7: + SatisfiedWakeRecord (WG-290).
-    static let schemaVersion = "7"
+    /// v7: + SatisfiedWakeRecord (WG-290). v8: + AlarmActivityRecord (WG-299).
+    static let schemaVersion = "8"
 
     let container: NSPersistentContainer
 
@@ -70,6 +70,7 @@ final class PersistenceController: @unchecked Sendable {
     private static let versionedEntityBuilders: [@Sendable () -> NSEntityDescription] = [
         makeSettingsEntity, makeAlarmEntity, makeAuditEntity, makeOutboxEntity,
         makePreAlarmPromptEntity, makePreAlarmFeedbackEntity, makeSatisfiedWakeEntity,
+        makeAlarmActivityEntity,
     ]
 
     /// The latest schema version (the number of additive versions).
@@ -219,6 +220,28 @@ final class PersistenceController: @unchecked Sendable {
         ]
         // At most one row per wake: a duplicate pass collapses instead of duplicating.
         record.uniquenessConstraints = [["wakeKey"]]
+        return record
+    }
+
+    private static func makeAlarmActivityEntity() -> NSEntityDescription {
+        let record = NSEntityDescription()
+        record.name = "AlarmActivityRecord"
+        record.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        // One row per rung alarm's challenge (WG-299): interaction facts + the cached plain-English
+        // summary. No label, schedule, health, or location value — only what the activity history shows
+        // (#41), on-device only (#35/#40), pruned by the retention window (#43).
+        record.properties = [
+            attribute("activityKey", .stringAttributeType),  // "uuid|epochSeconds"
+            attribute("occurredAt", .dateAttributeType),
+            attribute("outcome", .stringAttributeType),
+            attribute("walkRequired", .booleanAttributeType),
+            attribute("stepsWalked", .integer64AttributeType),
+            attribute("requiredSteps", .integer64AttributeType),
+            attribute("durationSeconds", .integer64AttributeType),
+            attribute("summary", .stringAttributeType),
+        ]
+        // At most one row per (alarm, occurrence): a duplicate record collapses instead of duplicating.
+        record.uniquenessConstraints = [["activityKey"]]
         return record
     }
 

@@ -91,7 +91,9 @@ struct ChallengeTestCover: View {
             ChallengeRuntimeHost(
                 alarmID: alarmID, required: required,
                 pedometer: environment.pedometerLiveSource,
-                processor: environment.alarmCommandProcessor)
+                processor: environment.alarmCommandProcessor,
+                activityRecorder: environment.alarmActivityRecorder,
+                now: { environment.clock.now })
         } else {
             ContentUnavailableView("Challenge unavailable", systemImage: "figure.walk")
                 .accessibilityIdentifier("challengeUnavailable")
@@ -106,11 +108,13 @@ private struct ChallengeRuntimeHost: View {
 
     init(
         alarmID: AlarmID, required: Int, pedometer: any PedometerSource,
-        processor: any AlarmCommandProcessing
+        processor: any AlarmCommandProcessing,
+        activityRecorder: any AlarmActivityRecording, now: @escaping @Sendable () -> Date
     ) {
         _runtime = State(
             wrappedValue: WakeChallengeRuntime(
-                alarmID: alarmID, required: required, pedometer: pedometer, processor: processor))
+                alarmID: alarmID, required: required, pedometer: pedometer, processor: processor,
+                activityRecorder: activityRecorder, now: now))
     }
 
     var body: some View { ChallengeHostView(runtime: runtime) }
