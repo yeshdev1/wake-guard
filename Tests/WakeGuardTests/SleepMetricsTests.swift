@@ -122,4 +122,71 @@ final class SleepMetricsTests: XCTestCase {
         XCTAssertEqual(result.typicalMidpointSecondsOfDay, 23 * 3_600)
         XCTAssertEqual(result.meanDeviationMinutes, 0, accuracy: 0.001)
     }
+
+    // MARK: interruptions (WG-309)
+
+    private func awake(_ start: Date, _ end: Date) -> SleepSample {
+        SleepSample(category: .awake, interval: DateInterval(start: start, end: end))
+    }
+
+    func testInterruptionsCountsMidSleepAwakeningsAndTotalsAwakeTime() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // asleep 0–1h, awake 1h–1h10m (600s), asleep 1h10m–3h, awake 3h10m–3h20m (after final wake).
+        let samples = [
+            asleep(base, base.addingTimeInterval(3_600)),
+            awake(base.addingTimeInterval(3_600), base.addingTimeInterval(4_200)),
+            asleep(base.addingTimeInterval(4_200), base.addingTimeInterval(10_800)),
+        ]
+        let result = SleepInterruptions(awakenings: 1, totalAwake: 600)
+        XCTAssertEqual(SleepMetrics.interruptions(samples), result)
+    }
+
+    func testInterruptionsCountsSeveralDistinctWakeUps() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let samples = [
+            asleep(base, base.addingTimeInterval(3_600)),
+            awake(base.addingTimeInterval(3_600), base.addingTimeInterval(3_900)),  // 5 min
+            asleep(base.addingTimeInterval(3_900), base.addingTimeInterval(7_200)),
+            awake(base.addingTimeInterval(7_200), base.addingTimeInterval(7_500)),  // 5 min
+            asleep(base.addingTimeInterval(7_500), base.addingTimeInterval(10_800)),
+        ]
+        XCTAssertEqual(
+            SleepMetrics.interruptions(samples), SleepInterruptions(awakenings: 2, totalAwake: 600))
+    }
+
+    func testInterruptionsExcludeAwakeBeforeOnsetAndAfterFinalWake() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // Settling-in awake before sleep, and getting-up awake after — neither is a mid-sleep interruption.
+        let samples = [
+            awake(base, base.addingTimeInterval(1_800)),  // settling in, before onset
+            asleep(base.addingTimeInterval(1_800), base.addingTimeInterval(10_800)),
+            // getting up, after the final wake:
+            awake(base.addingTimeInterval(10_800), base.addingTimeInterval(12_600)),
+        ]
+        XCTAssertEqual(
+            SleepMetrics.interruptions(samples), SleepInterruptions.none,
+            "only awake spans inside the asleep span count")
+    }
+
+    func testInterruptionsAreUnavailableWithoutAsleepSamples() {
+        XCTAssertNil(SleepMetrics.interruptions([]), "no sleep data → unavailable, never 0")
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let inBedAndAwakeOnly = [
+            SleepSample(
+                category: .inBed,
+                interval: DateInterval(start: base, end: base.addingTimeInterval(3_600))),
+            awake(base.addingTimeInterval(600), base.addingTimeInterval(1_200)),
+        ]
+        XCTAssertNil(
+            SleepMetrics.interruptions(inBedAndAwakeOnly),
+            "awake without any asleep span is not an 'interruption' — unavailable")
+    }
+
+    func testSleptThroughNightRecordsNoneNotUnavailable() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertEqual(
+            SleepMetrics.interruptions([asleep(base, base.addingTimeInterval(10_800))]),
+            SleepInterruptions.none,
+            "a slept-through night is recorded as zero interruptions, distinct from unavailable")
+    }
 }

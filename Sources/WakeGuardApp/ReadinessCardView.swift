@@ -6,6 +6,9 @@ import SwiftUI
 /// line pairs an SF Symbol with text), stable a11y identifiers. Holds no alarm authority.
 struct ReadinessCardView: View {
     let assessment: ReadinessAssessment
+    /// Last night's mid-sleep interruptions (WG-309), or `nil` when there is no sleep data. Coarse by
+    /// design — a count and a total, no times (#41).
+    var interruptions: SleepInterruptions?
 
     private var explanation: ReadinessExplanation { ReadinessExplanation.from(assessment) }
 
@@ -28,6 +31,12 @@ struct ReadinessCardView: View {
                 Label(statement.text, systemImage: icon(for: statement.factor))
                     .font(DesignSystem.Typography.body)
                     .accessibilityIdentifier("readinessFactor.\(statement.factor.rawValue)")
+            }
+
+            if let interruptions {
+                Label(interruptionText(interruptions), systemImage: interruptionIcon(interruptions))
+                    .font(DesignSystem.Typography.body)
+                    .accessibilityIdentifier("readinessInterruptions")
             }
 
             if !explanation.missingInputs.isEmpty {
@@ -57,5 +66,20 @@ struct ReadinessCardView: View {
         case .sleepConsistency: "clock"
         case .sleepDebt: "chart.line.downtrend.xyaxis"
         }
+    }
+
+    /// Gentle, factual interruption line — a wake-up count and rounded awake minutes, no times (#41), no
+    /// judgement. A slept-through night is stated positively; the icon differs so it isn't colour-only.
+    private func interruptionText(_ interruptions: SleepInterruptions) -> String {
+        guard interruptions.awakenings >= 1 else { return "Slept through — no interruptions." }
+        let wakeUps =
+            interruptions.awakenings == 1 ? "1 wake-up" : "\(interruptions.awakenings) wake-ups"
+        let minutes = Int((interruptions.totalAwake / 60).rounded())
+        let awake = minutes >= 1 ? "\(minutes) min awake" : "under a minute awake"
+        return "\(wakeUps) · \(awake)"
+    }
+
+    private func interruptionIcon(_ interruptions: SleepInterruptions) -> String {
+        interruptions.awakenings >= 1 ? "sunrise" : "moon.zzz"
     }
 }

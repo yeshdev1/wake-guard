@@ -116,6 +116,46 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertEqual(Set(single.factors.map(\.kind)), [.sleepDuration, .sleepDebt])
         XCTAssertEqual(single.certainty, .moderate)
     }
+
+    // MARK: last night's interruptions (WG-309)
+
+    func testLastNightInterruptionsUsesTheMostRecentNightAndSurfacesInTheViewModel() async throws {
+        // An earlier undisturbed night plus a most-recent night with one mid-sleep awakening. "Last night"
+        // must reflect the recent night's interruption, not the older slept-through one.
+        let lastNightStart = base.addingTimeInterval(-1 * 86_400)
+        let disturbedLastNight = [
+            SleepSample(
+                category: .asleep,
+                interval: DateInterval(
+                    start: lastNightStart, end: lastNightStart.addingTimeInterval(3_600))),
+            SleepSample(
+                category: .awake,
+                interval: DateInterval(
+                    start: lastNightStart.addingTimeInterval(3_600),
+                    end: lastNightStart.addingTimeInterval(4_200))),  // 10 min awake
+            SleepSample(
+                category: .asleep,
+                interval: DateInterval(
+                    start: lastNightStart.addingTimeInterval(4_200),
+                    end: lastNightStart.addingTimeInterval(10_800))),
+        ]
+        let samples = night(dayOffset: -3) + disturbedLastNight
+        XCTAssertEqual(
+            ReadinessComputer.lastNightInterruptions(from: samples),
+            SleepInterruptions(awakenings: 1, totalAwake: 600))
+
+        let model = viewModel(MutableSleepSource(samples))
+        await model.refresh(now: base)
+        XCTAssertEqual(
+            model.lastNightInterruptions, SleepInterruptions(awakenings: 1, totalAwake: 600),
+            "the view model surfaces last night's interruptions")
+    }
+
+    func testLastNightInterruptionsUnavailableWithNoSleepData() {
+        XCTAssertNil(
+            ReadinessComputer.lastNightInterruptions(from: []),
+            "no sleep data → unavailable, not fabricated")
+    }
 }
 
 private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable {

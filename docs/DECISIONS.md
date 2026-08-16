@@ -4890,6 +4890,42 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-309 (2026-08-16): "Interrupted sleep" is derived from HealthKit `.awake` segments — no new sensor, no new permission
+
+Human-requested: the user asked whether we can collect data on the phone being picked up after hours dormant
+and record it as interrupted sleep / phone usage during sleep hours, and whether there's a smart way to do it.
+
+Constraints that shaped the answer:
+- iOS gives a third-party app **no** general "device unlocked / user opened an app" signal in the background;
+  `UIApplication` lifecycle only fires for *our own* app. Broad "phone usage" would need the Family Controls /
+  DeviceActivity entitlement — Apple-gated for parental-control/Screen-Time apps, opaque data, wrong category.
+  Rejected.
+- Continuous background accelerometer to catch pickups live is disallowed for arbitrary apps and violates
+  data-minimization / "background is opportunistic". Rejected.
+- The signal is **already** in data we read: Apple's sleep algorithm (Watch, or iPhone motion+usage) marks
+  mid-sleep wakefulness as `HKCategoryValueSleepAnalysis.awake`, which WG-122 already maps to `.awake`. So
+  "interrupted sleep" needs **no new HealthKit type** (the minimization plan is unchanged) and no new sensor.
+
+Decision (step 1, shipped): `SleepMetrics.interruptions(_:)` returns a `SleepInterruptions` = **count of `.awake`
+spans that fall between first sleep onset and the final wake, and the total awake time** — awake *before* onset
+(settling in) and *after* the final wake (getting up) is excluded. `ReadinessComputer.lastNightInterruptions`
+exposes the most recent night's value; `ReadinessViewModel` surfaces it; `ReadinessCardView` shows a gentle,
+factual line ("2 wake-ups · 14 min awake", or "Slept through — no interruptions").
+
+Safety / privacy:
+- **Advisory only** — descriptive, on the readiness (wellness) surface, never a wake trigger and never on the
+  alarm path (invariant unchanged).
+- **Coarse by design (#41):** a count + a total, **no awake timestamps** — *when* you woke reveals the
+  disruption itself, so it is never stored or logged. Follows the `PreAlarmFeedbackCounts` minimization model.
+- **Unavailable, not fabricated:** `nil` when there is no asleep data; a genuinely slept-through night is the
+  distinct `.none` (count 0), so "no data" and "no interruptions" are never conflated.
+- **No diagnosis (#39):** framed as an estimate; no medical claim.
+
+Deferred (step 2, not built): a retroactive `CMMotionActivityManager` history query (the existing
+`CoreMotionHistoricalPedometerAdapter` pattern) to estimate *device-handling* disturbances for users without
+Apple sleep tracking — foreground-only, no background execution, labelled as an inference, and it *would* need a
+new `WellnessDataMinimizationPlan` entry. Left as a follow-up so this task stays one increment.
+
 ### WG-308 (2026-08-16): The accessible alternative is now a wake-up math puzzle, not a tap/hold gesture
 
 Human-requested: the user asked for "a difficult puzzle or problem — something that would help a person wake
