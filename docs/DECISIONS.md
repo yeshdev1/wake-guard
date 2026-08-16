@@ -4890,6 +4890,38 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-308 (2026-08-16): The accessible alternative is now a wake-up math puzzle, not a tap/hold gesture
+
+Human-requested: the user asked for "a difficult puzzle or problem — something that would help a person wake
+up" as the non-walking alternative, and confirmed the shape as "2 and a bit harder" (two problems, harder
+than trivial arithmetic). The prior accessible alternative — a debounced tap sequence / press-and-hold
+(WG-072) — is a *deliberate gesture* but does nothing to break sleep inertia; a groggy user passes it half
+asleep. A small math puzzle demands genuine alertness, which is the point of a wake challenge.
+
+Decision: at the wake screen, "another way" now presents `MathPuzzleView` over the deterministic
+`WakeMathPuzzleMachine` (domain). Design:
+- **Difficulty:** a two-digit × single-digit multiplication (11–19 × 2–9). Harder than reflexive addition,
+  but solvable at 3am; answers top out at 171 (three digits). **Two** correct answers to pass (WG-308 "2").
+- **Wrong answers never fail the alarm (#21):** a wrong answer hands over a *fresh* problem and never
+  advances the count, so brute-forcing one problem is pointless and the user is never trapped — the alarm
+  simply stays active until two are solved. Only ever reaches passed, exactly like the walk and the old
+  gesture.
+- **Deterministic:** problems come from a self-contained SplitMix64 stream seeded at init — no closures to
+  inject, fully reproducible in tests. At runtime `WakeChallengeRuntime.puzzleSeed` mixes the alarm id with
+  the clock so the sequence isn't precomputable; no sensitive data in the seed (#41).
+- **Accessible (#22) and never a dead-end (#21):** a big custom number pad (works while the alarm alerts,
+  no system keyboard), the problem spoken as words ("13 times 7"), entry + progress announced, and feedback
+  is **text *and* an SF Symbol**, never color alone. VoiceOver / Switch Control drive the pad like any
+  button. The pass reuses the same authorized single-stop seam as the tap/hold did
+  (`runtime.accessibleAlternativePassed()`), so the safety path is unchanged.
+- **Anti-AI (#1):** the machine advances *only* through typed `submit(_:)` input — AI can no more type the
+  answer than it could emit the walk's steps. Verified by `WakeMathPuzzleMachineTests` (no non-input path
+  passes; wrong answers can't accumulate; the stream is in-range and reproducible).
+
+The old `AccessibleChallenge` tap/hold machine + view are left in place (still persisted-config types, still
+unit-tested); this changes only which alternative the **wake screen** offers. The walk stays the primary
+challenge; the accessible alternative remains *always* available (WG-293), now as the puzzle.
+
 ### WG-307 (2026-08-16): Clear a one-time alarm on completion; keep the "won't fire" warning if it was never completed
 
 Human-requested: after finishing the walk on a one-time alarm, the user saw a lingering "dead" entry in the
