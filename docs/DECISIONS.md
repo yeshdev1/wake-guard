@@ -4890,6 +4890,29 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-304 (2026-08-16): Travel-update notification when a time-zone change shifts alarms
+
+Human-requested: when the device time zone changes and alarms are recomputed, tell the user (previously the
+reconcile was silent). An informational local notification, not an interactive decision prompt.
+
+- **Fires only** on a real device zone change (the existing `SystemTimeZoneMonitor.onChange`) **and** only
+  when the reconcile actually shifted an enabled alarm (`TravelNotificationPolicy.shouldNotify` —
+  `scheduled > 0 || cancelled > 0`, and never when skipped). No notification if nothing moved (all "stay
+  fixed", or no alarms) — so it's not tied to the routine launch/foreground reconcile, only to travel.
+- **Copy:** "Time zone changed — You've entered a new time zone (<city>). Your alarms have been updated to
+  keep the times you set — tap to review." Zone name is the public IANA city, no sensitive data (#41).
+- **Permission:** reuses the pre-alarm notification permission (alert+sound) — no separate ask; a denial is
+  a no-op and the change stays in History. **Never touches an alarm** — a missed notification is safe (#9).
+- **Wiring:** `TravelUpdateCoordinator` (reconcile → notify-if-changed, unit-tested) + a `TravelUpdateNotifying`
+  port; `SystemTravelUpdateNotifier` (UNUserNotifications) in production, `NoopTravelUpdateNotifier` in the
+  in-memory graph (hermetic). The real post is device-only; ci-fast pins the policy + coordinator.
+- **A VPN does not trigger it** — iOS derives the time zone from Location Services / manual setting, not the
+  network/IP, so a VPN changes neither the device zone nor the alarms. Testing requires real travel or a
+  manual zone change (Settings › General › Date & Time › off "Set Automatically").
+- Note: dormant `TravelPolicyEvaluator`/`TimeZoneChangePrompt` scaffolding exists for a richer *interactive*
+  keep-home-zone vs follow-local choice — the fuller #16 answer for critical alarms, deferred as a future
+  option; this ships the lightweight FYI.
+
 ### WG-301 (2026-08-16): Guided generation (`@Generable`) for the describe-alarm parse
 
 Adopt Apple Foundation Models' **guided generation** for the describe-alarm parse: the model emits a
