@@ -1479,6 +1479,157 @@ Report changed files, tests, assumptions, risks, and next task.
 - Narrow tests and the full available suite pass.
 - `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
 
+### WG-309: Record interrupted sleep from HealthKit awake segments
+
+**Dependencies:** WG-122, WG-126
+
+**Claude Code instruction:**
+
+> Implement WG-309 only: derive mid-sleep interruptions from the `.awake` segments WG-122 already maps, and surface them on the readiness card. No new HealthKit type, no new sensor, no new permission. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- `SleepMetrics.interruptions(_:)` counts only `.awake` spans between first sleep onset and the final wake; settling-in and getting-up awake time is excluded.
+- No new HealthKit type is read; the wellness data-minimization plan is unchanged.
+- Coarse (#41): a count and a total only — no awake timestamps stored, logged, or displayed.
+- `nil` (no asleep data) and `.none` (slept through) are distinct and never conflated.
+- Advisory only — never a wake trigger, never on the alarm path.
+- Framed as an estimate; no medical claim (#39).
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-310: Motion-based overnight-disturbance estimate
+
+**Dependencies:** WG-309
+
+**Claude Code instruction:**
+
+> Implement WG-310 only: a motion-based fallback estimate of overnight device-handling disturbances for users without Apple sleep tracking, via a retroactive foreground-only motion-activity history query. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- Uses a retroactive, foreground-only `CMMotionActivityManager` history query — no background execution, no continuous accelerometer, no new gated entitlement.
+- `SleepDisturbanceEstimator` is pure: pickups are maximal runs of moving kinds; `.stationary` and `.unknown` are never counted, so the estimator deliberately under-counts.
+- The history source is composed in `AppEnvironment`; the in-memory graph wires a hermetic unavailable source so previews and tests never touch CoreMotion.
+- A denied, unavailable, or errored query yields `nil` (no estimate shown), never a fabricated value; `nil` and `.none` stay distinct.
+- Presented as an inference of the phone being handled, not measured sleep or confirmed screen-on usage.
+- Coarse (#41): a count and a total moving time, no timestamps; the adapter never logs raw activity state.
+- The window is bounded well inside CoreMotion's history retention.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-311: Motion rest-window estimate on the readiness screen
+
+**Dependencies:** WG-310
+
+**Claude Code instruction:**
+
+> Implement WG-311 only: compute the longest contiguous low-activity stretch from the existing WG-310 motion query and show it as supplemental readiness context. It must never enter the readiness score. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- One motion query populates both the disturbance and rest estimates.
+- The rest estimate is never folded into the readiness score, level, or factors — a still phone is not a sleeping person.
+- Readiness still reports "not enough data" when there is no real sleep timeline.
+- Framed as low activity, not sleep, under the shared "estimated from movement" caveat; a single duration, no timestamps (#41).
+- `nil` (no motion data) and `0` (data exists, always moving) stay distinct; both estimates reset each refresh so a revoked grant leaves no stale value.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-312: Always-on Movement overnight section
+
+**Dependencies:** WG-310, WG-311
+
+**Claude Code instruction:**
+
+> Implement WG-312 only: compute the motion estimates on every readiness refresh whenever a motion source is wired, and render them as a distinct "Movement overnight" section independent of the HealthKit interruption line. Surfacing change only. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The `lastNightInterruptions == nil` gate is removed; the section shows whenever motion data is available.
+- The section has its own header and divider, independent of the interruption line — a Watch user sees both, a non-Watch user sees the movement section only.
+- Still never folded into the readiness score; still coarse; still advisory, never on the alarm path.
+- No new sensor, permission, or invariant surface is introduced.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-313: Anchor the overnight motion window to the night, not to the clock
+
+**Dependencies:** WG-310, WG-311
+
+**Claude Code instruction:**
+
+> Implement WG-313 only: replace the rolling `[now - 10h, now]` motion window with a window anchored to the night in the data, so the "Movement overnight" section stops changing every time the screen is opened. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The candidate span is calendar-anchored (previous local evening → now) rather than a rolling lookback from the current instant.
+- A night span is derived from the samples: settled = start of the first sustained quiet run, up = end of the last sustained quiet run — mirroring the onset/final-wake shape of `SleepMetrics.interruptions`.
+- Disturbances are counted between the bookends, not inside the rest run.
+- **Regression test:** identical samples evaluated at two different `now` values (for example 07:00 and 09:00) produce identical disturbance and rest results.
+- Post-wake activity and pre-settle evening activity are both excluded; an `.automotive` commute after waking does not increment pickups.
+- A DST-transition night and a night spanning a time-zone change are covered by explicit tests; the local anchor is derived through the injected calendar, never a fixed UTC offset.
+- `nil` (no data) and `.none` (still night) semantics are preserved exactly.
+- New constants (evening anchor, sustained-quiet threshold) carry recorded rationale.
+- An ADR records that this supersedes the WG-310 rolling window; mid-sleep opens still shift and that is documented, not fixed.
+- The manual real-device checklist is updated (motion and local-time behavior change).
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-314: Night shape — longest unbroken stretch and wake-up length
+
+**Dependencies:** WG-309
+
+**Claude Code instruction:**
+
+> Implement WG-314 only: add the longest unbroken sleep stretch and the longest single awakening to the interruption line, so a user can tell brief wake-ups from a long one, and state that wake-ups are not part of the readiness score. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- `SleepMetrics` exposes the longest `.asleep` run uninterrupted by an `.awake` span; `SleepInterruptions` carries the longest single awake span.
+- Durations only — no timestamps introduced (#41); no new HealthKit type is read.
+- The card distinguishes "all brief" from "one long one" and states the longest unbroken stretch.
+- A caption states that wake-ups are not part of the readiness estimate above.
+- A slept-through night renders no shape line; missing data yields `nil`, never `0`.
+- Singular, plural, and sub-minute edges match the existing interruption-line style.
+- New accessibility identifiers are added; the shape line reads as part of the interruption group under VoiceOver and does not truncate at the largest Dynamic Type size.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-315: Time in bed versus time asleep
+
+**Dependencies:** WG-314
+
+**Claude Code instruction:**
+
+> Implement WG-315 only: surface in-bed duration alongside asleep duration on the readiness card, using the `.inBed` samples already fetched. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- `SleepMetrics` exposes in-bed duration from samples already queried; no new HealthKit type is read.
+- Two durations are stated plainly. **No percentage and no "sleep efficiency"** — a clinical term, excluded under the no-medical-claims invariant (#39).
+- The line is omitted entirely when `.inBed` is absent or shorter than asleep time; bad data produces silence, not a claim.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+### WG-316: Personal baseline for wake-ups
+
+**Dependencies:** WG-314
+
+**Claude Code instruction:**
+
+> Implement WG-316 only: compare last night's wake-up count to the user's own recent median, using the sleep window already fetched. No new query, no new permission. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The baseline is the median wake-up count over prior nights in the existing lookback window, excluding last night.
+- At least five prior nights with sleep data are required; below that the line is omitted, never fabricated.
+- The comparison is to the user's own history only — no population norms, no targets, no streaks, no good/bad framing.
+- Wording is neutral and non-judgemental, consistent with the product language principles.
+- Night segmentation reuses the existing gap rule; no second definition of "night" is introduced.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
 ## E08: Calendar and morning planning
 
 ### WG-140: Define calendar data minimization and redaction
