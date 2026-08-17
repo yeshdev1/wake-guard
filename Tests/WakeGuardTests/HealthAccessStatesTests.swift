@@ -116,6 +116,97 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertEqual(Set(single.factors.map(\.kind)), [.sleepDuration, .sleepDebt])
         XCTAssertEqual(single.certainty, .moderate)
     }
+
+    // MARK: last night's interruptions (WG-309)
+
+    func testLastNightInterruptionsUsesTheMostRecentNightAndSurfacesInTheViewModel() async throws {
+        // An earlier undisturbed night plus a most-recent night with one mid-sleep awakening. "Last night"
+        // must reflect the recent night's interruption, not the older slept-through one.
+        let lastNightStart = base.addingTimeInterval(-1 * 86_400)
+        let disturbedLastNight = [
+            SleepSample(
+                category: .asleep,
+                interval: DateInterval(
+                    start: lastNightStart, end: lastNightStart.addingTimeInterval(3_600))),
+            SleepSample(
+                category: .awake,
+                interval: DateInterval(
+                    start: lastNightStart.addingTimeInterval(3_600),
+                    end: lastNightStart.addingTimeInterval(4_200))),  // 10 min awake
+            SleepSample(
+                category: .asleep,
+                interval: DateInterval(
+                    start: lastNightStart.addingTimeInterval(4_200),
+                    end: lastNightStart.addingTimeInterval(10_800))),
+        ]
+        let samples = night(dayOffset: -3) + disturbedLastNight
+        XCTAssertEqual(
+            ReadinessComputer.lastNightInterruptions(from: samples),
+            SleepInterruptions(awakenings: 1, totalAwake: 600))
+
+        let model = viewModel(MutableSleepSource(samples))
+        await model.refresh(now: base)
+        XCTAssertEqual(
+            model.lastNightInterruptions, SleepInterruptions(awakenings: 1, totalAwake: 600),
+            "the view model surfaces last night's interruptions")
+    }
+
+    func testLastNightInterruptionsUnavailableWithNoSleepData() {
+        XCTAssertNil(
+            ReadinessComputer.lastNightInterruptions(from: []),
+            "no sleep data → unavailable, not fabricated")
+    }
+
+    // MARK: always-on movement summary (WG-310/311/312)
+
+    func testMovementSummaryEstimatesDisturbancesAndRestFromMotion() async throws {
+        // Motion history shows one overnight walk between two still stretches.
+        let motion = FixedMotionHistory([
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-3_600), quality: .high, kind: .stationary),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_200), quality: .high, kind: .stationary),
+        ])
+        let model = ReadinessViewModel(
+            sleepQuery: MutableSleepSource([]), motionHistory: motion, calendar: makeCalendar())
+        await model.refresh(now: base)
+        XCTAssertEqual(
+            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 600),
+            "the movement summary estimates the overnight disturbance")
+        // Quiet runs: still for 30 min before the walk, 20 min after → longest rest window is 30 min.
+        XCTAssertEqual(
+            model.estimatedRest, 1_800,
+            "the summary also estimates the longest rest window (WG-311)")
+    }
+
+    func testMovementSummaryShowsAlongsideHealthKitSleepData() async throws {
+        // WG-312: the movement summary is now shown ALWAYS, even when HealthKit already has sleep data.
+        let motion = FixedMotionHistory([
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking)
+        ])
+        let model = ReadinessViewModel(
+            sleepQuery: MutableSleepSource(night(dayOffset: -1)), motionHistory: motion,
+            calendar: makeCalendar())
+        await model.refresh(now: base)
+        XCTAssertNotNil(
+            model.lastNightInterruptions, "HealthKit answered → interruptions available")
+        XCTAssertEqual(
+            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 1_800),
+            "the movement summary shows alongside HealthKit sleep data, no longer suppressed (WG-312)"
+        )
+        XCTAssertEqual(
+            model.estimatedRest, 0, "always moving in-window → zero rest, but data existed")
+    }
+
+    func testMovementSummaryUnavailableWithNoMotionSource() async throws {
+        let model = viewModel(MutableSleepSource(night(dayOffset: -1)))  // no motion source wired
+        await model.refresh(now: base)
+        XCTAssertNil(model.estimatedDisturbances, "no motion source → no movement section")
+        XCTAssertNil(model.estimatedRest)
+    }
 }
 
 private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable {
@@ -126,4 +217,10 @@ private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable
         if shouldThrow { throw CancellationError() }
         return samples
     }
+}
+
+private struct FixedMotionHistory: MotionActivityHistorySource {
+    let samples: [MotionActivitySample]
+    init(_ samples: [MotionActivitySample]) { self.samples = samples }
+    func activitySamples(in window: DateInterval) async throws -> [MotionActivitySample] { samples }
 }

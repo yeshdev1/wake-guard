@@ -4890,6 +4890,202 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-312 (2026-08-16): The motion "Movement overnight" summary is always shown, not only a fallback
+
+Human-asked: the movement data wasn't visible as its own thing — the app has **no tab bar** (no `TabView`;
+Readiness is a toolbar destination off the alarm list), and the motion estimate only appeared *as a fallback*
+when HealthKit had no sleep data. Requested (option b): show a movement summary **always**, even alongside
+HealthKit sleep data.
+
+Change: the motion estimates (WG-310 disturbances + WG-311 rest window) are now computed on **every** readiness
+refresh whenever a motion source is wired — the `lastNightInterruptions == nil` gate is removed — and rendered
+as a distinct **"Movement overnight"** section on the readiness card (its own header + a divider), independent
+of the HealthKit interruption line. So a Watch user sees both: the measured interruption line *and* the
+movement section; a non-Watch user sees just the movement section.
+
+Unchanged safety posture: still **never folded into the readiness score** (a still phone isn't a sleeping
+person); still under the explicit "Estimated from movement — not measured sleep." caveat; still coarse (a
+count + two durations, no timestamps, #41); still advisory, never on the alarm path; still `nil` when no motion
+source/data (section hidden) vs `0` rest / `0` pickups when data exists — never conflated. `ReadinessViewModel`
+resets both each refresh (no stale value after a revoked grant). This is a surfacing change only; no new sensor,
+no new permission, no new invariant surface. (A dedicated tab was considered and rejected — the app is a single
+navigation stack by design; a section on the existing Readiness screen keeps movement honest context *next to*
+the sleep estimate rather than implying it is its own measured metric.)
+
+### WG-311 (2026-08-16): A motion "rest window" estimate fills the readiness screen for non-Watch users — but never the readiness score
+
+Human-asked: can we fill the readiness screen right away from the motion history for users with no measured
+sleep? Answer: **partly**, and the boundary is a safety one.
+
+- **What we do:** reuse the WG-310 motion-history query to also compute the **longest contiguous low-activity
+  (non-moving) stretch** overnight (`SleepDisturbanceEstimator.longestRestWindow`), and show it as a
+  supplemental, clearly-labelled line on the readiness card ("~7h of low activity overnight" under the shared
+  "Estimated from movement — not measured sleep." caveat). One motion query populates both the disturbance
+  and rest estimates; both reset each refresh, so a revoked grant leaves no stale value.
+- **What we deliberately do NOT do:** fold this into the readiness **score / level / factors**. A still phone
+  is not a sleeping person (it may sit on a desk for hours), so treating motion stillness as measured sleep
+  would violate `SAFETY_INVARIANTS` — *"missing data returns unavailable, not fabricated"* and the readiness
+  model's grounded/no-black-box guarantee — and Apple's own iPhone Sleep Schedule already produces a far
+  better motion+usage sleep inference (which WG-309 reads when it exists). So `ReadinessModel` still reports
+  "not enough data" when there is no real sleep timeline; the rest estimate is *context beside* the score,
+  never an input to it.
+- **Honesty / privacy:** framed as "low activity", not sleep; no diagnosis (#39); coarse — a single duration,
+  no timestamps (#41); advisory only, never on the alarm path. A "quiet" span is any non-`movingKind`
+  (`.stationary` plus the frequent low-confidence `.unknown`), mirroring the disturbance split. `nil` when
+  there's no motion data (unavailable), `0` when data exists but the device was always moving — never
+  conflated. Tested in `SleepDisturbanceEstimatorTests` + the view-model fallback in `HealthAccessStatesTests`.
+
+### WG-310 (2026-08-16): Motion-based overnight-disturbance estimate — the fallback for users without Apple sleep tracking
+
+Follow-up to WG-309 (the deferred "step 2"): WG-309 derives interruptions from HealthKit `.awake` segments,
+which only exist for users with a Watch or the iPhone Sleep schedule. For everyone else there is no sleep
+timeline at all. This adds a **motion-based estimate** of overnight disturbances as a clearly-labelled fallback.
+
+Mechanism (the "smart way", within iOS limits):
+- A **retroactive** `CMMotionActivityManager.queryActivityStarting(from:to:)` over an overnight window — a
+  one-shot, **foreground-only** query on the readiness screen. **No background execution, no continuous
+  accelerometer, no new gated entitlement** (Motion & Fitness is already granted for the walk challenge). It
+  reuses the existing CoreMotion mapping (`CMMotionActivityUpdates.reading(from:)`).
+- `SleepDisturbanceEstimator` (pure domain) counts **maximal runs of moving activity** (walking / running /
+  cycling / automotive) within the window as "pickups", and totals moving time. `.stationary` and `.unknown`
+  are **not** disturbances — `.unknown` is an unconfident classification, so counting it would over-report;
+  the estimator deliberately **under-counts** (a missed disturbance is harmless; a false "you were disturbed"
+  is not).
+
+Wiring: `ReadinessViewModel` runs the fallback **only** when HealthKit gave no interruptions (`nil`), and only
+if a motion source is wired; a denied/errored query yields `nil` (no estimate shown), never a fabricated value.
+The source is composed in `AppEnvironment` (like `sleepQuery`): production wires
+`CoreMotionActivityHistoryAdapter`, and the in-memory graph wires the hermetic `UnavailableMotionActivityHistory`
+(returns no samples) so previews/tests never touch CoreMotion. `ReadinessScreen` injects
+`environment.motionActivityHistory` into the view model.
+
+Honesty / privacy / safety:
+- It is an inference of the phone being **handled**, not confirmed screen-on usage — the card says so
+  explicitly ("Estimated from movement — not measured sleep."). No medical claim (#39).
+- **Coarse (#41):** a pickup count and total moving time, **no timestamps** — *when* you were disturbed is the
+  sensitive part, so it is never stored or logged. Adapter never logs raw activity/CoreMotion state.
+- **Advisory only**, on the readiness surface — never a wake trigger, never on the alarm path.
+- **Unavailable vs undisturbed** are never conflated: no motion data → `nil`; a genuinely still night →
+  `.none` (0 pickups). The bounded window (~10h, well inside CoreMotion's ~7-day retention) can't scan
+  unbounded history.
+- Not device-unit-tested (the adapter needs a real device — like the historical pedometer); the pure estimator
+  + the view-model fallback are fully tested (`SleepDisturbanceEstimatorTests`, `HealthAccessStatesTests`).
+
+Limitation: if the phone charges away from the bed, no handling is detected — the estimate reads "no overnight
+movement", which is honest (we can only infer what the device felt). This is why it is a *fallback*, not the
+primary signal.
+
+### WG-309 (2026-08-16): "Interrupted sleep" is derived from HealthKit `.awake` segments — no new sensor, no new permission
+
+Human-requested: the user asked whether we can collect data on the phone being picked up after hours dormant
+and record it as interrupted sleep / phone usage during sleep hours, and whether there's a smart way to do it.
+
+Constraints that shaped the answer:
+- iOS gives a third-party app **no** general "device unlocked / user opened an app" signal in the background;
+  `UIApplication` lifecycle only fires for *our own* app. Broad "phone usage" would need the Family Controls /
+  DeviceActivity entitlement — Apple-gated for parental-control/Screen-Time apps, opaque data, wrong category.
+  Rejected.
+- Continuous background accelerometer to catch pickups live is disallowed for arbitrary apps and violates
+  data-minimization / "background is opportunistic". Rejected.
+- The signal is **already** in data we read: Apple's sleep algorithm (Watch, or iPhone motion+usage) marks
+  mid-sleep wakefulness as `HKCategoryValueSleepAnalysis.awake`, which WG-122 already maps to `.awake`. So
+  "interrupted sleep" needs **no new HealthKit type** (the minimization plan is unchanged) and no new sensor.
+
+Decision (step 1, shipped): `SleepMetrics.interruptions(_:)` returns a `SleepInterruptions` = **count of `.awake`
+spans that fall between first sleep onset and the final wake, and the total awake time** — awake *before* onset
+(settling in) and *after* the final wake (getting up) is excluded. `ReadinessComputer.lastNightInterruptions`
+exposes the most recent night's value; `ReadinessViewModel` surfaces it; `ReadinessCardView` shows a gentle,
+factual line ("2 wake-ups · 14 min awake", or "Slept through — no interruptions").
+
+Safety / privacy:
+- **Advisory only** — descriptive, on the readiness (wellness) surface, never a wake trigger and never on the
+  alarm path (invariant unchanged).
+- **Coarse by design (#41):** a count + a total, **no awake timestamps** — *when* you woke reveals the
+  disruption itself, so it is never stored or logged. Follows the `PreAlarmFeedbackCounts` minimization model.
+- **Unavailable, not fabricated:** `nil` when there is no asleep data; a genuinely slept-through night is the
+  distinct `.none` (count 0), so "no data" and "no interruptions" are never conflated.
+- **No diagnosis (#39):** framed as an estimate; no medical claim.
+
+Deferred (step 2, not built): a retroactive `CMMotionActivityManager` history query (the existing
+`CoreMotionHistoricalPedometerAdapter` pattern) to estimate *device-handling* disturbances for users without
+Apple sleep tracking — foreground-only, no background execution, labelled as an inference, and it *would* need a
+new `WellnessDataMinimizationPlan` entry. Left as a follow-up so this task stays one increment.
+
+### WG-308 (2026-08-16): The accessible alternative is now a wake-up math puzzle, not a tap/hold gesture
+
+Human-requested: the user asked for "a difficult puzzle or problem — something that would help a person wake
+up" as the non-walking alternative, and confirmed the shape as "2 and a bit harder" (two problems, harder
+than trivial arithmetic). The prior accessible alternative — a debounced tap sequence / press-and-hold
+(WG-072) — is a *deliberate gesture* but does nothing to break sleep inertia; a groggy user passes it half
+asleep. A small math puzzle demands genuine alertness, which is the point of a wake challenge.
+
+Decision: at the wake screen, "another way" now presents `MathPuzzleView` over the deterministic
+`WakeMathPuzzleMachine` (domain). Design:
+- **Difficulty:** a **two-digit × two-digit** multiplication (12–29 × 12–29). The first cut used a
+  single-digit multiplier (11–19 × 2–9); on device that was too easy — a groggy user solved it reflexively —
+  so it was raised to two two-digit factors, which genuinely needs working-out. Answers top out at 841
+  (three digits). **Two** correct answers to pass (WG-308 "2").
+- **Wrong answers never fail the alarm (#21):** a wrong answer hands over a *fresh* problem and never
+  advances the count, so brute-forcing one problem is pointless and the user is never trapped — the alarm
+  simply stays active until two are solved. Only ever reaches passed, exactly like the walk and the old
+  gesture.
+- **Deterministic:** problems come from a self-contained SplitMix64 stream seeded at init — no closures to
+  inject, fully reproducible in tests. At runtime `WakeChallengeRuntime.puzzleSeed` mixes the alarm id with
+  the clock so the sequence isn't precomputable; no sensitive data in the seed (#41).
+- **Accessible (#22) and never a dead-end (#21):** a big custom number pad (works while the alarm alerts,
+  no system keyboard), the problem spoken as words ("13 times 7"), entry + progress announced, and feedback
+  is **text *and* an SF Symbol**, never color alone. VoiceOver / Switch Control drive the pad like any
+  button. The pass reuses the same authorized single-stop seam as the tap/hold did
+  (`runtime.accessibleAlternativePassed()`), so the safety path is unchanged.
+- **Anti-AI (#1):** the machine advances *only* through typed `submit(_:)` input — AI can no more type the
+  answer than it could emit the walk's steps. Verified by `WakeMathPuzzleMachineTests` (no non-input path
+  passes; wrong answers can't accumulate; the stream is in-range and reproducible).
+
+The old `AccessibleChallenge` tap/hold machine + view are left in place (still persisted-config types, still
+unit-tested); this changes only which alternative the **wake screen** offers. The walk stays the primary
+challenge; the accessible alternative remains *always* available (WG-293), now as the puzzle.
+
+### WG-307 (2026-08-16): Clear a one-time alarm on completion; keep the "won't fire" warning if it was never completed
+
+Human-requested: after finishing the walk on a one-time alarm, the user saw a lingering "dead" entry in the
+list. They want it gone — but the reconcile already surfaces a **never-completed** past one-time alarm as an
+attention/"won't fire" item (WG-241) so a user is never misled into trusting an alarm that can't ring. Those
+two goals conflict only if "clear" is a **display heuristic** on spentness (an initial filter-by-`isSpent`
+attempt broke `testEnabledAlarmWithNoUpcomingOccurrenceIsAttention` / the critical variant, and would have
+silently hidden a dead **critical** alarm — a safety regression). Completion is the distinguishing signal.
+
+Decision: **completion triggers the delete, not spentness.** `AlarmCommandProcessor.clearIfCompletedOneTime`
+runs on the pass path (after `sweepWakeChain` + `rearmNextWake`): if the alarm is `.oneTime` **and** has no
+next occurrence (its single fire is behind us) it is deleted — mirroring `applyDelete` (delete → audit #46 →
+cancel the system alarm + any wake chain). A one-time alarm the user **never** completed is never touched by
+this path, so it keeps its WG-241 warning; a recurring alarm still has a future occurrence, so the guard
+skips it and `rearmNextWake` keeps it armed. The clear is best-effort and fully audited (actor/reason/old→new).
+
+Tests: `WakeChainProcessorTests.testCompletedOneTimeAlarmIsClearedOnPass` (one-time pass → deleted) and
+`testCompletedRecurringAlarmIsKeptNotCleared` (weekly pass → kept). The WG-241 attention tests still pass
+unchanged — the never-completed dead-alarm warning is preserved.
+
+### WG-306 (2026-08-16): The ring didn't stop after a valid walk — `stopRing` presence-gate no-op'd on the alerting alarm
+
+Device bug (real user, critical): after completing the walk, the alarm kept ringing even though the walk was
+recorded (so the runtime reached `.passed` and both the stop submission *and* the activity record fired).
+
+Root cause: `SystemAlarmManagerAdapter.stopRing` presence-gated the stop — it only called
+`AlarmManager.shared.stop(id:)` if the id was still in `AlarmManager.shared.alarms`. But a **currently
+alerting** alarm has already fired, and on device AlarmKit no longer lists fired alarms in `.alarms`
+(`scheduledAlarms()` already compact-maps them away). So the gate made `stop` a **silent no-op on exactly
+the ringing alarm** a valid pass must stop — and, via the outbox, the audit falsely recorded "stopped". This
+was the device-only risk WG-295's review flagged as unverified (WG-294); the device confirmed it.
+
+Fix: **never presence-gate the ring-stop** — always attempt `stop(id:)`. Best-effort: stopping an id the
+system no longer holds is harmless, so a "no such alarm" (stale/duplicate pass) is swallowed rather than
+surfaced as a failure; the alarm's mandatory Stop button remains the ultimate fallback (#24). This also
+fixes the **sweep's per-member stops** (`sweepWakeChain` calls `stopRing` on each wake-chain member): if the
+user passes while a *re-ring* member is alerting, that member is now actually stopped, not gate-skipped. The
+`cancel` presence-gate is left as-is — future (not-yet-fired) chain members are still scheduled and therefore
+present, so the sweep cancels them correctly; only the alerting member is absent, which `stopRing` now
+handles. Adapter is device-only (not unit-tested); verified on the WG-294 device checklist.
+
 ### WG-304 (2026-08-16): Travel-update notification when a time-zone change shifts alarms
 
 Human-requested: when the device time zone changes and alarms are recomputed, tell the user (previously the

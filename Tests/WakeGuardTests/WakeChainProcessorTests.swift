@@ -48,8 +48,49 @@ final class WakeChainProcessorTests: XCTestCase {
             createdAt: epoch, updatedAt: epoch)
     }
 
+    private func makeOneTime(year: Int, month: Int, day: Int) throws -> Alarm {
+        let schedule = ScheduleRule.oneTime(
+            OneTimeSchedule(
+                date: try CalendarDate(year: year, month: month, day: day),
+                time: try TimeOfDay(hour: 7, minute: 0),
+                timeZone: try IANATimeZone(identifier: "UTC")))
+        let epoch = Date(timeIntervalSince1970: 0)
+        return try Alarm(
+            id: AlarmID(ids.next()), label: "once", schedule: schedule, criticality: .critical,
+            challengePolicy: .walk(try .standard()), createdAt: epoch, updatedAt: epoch)
+    }
+
     private func iso(_ string: String) throws -> Date {
         try XCTUnwrap(ISO8601DateFormatter().date(from: string))
+    }
+
+    // MARK: clear-on-completion (WG-307)
+
+    func testCompletedOneTimeAlarmIsClearedOnPass() async throws {
+        // A one-time alarm whose walk is passed has done its job → it's deleted, not left as a "dead"
+        // entry. `now` is just past the 07:00 fire, so the alarm has no future occurrence.
+        let fixture = try makeFixture(now: try iso("2026-08-17T07:05:00Z"))
+        let alarm = try makeOneTime(year: 2026, month: 8, day: 17)
+        try await fixture.alarms.save(alarm)
+
+        _ = await fixture.processor.process(
+            .markChallengePassed(alarm.id), from: .userInterface, by: .user)
+
+        let remaining = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertNil(remaining, "a completed one-time alarm is cleared on the pass")
+    }
+
+    func testCompletedRecurringAlarmIsKeptNotCleared() async throws {
+        // A recurring alarm still has a future occurrence, so a pass re-arms it — it is never cleared.
+        let fixture = try makeFixture(now: try iso("2026-08-17T07:05:00Z"))
+        let alarm = try makeAlarm()  // weekly
+        try await fixture.alarms.save(alarm)
+
+        _ = await fixture.processor.process(
+            .markChallengePassed(alarm.id), from: .userInterface, by: .user)
+
+        let remaining = try await fixture.alarms.alarm(id: alarm.id)
+        XCTAssertNotNil(remaining, "a recurring alarm is kept (re-armed), never cleared")
     }
 
     func testCreatePlacesTheFamilyBehindTheMainOccurrence() async throws {

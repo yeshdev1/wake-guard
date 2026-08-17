@@ -106,6 +106,10 @@ struct AppEnvironment: Sendable {
     /// graph returns no samples (readiness degrades to "not enough data", #36/#38). Read-only, on device,
     /// never stored raw (#41); holds no alarm authority.
     let sleepQuery: any SleepSampleQuerying
+    /// The retroactive motion-activity history source for the readiness disturbance fallback (WG-310).
+    /// Production reads CoreMotion history (foreground-only); the in-memory graph returns no samples (the
+    /// fallback stays unavailable). Read-only, on device, coarse (#41); holds no alarm authority.
+    let motionActivityHistory: any MotionActivityHistorySource
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
     /// the interim `DeferredAlarmManagerAdapter` and shows a "won't ring here" banner. When `true` the
@@ -136,6 +140,7 @@ struct AppEnvironment: Sendable {
                 guidedAlarmParser: FoundationModelsGuidedAlarmParser(),
                 modelAvailabilityProvider: FoundationModelsAvailabilityAdapter(),
                 sleepQuery: HealthKitSleepQueryAdapter(),
+                motionActivityHistory: CoreMotionActivityHistoryAdapter(),
                 cloudTokenStore: KeychainCloudTokenStore(),
                 makeConsentProvider: { alarm, settings, cloudToken in
                     // The location source's `authorizationStatus()` returns the domain enum, so the
@@ -170,6 +175,7 @@ struct AppEnvironment: Sendable {
                 guidedAlarmParser: nil,
                 modelAvailabilityProvider: FixedModelAvailabilityProvider(),
                 sleepQuery: UnavailableSleepQuery(),
+                motionActivityHistory: UnavailableMotionActivityHistory(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }
@@ -206,6 +212,7 @@ struct AppEnvironment: Sendable {
         let guidedAlarmParser: (any GuidedAlarmParsing)?
         let modelAvailabilityProvider: any ModelAvailabilityProviding
         let sleepQuery: any SleepSampleQuerying
+        let motionActivityHistory: any MotionActivityHistorySource
         let cloudTokenStore: any CloudTokenStore
         /// Builds the consent provider from the in-`make` settings/token: production reads the OS, the
         /// in-memory graph returns a hermetic fixed status (so tests/previews never touch a framework).
@@ -336,6 +343,7 @@ struct AppEnvironment: Sendable {
             modelAvailabilityProvider: wiring.modelAvailabilityProvider,
             settingsOpener: wiring.settingsOpener, alarmActivityStore: activity.store,
             alarmActivityRecorder: activity.recorder, sleepQuery: wiring.sleepQuery,
+            motionActivityHistory: wiring.motionActivityHistory,
             schedulesAlarmsInSystem: wiring.schedulesAlarmsInSystem)
     }
 }

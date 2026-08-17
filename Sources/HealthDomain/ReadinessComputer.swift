@@ -28,6 +28,13 @@ enum ReadinessComputer {
                 need: need))
     }
 
+    /// The **most recent** night's mid-sleep interruptions (WG-309), or `nil` when there is no sleep data
+    /// at all (unavailable, not fabricated — a slept-through night is `.none`, count 0). Uses the same
+    /// night-segmentation as readiness, so "last night" means the same span in both.
+    static func lastNightInterruptions(from samples: [SleepSample]) -> SleepInterruptions? {
+        nights(from: samples).last.flatMap { SleepMetrics.interruptions($0) }
+    }
+
     /// Segment samples into nights: sort by start, and begin a new night whenever the gap from the
     /// previous interval's end exceeds `nightGap`. Robust to sleep spanning midnight (no calendar-day
     /// ambiguity).

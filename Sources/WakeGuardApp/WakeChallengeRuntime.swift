@@ -77,6 +77,15 @@ final class WakeChallengeRuntime {
         task = nil
     }
 
+    /// A per-wake seed for the accessible math puzzle (WG-308): varies by alarm **and** by the moment the
+    /// challenge starts, so the problem sequence isn't precomputable, yet is a plain deterministic function
+    /// of inputs (tests seed the machine directly). No sensitive data — just the alarm id and the clock.
+    var puzzleSeed: UInt64 {
+        let timeBits = now().timeIntervalSince1970.bitPattern
+        let idBits = UInt64(bitPattern: Int64(truncatingIfNeeded: alarmID.rawValue.hashValue))
+        return timeBits ^ idBits
+    }
+
     /// The user completed the accessible non-walking alternative — the authorized fallback (#22). Submits
     /// exactly one stop.
     func accessibleAlternativePassed() async {

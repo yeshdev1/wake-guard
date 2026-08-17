@@ -117,7 +117,26 @@ extension AlarmCommandProcessor {
         // the pass is when tomorrow's wake gets scheduled).
         await sweepWakeChain(afterPassOf: alarm, context: context)
         await rearmNextWake(for: alarm, context: context)
+        await clearIfCompletedOneTime(alarm, context: context)
         return outcome
+    }
+
+    /// Clear a **one-time** alarm the moment its single occurrence is satisfied by a pass (WG-307): it has
+    /// done its job, so it's removed rather than left lingering as a spent "dead" entry. Completion is the
+    /// trigger — a one-time alarm the user **never** completed keeps its "won't fire" warning in the list
+    /// (WG-241), never silently vanishing. Recurring alarms are re-armed instead (they still have a future
+    /// occurrence). Mirrors `applyDelete`: delete → audit (#46) → cancel the system alarm + any chain.
+    func clearIfCompletedOneTime(_ alarm: Alarm, context: CommandContext) async {
+        guard case .oneTime = alarm.schedule,
+            engine.nextOccurrence(for: alarm, after: clock.now, deviceTimeZone: deviceTimeZone())
+                == nil,
+            (try? await alarms.deleteAlarm(id: alarm.id)) != nil
+        else { return }
+        await appendAudit(
+            context, old: Self.hash(alarm), new: nil, outcome: .succeeded,
+            reason: "One-time alarm completed and cleared.")
+        try? await alarmManager.cancel(alarmID: alarm.id)
+        await cancelWakeChain(for: alarm)
     }
 
     /// After a satisfied wake, arm the **next** occurrence (main + chain) right away (WG-295 D2): the
