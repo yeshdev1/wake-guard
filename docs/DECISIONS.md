@@ -4890,6 +4890,391 @@ decisions are recorded above using the ADR template.
   short-step config never stops right before verification lands. Pinned by
   `testBarFullButUnverifiedSaysKeepWalking`.
 
+### WG-313 (2026-08-17): The overnight motion window is anchored to the night in the data, not to the clock — supersedes the WG-310 rolling window
+
+Human-reported bug: the "Movement overnight" section changed **every time the readiness screen was opened**.
+Cause: WG-310 queried a rolling `[now - 10h, now]` window, re-anchored to `clock.now` on each `.task` fire. So
+the window slid forward all morning — pickups only grew (the commute swept in) and the rest window only shrank
+(the start of the night fell off the back). The numbers were never wrong for the window they described; the
+window was the wrong thing to describe.
+
+Change, in two parts:
+
+- **Candidate span is calendar-anchored** — `[previous local 18:00, now]` (`nightAnchorHour = 18`), computed
+  through the **injected `Calendar`**, so a DST transition shifts the anchor with the wall clock while every
+  duration stays absolute elapsed time. Always the *previous* local day, not "the most recent 18:00", so the
+  most recently completed night stays reachable all day instead of vanishing each evening. Well inside
+  CoreMotion's ~7-day history retention.
+- **The night is derived from the samples inside that span, not measured back from the clock.** Quiet runs are
+  merged across moving runs shorter than `maxDisturbanceGap` (20m); the longest merged block is the night,
+  bookended by settling down and getting up. The merge is not a refinement, it is load-bearing: counting
+  disturbances *inside a single quiet run* would always yield zero, because a quiet run is non-moving by
+  construction. A 2 a.m. bathroom trip is a disturbance **inside** the night, not the end of it.
+
+**Correction after adversarial review (H1, fixed).** The first implementation applied `maxDisturbanceGap`
+to a single *sample span* rather than a contiguous *moving run*, contradicting the maximal-run definition
+`estimate` uses and this ADR asserts. A morning of short movements therefore never closed the night: the same
+samples read at 07:00 and 09:00 gave 1 pickup / 10m versus 3 pickups / 30m — the drift bug, still present one
+layer down, and invisible because every fixture modelled getting up as a single long walk. `nightSpan` now
+accumulates `movingRun` across contiguous moving spans and resets it on any quiet span. Pinned by
+`testSegmentedCommuteEndsTheNightRatherThanSittingInsideIt` (a walk→drive→walk commute, each leg under the
+threshold, is one run and ends the night). Note the reviewer's proposed fix — closing on the gap *between
+quiet spans* — does not fix this case either, since bursts separated by sitting leave every gap under
+threshold; run-aggregation is what the doc comment always claimed and is what landed.
+
+Constants carry their rationale in the source. `minimumNightDuration = 90m`: below that we report
+**unavailable** rather than dressing a brief lull up as a night — a phone set down for twenty minutes is not
+sleep. This preserves the nil-not-fabricated invariant rather than widening it.
+
+**Known limitation, documented not fixed:** opening the screen *mid-sleep* still shifts the reported night —
+the night is not over, so the longest quiet block genuinely is shorter than it will be by morning. Anchoring
+cannot fix a night that hasn't finished. The estimate is honest about the data it has; it is advisory, never
+on the alarm path, so a mid-sleep read has no safety consequence.
+
+Alternatives considered and rejected: **caching the summary per calendar day** — simpler and fully stable, but
+it strands a stale estimate after a permission revocation, which `ReadinessViewModel` explicitly guarantees
+against (a completed refresh replaces the previous value). **Corrected 2026-08-18:** this clause used to read "every refresh resets both estimates first", which WG-318 deliberately undid in the same uncommitted batch — `applyMovementSummary` now assigns exactly once at the end, and `testAnInFlightRefreshDoesNotBlankTheSectionItIsAboutToRepopulate` pins the opposite. The rejection still stands; only its stated reason was stale. **Relaxing `minimumNightDuration`** to keep short fixtures
+passing — rejected outright; that weakens the invariant the fix exists to establish.
+
+**Test-fixture change recorded (per `CLAUDE.md`: never delete a failing test to obtain a green build).** Two
+pre-existing view-model tests failed when the 90-minute rule landed, and both were **rewritten, not removed or
+relaxed**: `HealthAccessStatesTests.testMovementSummaryEstimatesDisturbancesAndRestFromMotion` and
+`...ShowsAlongsideHealthKitSleepData` built ~30-minute synthetic windows around `now`, which the 90-minute
+sustained-quiet rule now correctly rejects as "not a night". Both fixtures were rewritten to model real nights;
+the first test's disturbance expectation (`pickups: 1, movingDuration: 600`) is **unchanged**, only its rest
+value moved with the longer fixture. The second test's `estimatedRest == 0` assertion was **dropped** because
+that state is unreachable through the view model — an all-moving span contains no night, so the whole section
+reports unavailable. That invariant was already pinned directly on the estimator by
+`SleepDisturbanceEstimatorTests.testRestWindowIsZeroWhenAlwaysMovingButDataExists`, so coverage is unchanged
+and the drop site carries a comment pointing there.
+
+Unchanged safety posture: no new sensor, permission, or entitlement; foreground-only retroactive query; still
+coarse (a count + two durations, **no timestamps**, #41); still never folded into the readiness score (#39, a
+still phone is not a sleeping person); still `nil` (unavailable) vs `.none`/`0` (data existed) never conflated;
+still advisory, never on the alarm path. **Supersedes in part WG-310** (the rolling window) and the window
+WG-312's always-on section renders.
+
+**Two further defects remain open — H2 and H3 below.** Both have had a fix implemented, taken to a green
+suite, falsified by adversarial review, and reverted before any commit. Neither negative result is filler:
+they are why the next attempt must not be a third threshold. See the closing note.
+
+**A night-band fix for H2 was implemented, reviewed, and reverted (2026-08-18).** Recorded because the
+negative result is the useful part, and because a previous revision of this ADR asserted the design would
+work before it had been tried.
+
+The attempt introduced a **night band** `[previous local 18:00, today's local 08:00]` and used it two ways:
+candidate blocks were ranked by **overlap** with the band (tie-broken on duration) instead of by duration
+alone, and a block still open at the span's end was **clipped** to the band's end. A reproduction test
+(`testSedentaryDaytimeBlockDoesNotOutrankTheNight`, four failing assertions on a real desk-day shape) went
+green, the full suite passed at 1368, and the ADR was written up as fixed. Two adversarial reviews
+(`motion-red-team`, `ios-architect`) then established, independently and by mutation, that:
+
+- **The ranking was inert.** Deleting the overlap comparator entirely and reverting to raw duration left all
+  1368 tests green — including the H2 reproduction. Verified directly, not taken on the reviews' word. In
+  that fixture the desk block starts at exactly local 08:00, so the *clip* discards it before the ranker ever
+  sees it. The mechanism the ADR credited was not the mechanism doing the work — the same failure of evidence
+  recorded for H1, one layer up.
+- **The ranking was actively harmful.** Overlap ranked lexicographically ahead of duration, making it a gate
+  rather than a weight: any non-zero overlap beat any duration. A night-shift worker sleeping 08:30–16:30
+  lost their real 8h night to a 2.5h in-band break-room lull; in the sharpest case 60 seconds of overlap beat
+  8 hours of sleep. The zero-overlap fallback that was supposed to protect travellers is knife-edge — one
+  in-band lull anywhere disables it, and the fixture that "pinned" it has a single candidate block, so it
+  could not have detected this.
+- **The clip truncated real sleep.** It fires precisely when no sustained moving run was observed, which is
+  the norm for a user who opens the screen within minutes of waking — so the accompanying claim that "a
+  genuine lie-in past 08:00 keeps its real end" was false for exactly the users it was written for. A
+  07:00–15:00 day sleeper was clipped to a 1h block, fell under `minimumNightDuration`, and lost the whole
+  section.
+
+The underlying tension is not a coding defect: **motion alone cannot distinguish a desk from a bed**, and the
+only available discriminator — a wall-clock band — encodes "you sleep at night", which is false for shift
+workers, day sleepers, and travellers. Ranking by it trades a common mild error for a rare severe one.
+
+**Decision: H2 stays open.** A previous revision of this ADR re-sequenced H2 behind H3, on the reasoning that
+H3's validity cap would stop an unclosed block growing toward `now` *at the source* and so deliver most of
+what the clip was reaching for, more honestly. That prediction was tested and was wrong — see the H3 section
+below, which is the second negative result. H2 is not blocked on H3; both are now blocked on the same missing
+concept. Both defects are carried as `XCTExpectFailure` reproductions rather than as prose, so they stay
+visible in CI.
+
+### WG-313 H3 — a trailing validity cap was implemented and reverted (2026-08-18)
+
+**Result: H3 stays open. The fix was implemented, went green at 1371 tests, and was reverted before commit.**
+This is the **second** negative result on WG-313 in two sessions, and the second time a green suite certified
+a mechanism that adversarial review then falsified. Nothing was committed either time. The source is
+unchanged; the counter-evidence is committed as tests.
+
+**The defect (still live).** `classifiedSpans` runs the **last** sample's classification all the way to
+`window.end`. Over a 15-hour candidate span one stale `.stationary` record — or one explicitly unconfident
+`.unknown` — therefore produces a 15-hour "night" out of a single data point, with zero disturbances. That is
+a live contradiction of nil-not-fabricated, and because the extension is load-bearing for *defining* the night
+span it is not merely a wrong rest number. Reproduced by four `XCTExpectFailure` tests in
+`SleepDisturbanceSampleValidityTests`.
+
+**What was tried.** `maxTrailingValidity = 60m`: the last sample extrapolates that far past its own timestamp
+instead of to `window.end`. Gaps **between** samples stayed uncapped, deliberately — between two records the
+earlier classification genuinely holds (that is CoreMotion's contract, and a real night *is* one `.stationary`
+record followed hours later by a `.walking` one), whereas past the last record there is no successor and the
+classification becomes extrapolation over silence. The history query returns silence identically whether the
+device stayed still or stopped reporting, and reading silence as stillness is the fabrication. The constant
+was bounded by an invariant rather than chosen by feel — `maxTrailingValidity < minimumNightDuration`, so a
+lone trailing sample could never reach a night on its own at any read time.
+
+That reasoning is still sound as far as it goes. The fix was rejected anyway, on three grounds, each
+verified personally by writing it as a test and mutating the cap in and out (at 100h both new tests pass; at
+60m both fail).
+
+**1. It introduces a false positive worse than the defect.** The asymmetry cuts the wrong way in practice. An
+evening on the sofa is *closed* by the walk to bed and keeps its full length, while the real night is still
+*open* and gets capped. The sofa then outranks the bed, and an eight-hour sleeper is told "~2h 30m of low
+activity overnight". A confident wrong number is strictly worse than the `nil` the cap was written to prefer —
+the user cannot tell it is wrong. Pinned by `testAnEveningOnTheSofaMustNotOutrankAnUnclosedNight`.
+
+**2. It introduces a false negative at the worst possible moment.** A sleeper who wakes and opens the app
+*before their first step* has nothing closing the night, so the only block is `onset → onset + 60m`, under the
+90-minute floor, and the estimate is `nil` — the entire section disappears. That is the moment an alarm app
+exists for. Pinned by `testAStillSleeperWhoHasNotMovedYetStillGetsANight`.
+
+**3. Decisively: it does not fix the defect.** Fabrication is equally available through *interior* gaps, which
+no trailing cap touches. A phone powered off overnight reports a 14.9-hour undisturbed night with the cap
+fully in place. So nil-not-fabricated was not restored — the extrapolation was merely **relocated**, at the
+cost of (1) and (2). Pinned as an `XCTExpectFailure` interior-gap reproduction.
+
+**The constant's value was never load-bearing, which was the tell.** Red-team mutation: 45m and 89m both leave
+the whole suite green; the only lower-bound kill comes from an unrelated 45-minute WG-311 fixture. A constant
+no test constrains is a tuning knob pretending to be a design.
+
+**The H2 flip was fixture-flattery, and it was nearly shipped.** The cap turned
+`testSedentaryDaytimeBlockDoesNotOutrankTheNight` green and its `XCTExpectFailure` was removed on that basis;
+mutation confirmed the cap was what did it. Both checks passed and the conclusion was still wrong — the desk
+period in that fixture holds exactly **one** motion record, so bounding it to an hour dropped it under the
+floor. Add a second record and the block is large again. **A mutation check proves a mechanism is load-bearing
+for that fixture; it does not prove the fixture covers the real input shape.** Both checks are needed and they
+are different questions. The `XCTExpectFailure` has been restored.
+
+**Also rejected, before the reviews came back: no trailing extrapolation at all** (a sample classifies only
+until the next sample; the last classifies nothing). It breaks three **pre-existing** WG-310/311 tests
+(`testLongestRestWindowIsTheLongestNonMovingRun`, `testMovingSpanIsClippedToTheWindowEnd`,
+`testRestWindowTreatsUnknownAsQuietAndMergesWithStationary`), so it changes the older
+`estimate`/`longestRestWindow` contracts rather than WG-313's. It would also make the sofa and still-sleeper
+harms above *worse*, not better, since it removes even more of an unclosed night's tail.
+
+**What is now pinned in CI.** Four `XCTExpectFailure` reproductions keep the H3 defect visible as a failing
+shape (stale `.stationary`, low-confidence `.unknown`, interior gap, unclosed-night drift). More valuable are
+three **passing** constraint tests that encode the counter-evidence —
+`testAnEveningOnTheSofaMustNotOutrankAnUnclosedNight`, `testAStillSleeperWhoHasNotMovedYetStillGetsANight`,
+and `testAQuietGapBetweenTwoRecordsStillResolvesTheWholeNight`. Any future attempt must keep those three
+green. They are what killed this one, and they exist so that attempt #4 fails fast rather than reaching green
+first and being falsified in review.
+
+### WG-313 — what H2 and H3 actually have in common: there is no model of evidence coverage
+
+Both adversarial reviewers (`motion-red-team`, `ios-architect`) converged independently on this, and it is the
+conclusion the two negative results above are evidence for.
+
+**The estimator cannot distinguish "still, and observed to be still" from "no data".** A quiet span means both
+things and the type system says nothing about which. H2 (a sedentary daytime block outranks the night) and H3
+(one stale sample fabricates a night) are two symptoms of that single omission, which is why each attempted
+fix has been a threshold that trades a common mild error for a rare severe one, and why fixing one has
+repeatedly appeared to fix the other by accident.
+
+**Three constants have now been proposed against this and none survived** — a wall-clock night band, a
+trailing validity cap, and zero extrapolation. The next unit of work is therefore **not a fourth threshold**.
+It is to give the estimator a representation of how well-evidenced a candidate block is: a coverage fraction
+per block (observed sample-minutes over block duration), or a maximum credible unobserved stretch, or an
+explicit `unobserved` span kind distinct from `quiet`. With that, a block can be ranked or rejected on the
+strength of its evidence rather than on an assumption about when humans sleep — which is the assumption every
+rejected fix smuggled in. Filed as **WG-317**; H2 and H3 are blocked on it.
+
+Fixing this also subsumes the separately-identified need for **motion coverage reporting** on the readiness
+screen (telling the user how much of the night was actually observed), which is currently unfiled.
+
+### WG-318 (2026-08-18): The "Movement overnight" section always renders — silence is replaced by a stated reason
+
+The section vanished whenever there was no estimate. Header, both estimates and the "Estimated from movement"
+caveat disappeared together, so **"this device has no motion hardware", "Motion access is off", "the read
+failed" and "not enough data to call it a night" were one indistinguishable outcome: nothing.** For a
+safety-sensitive app whose standing rule is that the user is told what happened, an empty region is the one
+response that is never acceptable — it is indistinguishable from a bug, and a user cannot act on it.
+
+The section now always renders, and says which of the five cases it is. Three structural decisions:
+
+- **One total value, not several optionals.** `MovementSummary` (query outcome: `available` / `unavailable` /
+  `cancelled`) and `MovementDisplayState` (what is on screen: `loading` / `available` / `unavailable`). The
+  first attempt encoded the invariant as two independent optionals — an estimate and a reason — with only a
+  doc comment asserting exactly one was set. Nothing enforced it: `nightSpan`, `estimate` and
+  `longestRestWindow` are three functions with three failure conditions, so "no estimate **and** no reason"
+  was representable, and it renders as the vanished section this task exists to remove. `ReadinessViewModel`
+  stores the display state; `estimatedDisturbances`, `estimatedRest` and `movementUnavailability` are
+  **derived** from it, so they cannot drift apart. The card switches exhaustively, so there is no fall-through
+  branch that renders nothing.
+- **The two enums are deliberately not merged.** `.cancelled` is a query outcome that must never be rendered,
+  and `.loading` is a screen state no query can return. One enum would give each domain a case it has no
+  meaning for — and an unrenderable case in the view's state is precisely how the section came to render
+  nothing.
+- **`rest` is non-optional inside `.available`.** It comes from the same samples and the same night window as
+  the disturbance count, so "one but not the other" was never reachable; the view's `if let rest` branch was
+  dead code that the type now forbids.
+
+**Assumption recorded (a):** a `MotionSourceError.unavailable` payload is a sound basis for user-facing
+permission copy. The catch site previously reported **every** non-cancellation throw as "access unavailable",
+which is wrong in three reachable ways — the adapter throws `.temporarilyUnavailable` *after* confirming
+access is granted, `.notPresent` on hardware that cannot report activity, and `.restricted` where the toggle
+is not the user's to flip. The payload was already there and simply wasn't read. The risk of trusting it is
+that a future adapter could report an availability that doesn't match reality; the mitigation is that an
+unrecognised error maps to `.temporarilyUnavailable` ("the read failed"), never to a permission claim, so a
+wrong payload degrades to a vague-but-true message rather than a false accusation.
+
+**Assumption recorded (b):** `.cancelled` **preserves** prior state. This is an explicit exception to the
+`ReadinessViewModel` class doc's "no stale readiness claim remains", and it is narrow: cancellation is not a
+result, so replacing a good estimate with nothing would blank a correct section in order to say less than it
+already said. A refresh is only cancelled when the view is going away, so there is no user left to mislead.
+**The exception is a cold open**, where there is no prior state to preserve: an earlier draft of this ADR
+claimed cancellation there "leaves `.loading`, which remains true", and that was wrong — it leaves a spinner
+with no query in flight and none scheduled, which is WG-318's vanished section in a third costume. `.cancelled`
+now falls to `.temporarilyUnavailable` when and only when nothing was ever applied (`guard case .loading`).
+That is not a weakening of this assumption: the rule exists to avoid erasing a good estimate, and on a cold
+open there is none to erase. The safety boundary is unaffected — this section is advisory, is never folded
+into the readiness score, and touches no alarm state.
+
+**Copy chose truth over actionability where the two conflicted.** `.accessUnavailable` does not say "turn it
+on in Settings": `MotionActivity.forMotionActivity` collapses `.notDetermined` into `.notAuthorized`, so on a
+fresh install this reaches a user who has never denied anything, and iOS shows no Motion & Fitness row for an
+app that has never asked. `.temporarilyUnavailable` carries no retry instruction because the screen has no
+`.refreshable` and no scene-phase hook — the first draft said "Pull down to try again", an affordance that
+does not exist anywhere in `Sources/`. **An instruction the user cannot follow is worse than no instruction.**
+The gap this leaves — a `.notDetermined` user has no way to grant access from this screen — is real and
+**unfixed**; it needs an in-context ask mirroring what `.task` already does for HealthKit, and is filed
+separately rather than widened into this task.
+
+**The copy moved out of the view, because it is the feature and nothing could test it.** `unavailableText` and
+`unavailableIcon` were `private` methods on `ReadinessCardView`, so the five strings a user actually reads had
+**zero** test coverage — while this branch shipped two defects that live entirely in them. They are now
+`MovementUnavailability.message` / `.icon`, following the existing `WellnessSafetyCopy` precedent, and
+`MovementUnavailabilityCopyTests` drives `allCases` so a sixth reason cannot be added without meeting the same
+rules: no device model named, no gesture this screen does not support, no Settings dead end, no glyph shared
+with a success state or with another reason, no mention of the alarm. It also brought `ReadinessCardView`'s
+type body back from ~230 lines to well under the 250-line SwiftLint limit it was approaching.
+
+**"This iPhone can't track movement" was false on iPad, for the only users guaranteed to see it.**
+`TARGETED_DEVICE_FAMILY` is `"1,2"` and most iPads have no activity classifier, so `.sourceUnavailable` is the
+*only* state an iPad user ever reaches in this section — the copy named a device they do not own, every time.
+Now "This device", and the glyph moved `iphone.slash` → `nosign` because it re-stated the same claim silently.
+Reproduced first as a failing assertion over `allCases` (3 failures: both messages and the icon), then fixed.
+
+**Four doc comments contradicted the code they sat on**, all written by this branch, all found by re-reading
+rather than by any test: `.accessUnavailable` was documented "**User-actionable in Settings**" while the card
+spent five lines explaining why it must not say that; `unavailableIcon` claimed "the two actionable reasons"
+carry a warning symbol when exactly one does and `.accessRestricted` is documented as *not* actionable;
+`.noNightFound` asserted "Motion data was read" when an **empty** sample set reaches it (pinned as intended by
+the "empty history → no night" test); and `ReadinessScreen` still described the unavailable source as a
+"no-op" that shows "no estimate" — it throws, and the section renders a reason. Recorded because a doc comment
+that outlives its code is the mechanism by which the earlier "exactly one of them is set" invariant was
+believed rather than enforced.
+
+**The cold open was the defect's most-hit window, and the first fix missed it.** `refresh` publishes
+`assessment` before awaiting the motion query, and the card renders as soon as `assessment` is non-nil — so on
+**every** first open the section was on screen with neither estimate nor reason, rendering nothing, for the
+whole duration of the CoreMotion query. WG-318's own bug, surviving inside WG-318. Hence `.loading` and the
+"Checking your movement…" state. Reproduced first as a failing test asserting the card is on screen while the
+section has nothing to show, then mutation-checked (initial state → `.unavailable(.noNightFound)` flips
+exactly that test).
+
+**A known coverage gap:** the tests assert at the view-model seam, which is this project's convention, so the
+*card's* `.loading` branch is enforced only by exhaustiveness — the compiler requires a branch to exist but
+would accept an empty one. `SMK-16` now covers it manually.
+
+**Process note.** Five consecutive review rounds on this branch each falsified a green suite, and the second
+WG-318 attempt was green **and** three-way mutation-checked when review still found five real defects —
+including one in a fixture written specifically to avoid that failure mode, where a "real night" reported
+values bit-identical to `SleepDisturbances.none` with nothing asserting them. **Mutation-checking and
+fixture-shape-checking are orthogonal, and passing both does not replace adversarial review.** Recorded here
+because the lesson, not the fix, is the durable artefact.
+
+**Assumption (c) added 2026-08-18: a motion read that has not answered in 15 seconds is treated as failed.**
+`CMMotionActivityManager.queryActivityStarting` gives no delivery guarantee for its completion handler. If it
+never fires, `movement` stays `.loading` for the life of the process — and with no `.refreshable` and no
+scene-phase hook on this screen, nothing re-runs the query. That is the sixth costume of WG-318's vanished
+section: a permanent spinner, and the one failure a user cannot distinguish from a slow read. The deadline
+lives in `ReadinessViewModel.summaryBeforeDeadline`, not the adapter, on this project's existing principle
+(`LivePedometerNormalizer`) that **the consumer imposes the deadline that turns silence into a fail-closed
+timeout** — and because the adapter is device-only and therefore untestable, while the view-model seam is not.
+The timeout reports `.temporarilyUnavailable` ("we couldn't read it"), never a permission or hardware claim:
+the query got far enough to be waiting on the sensor, so we have evidence for neither.
+
+**15 seconds is a judgement call and is not yet evidence-backed.** It trades a rare false "couldn't read it"
+against an unbounded spinner. It is deliberately generous because the error is unrecoverable on this screen,
+and `SMK-16` now asks the tester to record the observed resolve time on the slowest available device — that
+measurement, not this paragraph, should set the final value.
+
+**The obvious implementation is inert, and this was demonstrated rather than reasoned about.** A structured
+`withTaskGroup` that starts both racers, takes the first result and calls `cancelAll()` **awaits its cancelled
+children on scope exit** — so against a source that does not honour cancellation, which is exactly the hung
+source the deadline exists to survive, it hangs precisely as before while reading as correct. Substituting
+that form makes `testAQueryThatNeverAnswersDoesNotLeaveAPermanentSpinner` hang and no other test fail. The
+shipped code therefore **abandons** the losing racer instead of awaiting it, rendezvousing through an
+`AsyncStream`. The cost is an in-flight read that outlives its consumer: a one-shot hardware query cannot be
+un-started, so the only real choice is *who waits*, and a leaked read the user cannot see beats a spinner they
+can. The test's double ignores cancellation for this reason; a more cooperative double would have let the
+inert version pass.
+
+`CoreMotionActivityHistoryAdapter` separately gained a `withTaskCancellationHandler` with the same
+single-resume `Mutex` guard `HealthKitSleepQueryAdapter` already uses, so a cancelled caller stops waiting
+instead of leaking its continuation and task on every screen dismissal. It cannot stop the query itself —
+CoreMotion has no `stop…` for a one-shot history read, so the late handler no-ops — which is why the deadline
+is still needed and why a doc comment claiming mid-flight cancellation was unreachable had to be corrected.
+**That path is device-verified only; only the deadline is covered by a test.**
+
+
+**Ninth round (2026-08-18): the doubles and the success branch.** Three reviewer findings, all verified,
+none of which any test could see.
+
+**(1) The graph's motion double could only fail.** `UnavailableMotionActivityHistory` threw
+`.unavailable(.notPresent)`, so every SwiftUI preview and the whole `-uiTesting` screenshot tour rendered
+"This device can't track movement" — a claim about the reader's *hardware*, published by a double whose only
+real property is having no data — and that claim sat in the committed `11-readiness-degraded` reference
+screenshot, unguarded by any assertion, across four rounds of review. The second cost was larger and needed
+no argument: with the graph's source always throwing, the section's **primary** rendering, an actual
+estimate, was exercised by nothing at any layer. Replaced with `FixtureMotionActivityHistory`, which returns
+a scripted night anchored to the requested window. This is **not** the `[]` that this ADR rejected earlier:
+`[]` claims a read happened and found nothing, whereas these are samples, honestly reported, with the real
+estimator running over them unchanged. The fake is the sensor, exactly as the in-memory store is the fake for
+persistence. Every unavailable state keeps direct coverage from doubles owned by the tests that assert it.
+
+**The fixture's own defect was caught only by widening the input shape.** `candidateSpan` starts at the
+previous local 18:00, so it is ~6h when the screen is opened at local midnight and ~30h in the late evening.
+Against an 8h script, two entries clamp onto `window.start` — and `sorted(by:)` is **not** stable, so the span
+after `window.start` could classify as `.walking`, dissolving the night at some hours of the day and not
+others. The single-`now` test passes with that bug present; only
+`testTheGraphMotionSourceResolvesANightAtEveryHourOfTheDay` fails, and the mutation (keep the earlier entry
+instead of the later) was confirmed to flip exactly it. A fixture is an input shape like any other.
+
+**(2) The warning triangle promised an action that exists nowhere.** `.accessUnavailable` carried the
+section's only `exclamationmark.triangle`, and `testOnlyTheActionableReasonCarriesAWarningSymbol` **asserted**
+it must — while that test's own docstring forbade exactly this ("a warning symbol on a nothing-to-fix state
+manufactures an alarm with no remedy behind it"). `.accessUnavailable` *is* a nothing-to-fix state as
+shipped: `.notDetermined` collapses into it, iOS shows no Motion & Fitness row for an app that has never
+asked, this screen has no in-context prompt, and its message deliberately gives no instruction. Actionable
+*in principle* is not the test — a warning is honest only when the reader can act **from here**. Now
+`hand.raised` (iOS's privacy glyph: withheld access, no remedy implied, no urgency), and the test is
+inverted to forbid a warning on every reason. It comes back when the affordance does.
+
+**(3) The success branch was outside every copy rule.** The unavailable reasons were held to "name no device
+the reader may not own" through four rounds while `"Phone moved N times overnight"` +
+`iphone.gen1.radiowaves.left.and.right` sat two lines above them, private to `ReadinessCardView` and
+reachable from no test. CoreGlyphs' `symbol_restrictions.strings` records that symbol as usable "only to
+refer to Apple's iPhone"; the target ships to iPad. Moved to `MovementEstimateCopy` — the same remedy applied
+to `MovementUnavailability.message` in the seventh round — and now reads "Movement detected N times
+overnight" with `figure.walk.motion`. **The generalisable point is not the glyph.** Round seven moved the
+*failure* copy somewhere testable and wrote thirteen tests for it, and the success copy two lines away stayed
+invisible for two more rounds. When a rule is worth a test, ask which sibling branches the rule also governs
+before deciding the round is done; `MovementEstimateCopyTests` re-states round seven's device, blankness and
+no-diagnosis rules over the success lines rather than inventing new ones.
+
+**The screenshot now has an assertion in front of it.** `testTour4ReadinessDegraded` asserts the rest and
+disturbance lines exist and that no unavailability line does, *before* `snap`. A reference screenshot that
+nothing asserts is a picture of whatever happened, which is how a false claim became a committed artefact.
+
 ### WG-312 (2026-08-16): The motion "Movement overnight" summary is always shown, not only a fallback
 
 Human-asked: the movement data wasn't visible as its own thing — the app has **no tab bar** (no `TabView`;
@@ -5304,3 +5689,53 @@ after the walk; the awaiting-verification line never appeared. A three-agent adv
   fabricated snapshots claimed a ground truth the real adapter can never produce. New pins encode the
   device-true contracts; the remaining device-only unknowns (stop-vs-cancel on an alerting member,
   AlarmKit's alarm-count cap) stay on the WG-294 matrix.
+
+### WG-313/WG-318 (2026-08-19): Tenth round — the disturbance count excludes the disturbances that matter
+
+Three findings, all verified by reading the code and reproducing, not by trusting the reviewers.
+
+**H4 (new, open). A disturbance of `maxDisturbanceGap` or longer is excluded from its own count.**
+`nightSpan` assigns `blockEnd` only in the non-moving branch, so a block closes at the **start** of the run
+that terminated it; `ReadinessViewModel` then counts with `window: night`. The terminating run is therefore
+outside the counting window by construction. Three 25-minute awakenings in an 8h45m night report
+`pickups: 0` over a night of `[23:00, 01:00]`. The estimator's documented under-counting bias — "a missed
+disturbance is harmless; a false 'you were disturbed' is not" — **does not cover this case**, because the
+result is not a silent omission but an affirmative "No overnight movement detected." on the nights that were
+most disturbed. Distinct from H2 (no competing daytime block), from H3 (no gaps to extrapolate across), and
+from the missing coverage model (every minute is observed).
+
+**H5 (new, open).** `minimumNightDuration` documents itself as the shortest *quiet* block that may be called
+a night, but the guard tests `longest.duration`, which includes merged interior moving runs. An evening of
+19-minute chores separated by 5-minute sits — no run reaching `maxDisturbanceGap`, so nothing ever closes the
+block — is accepted as a 2h53m "night" that is 2h13m movement.
+
+**H6 (new, open).** This ADR previously claimed the evening anchor keeps the most recently completed night
+"reachable all day instead of vanishing each evening". It does not. `candidateSpan` anchors to the previous
+*local day*, so at local midnight the anchor jumps forward a full day: the same samples report 8h30m at
+23:55 and 2h5m ten minutes later. **The 18:00 cliff was moved to midnight, not removed** — the headline
+WG-313 symptom surviving one boundary over. No existing test crosses local midnight.
+
+**Decision: pin, do not patch.** All three are recorded as single-assertion `XCTExpectFailure` reproductions
+in `SleepDisturbanceKnownDefectsTests` and folded into WG-317's scope. Patching the estimator a fourth time
+is refused on this ADR's own record: the night band and the trailing validity cap were each green, each
+mutation-checked, and each traded a common mild error for a rare severe one. **One assertion per
+expected-failure test** — `XCTExpectFailure` is satisfied by a single failing assertion, so the existing
+bundled H2 repros would go green on a partial fix; that is why H4's count and truncation are two tests.
+
+**Decision: fix the copy now, because two strings were false independently of the estimator.**
+`"No overnight movement detected."` → `"No movement detected in that stretch."`, scoped to what was actually
+counted. `"Not enough movement data to estimate last night."` → `"We couldn't pick out a clear rest period
+last night."`, a claim about the *pattern* rather than the data — the previous string contradicted
+`.noNightFound`'s own docstring, which already said it does not assert that any motion data existed. A wrong
+number is a known limitation; a sentence asserting the wrong number as fact is a defect the estimator
+redesign should not have to carry.
+
+**Assumption (b) extended to timeouts.** The 15s deadline yielded `.unavailable(.temporarilyUnavailable)`,
+applied unconditionally, while `.cancelled` — the same epistemic state, "nothing was read" — preserves the
+previous estimate. Two opposite policies for one condition, with only one of them documented here. A timeout
+now yields its own `MovementSummary.timedOut`, handled exactly as `.cancelled`: preserve unless there is
+nothing to preserve, in which case the cold open still falls to `.temporarilyUnavailable` so no spinner
+sticks. Its own case rather than reusing `.cancelled`, so a cancelled refresh stays distinguishable from a
+hung one. Reachable only once a `.refreshable` or scene-phase hook exists — the same latency the generation
+guard was hardened for.
+

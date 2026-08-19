@@ -160,14 +160,20 @@ final class HealthAccessStatesTests: XCTestCase {
     // MARK: always-on movement summary (WG-310/311/312)
 
     func testMovementSummaryEstimatesDisturbancesAndRestFromMotion() async throws {
-        // Motion history shows one overnight walk between two still stretches.
+        // Motion history shows one overnight walk between two still stretches. The fixture models a
+        // whole night — settled 24h before `base`, up 16h before it — because WG-313 resolves the night
+        // from the samples and requires a sustained quiet block (`minimumNightDuration`); a lull of a
+        // few tens of minutes is deliberately *not* a night and would report unavailable.
         let motion = FixedMotionHistory([
             MotionActivitySample(
-                timestamp: base.addingTimeInterval(-3_600), quality: .high, kind: .stationary),
+                timestamp: base.addingTimeInterval(-86_400), quality: .high, kind: .stationary),
             MotionActivitySample(
-                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking),
+                timestamp: base.addingTimeInterval(-72_000), quality: .high, kind: .walking),
             MotionActivitySample(
-                timestamp: base.addingTimeInterval(-1_200), quality: .high, kind: .stationary),
+                timestamp: base.addingTimeInterval(-71_400), quality: .high, kind: .stationary),
+            // Getting up: a long moving run, so it closes the night rather than sitting inside it.
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-57_600), quality: .high, kind: .walking),
         ])
         let model = ReadinessViewModel(
             sleepQuery: MutableSleepSource([]), motionHistory: motion, calendar: makeCalendar())
@@ -175,17 +181,26 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertEqual(
             model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 600),
             "the movement summary estimates the overnight disturbance")
-        // Quiet runs: still for 30 min before the walk, 20 min after → longest rest window is 30 min.
+        // Quiet runs inside the night: 4h before the walk, 3h50m after → longest rest window is 4h.
         XCTAssertEqual(
-            model.estimatedRest, 1_800,
+            model.estimatedRest, 14_400,
             "the summary also estimates the longest rest window (WG-311)")
     }
 
     func testMovementSummaryShowsAlongsideHealthKitSleepData() async throws {
         // WG-312: the movement summary is now shown ALWAYS, even when HealthKit already has sleep data.
+        // The motion night here deliberately coincides with `night(dayOffset: -1)` — settled 24h before
+        // `base`, up 17h before it — so both sources describe the same night, which is the case this
+        // test exists to cover.
         let motion = FixedMotionHistory([
             MotionActivitySample(
-                timestamp: base.addingTimeInterval(-1_800), quality: .high, kind: .walking)
+                timestamp: base.addingTimeInterval(-86_400), quality: .high, kind: .stationary),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-75_600), quality: .high, kind: .walking),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-75_300), quality: .high, kind: .stationary),
+            MotionActivitySample(
+                timestamp: base.addingTimeInterval(-61_200), quality: .high, kind: .walking),
         ])
         let model = ReadinessViewModel(
             sleepQuery: MutableSleepSource(night(dayOffset: -1)), motionHistory: motion,
@@ -194,11 +209,16 @@ final class HealthAccessStatesTests: XCTestCase {
         XCTAssertNotNil(
             model.lastNightInterruptions, "HealthKit answered → interruptions available")
         XCTAssertEqual(
-            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 1_800),
+            model.estimatedDisturbances, SleepDisturbances(pickups: 1, movingDuration: 300),
             "the movement summary shows alongside HealthKit sleep data, no longer suppressed (WG-312)"
         )
+        // The "moving all window → zero rest, but data existed" case this test used to assert is
+        // unreachable through the view model since WG-313 (an all-moving span contains no night, so the
+        // whole section reports unavailable). It is pinned directly on the estimator instead, by
+        // `SleepDisturbanceEstimatorTests.testRestWindowIsZeroWhenAlwaysMovingButDataExists`.
         XCTAssertEqual(
-            model.estimatedRest, 0, "always moving in-window → zero rest, but data existed")
+            model.estimatedRest, 14_100,
+            "the longest quiet run inside the night, not the whole night")
     }
 
     func testMovementSummaryUnavailableWithNoMotionSource() async throws {

@@ -9,12 +9,13 @@ struct ReadinessCardView: View {
     /// Last night's mid-sleep interruptions (WG-309), or `nil` when there is no sleep data. Coarse by
     /// design — a count and a total, no times (#41).
     var interruptions: SleepInterruptions?
-    /// A motion-based **estimate** of overnight disturbances (WG-310) — shown only as a *fallback* when
-    /// HealthKit gives no interruptions, and clearly labelled as an estimate from movement.
-    var estimatedDisturbances: SleepDisturbances?
-    /// A motion-based **estimate** of the longest low-activity (rest) stretch overnight (WG-311), in
-    /// seconds — supplemental context, never sleep and never a readiness factor.
-    var estimatedRest: TimeInterval?
+    /// The "Movement overnight" section's state (WG-310/311/318): an estimate, a reason there isn't one, or
+    /// still loading. One total value rather than an estimate and a reason as separate optionals — the
+    /// section can then always render *something*, which is the whole point of WG-318.
+    /// Required, **not** defaulted: a default re-opens at the construction seam exactly the hole the total
+    /// type closed. A caller that forgot this would compile clean and render a permanent "Checking your
+    /// movement…" with no query in flight — the spinner defect one layer up, and untested.
+    var movement: MovementDisplayState
 
     private var explanation: ReadinessExplanation { ReadinessExplanation.from(assessment) }
 
@@ -47,8 +48,15 @@ struct ReadinessCardView: View {
 
             // The movement summary is always shown when motion data is available (WG-312) — alongside any
             // HealthKit sleep data, not only as a fallback — and is never folded into the score above.
-            if let estimatedDisturbances {
-                movementSection(disturbances: estimatedDisturbances, rest: estimatedRest)
+            // When there is no estimate the section stays and says *why* (WG-318): it used to disappear
+            // entirely, so "no motion hardware", "access is off" and "not enough data" all looked the same.
+            // Exhaustive over a total state: there is no "neither" branch to fall through, which is how the
+            // section used to end up rendering nothing at all.
+            switch movement {
+            case .loading: movementLoadingSection()
+            case .available(let disturbances, let rest):
+                movementSection(disturbances: disturbances, rest: rest)
+            case .unavailable(let reason): movementUnavailableSection(reason)
             }
 
             if !explanation.missingInputs.isEmpty {
@@ -95,12 +103,28 @@ struct ReadinessCardView: View {
         interruptions.awakenings >= 1 ? "sunrise" : "moon.zzz"
     }
 
-    /// The always-on **Movement overnight** section (WG-310/311/312): a rest-window estimate and a
-    /// disturbance estimate from motion history, shown alongside any HealthKit sleep data, under **one**
-    /// explicit "estimated from movement" caveat so neither is mistaken for measured sleep. Its own header +
-    /// divider make it a distinct section, not a sleep claim. Each line pairs an SF Symbol with text (not
-    /// colour alone). Supplemental — never folded into the readiness score above.
-    @ViewBuilder private func movementSection(disturbances: SleepDisturbances, rest: TimeInterval?)
+    /// The header, in place, with an explicit "working on it" while the motion query runs. The card appears
+    /// before that query returns, so without this the section is empty on every cold open — indistinguishable
+    /// from the vanished section WG-318 removed. Says only that it is checking: no result is known yet, so
+    /// any other wording would be a guess. A `ProgressView` conveys progress to VoiceOver as well as visually.
+    @ViewBuilder private func movementLoadingSection() -> some View {
+        Divider()
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Text("Movement overnight")
+                .font(DesignSystem.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("readinessMovementHeader")
+            ProgressView("Checking your movement…")
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.secondaryText)
+                .accessibilityIdentifier("readinessMovementLoading")
+        }
+    }
+
+    /// The same section header, kept in place, with a plain statement of why there is nothing under it
+    /// (WG-318). Never blames the user, never implies the alarm is affected — this card is advisory and
+    /// touches no alarm state. Paired with an icon so the state isn't conveyed by absence alone.
+    @ViewBuilder private func movementUnavailableSection(_ reason: MovementUnavailability)
         -> some View
     {
         Divider()
@@ -109,13 +133,38 @@ struct ReadinessCardView: View {
                 .font(DesignSystem.Typography.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("readinessMovementHeader")
-            if let rest {
-                Label(restText(rest), systemImage: "moon.zzz")
-                    .font(DesignSystem.Typography.body)
-                    .accessibilityIdentifier("readinessRestEstimate")
-            }
+            Label(reason.message, systemImage: reason.icon)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.secondaryText)
+                .accessibilityIdentifier("readinessMovementUnavailable")
+        }
+    }
+
+    /// The always-on **Movement overnight** section (WG-310/311/312): a rest-window estimate and a
+    /// disturbance estimate from motion history, shown alongside any HealthKit sleep data, under **one**
+    /// explicit "estimated from movement" caveat so neither is mistaken for measured sleep. Its own header +
+    /// divider make it a distinct section, not a sleep claim. Each line pairs an SF Symbol with text (not
+    /// colour alone). Supplemental — never folded into the readiness score above.
+    @ViewBuilder private func movementSection(disturbances: SleepDisturbances, rest: TimeInterval)
+        -> some View
+    {
+        Divider()
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Text("Movement overnight")
+                .font(DesignSystem.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("readinessMovementHeader")
+            // Not optional: the rest window comes from the same samples and the same night as the
+            // disturbance count, so "one but not the other" was never a reachable state.
             Label(
-                disturbanceText(disturbances), systemImage: "iphone.gen1.radiowaves.left.and.right"
+                MovementEstimateCopy.restText(rest),
+                systemImage: MovementEstimateCopy.restIcon
+            )
+            .font(DesignSystem.Typography.body)
+            .accessibilityIdentifier("readinessRestEstimate")
+            Label(
+                MovementEstimateCopy.disturbanceText(disturbances),
+                systemImage: MovementEstimateCopy.disturbanceIcon
             )
             .font(DesignSystem.Typography.body)
             .accessibilityIdentifier("readinessDisturbances")
@@ -126,18 +175,4 @@ struct ReadinessCardView: View {
         }
     }
 
-    private func disturbanceText(_ disturbances: SleepDisturbances) -> String {
-        guard disturbances.pickups >= 1 else { return "No overnight movement detected." }
-        let times = disturbances.pickups == 1 ? "1 time" : "\(disturbances.pickups) times"
-        return "Phone moved \(times) overnight"
-    }
-
-    private func restText(_ seconds: TimeInterval) -> String {
-        let totalMinutes = Int((seconds / 60).rounded())
-        guard totalMinutes >= 30 else { return "Little low-activity time overnight." }
-        let (hours, minutes) = (totalMinutes / 60, totalMinutes % 60)
-        let span =
-            hours >= 1 ? (minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h") : "\(minutes)m"
-        return "~\(span) of low activity overnight"
-    }
 }

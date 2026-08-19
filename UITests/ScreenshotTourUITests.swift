@@ -77,10 +77,29 @@ final class ScreenshotTourUITests: XCTestCase {
         snap(app, "10-conversational-failclosed")
     }
 
+    /// Readiness itself is degraded here — the simulator has no HealthKit sleep data — but the **movement**
+    /// section is the graph's `FixtureMotionActivityHistory` night, so this is the only place the section's
+    /// success rendering is exercised end-to-end (WG-318). Asserting it *before* the snap is deliberate: the
+    /// reference screenshot previously captured "This device can't track movement" and nothing checked what
+    /// was in it, so a false claim sat in a committed artefact across four rounds of review. A screenshot no
+    /// assertion guards is a picture of whatever happened.
     func testTour4ReadinessDegraded() {
         let app = launch()
         tap(app, "readinessButton")
         _ = find(app, "readinessMissing").waitForExistence(timeout: 12)
+        XCTAssertTrue(
+            find(app, "readinessRestEstimate").waitForExistence(timeout: 12),
+            "the movement section shows no rest estimate, so the screenshot documents an empty section"
+        )
+        XCTAssertTrue(
+            find(app, "readinessDisturbances").exists,
+            "the movement section shows no disturbance line")
+        XCTAssertFalse(
+            find(app, "readinessMovementUnavailable").exists,
+            """
+            the movement section is reporting a reason it has no estimate; the reference screenshot would \
+            record that claim as the product's appearance
+            """)
         snap(app, "11-readiness-degraded")
     }
 

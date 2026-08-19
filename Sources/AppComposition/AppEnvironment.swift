@@ -107,8 +107,11 @@ struct AppEnvironment: Sendable {
     /// never stored raw (#41); holds no alarm authority.
     let sleepQuery: any SleepSampleQuerying
     /// The retroactive motion-activity history source for the readiness disturbance fallback (WG-310).
-    /// Production reads CoreMotion history (foreground-only); the in-memory graph returns no samples (the
-    /// fallback stays unavailable). Read-only, on device, coarse (#41); holds no alarm authority.
+    /// Production reads CoreMotion history (foreground-only); the in-memory graph scripts a night with
+    /// `FixtureMotionActivityHistory`, so previews and the `-uiTesting` tour exercise the section's
+    /// **estimate**. It previously wired a source that could only throw, which meant the success rendering
+    /// had no coverage at any layer and a false hardware claim sat in the reference screenshot.
+    /// Read-only, on device, coarse (#41); holds no alarm authority.
     let motionActivityHistory: any MotionActivityHistorySource
     /// Whether this build places alarms in the system authority. `true` in production (the real
     /// `SystemAlarmManagerAdapter`); `false` for the in-memory (test/preview) graph, which composes
@@ -175,7 +178,7 @@ struct AppEnvironment: Sendable {
                 guidedAlarmParser: nil,
                 modelAvailabilityProvider: FixedModelAvailabilityProvider(),
                 sleepQuery: UnavailableSleepQuery(),
-                motionActivityHistory: UnavailableMotionActivityHistory(),
+                motionActivityHistory: FixtureMotionActivityHistory(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))
     }

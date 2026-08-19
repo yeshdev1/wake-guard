@@ -30,9 +30,11 @@ private struct ReadinessScreenContent: View {
         clock: any WallClock
     ) {
         // The motion-history source is injected from the composed environment (WG-310) so the readiness
-        // screen can fall back to a motion-based disturbance estimate when HealthKit has no sleep data.
-        // The in-memory graph injects a hermetic no-op; on the simulator / denied access it reports
-        // unavailable → no estimate is shown.
+        // screen can show a motion-based estimate alongside any HealthKit sleep data (WG-312). The in-memory
+        // graph injects `FixtureMotionActivityHistory`, which returns a scripted night, so previews and the
+        // screenshot tour document the section's real appearance rather than a hardware-absence claim about
+        // the reader's device. On a denied grant, absent hardware or a failed read the section still renders
+        // and states the reason (WG-318); it is never hidden.
         _model = State(
             wrappedValue: ReadinessViewModel(sleepQuery: sleepQuery, motionHistory: motionHistory))
         self.clock = clock
@@ -43,8 +45,7 @@ private struct ReadinessScreenContent: View {
             if let assessment = model.assessment {
                 ReadinessCardView(
                     assessment: assessment, interruptions: model.lastNightInterruptions,
-                    estimatedDisturbances: model.estimatedDisturbances,
-                    estimatedRest: model.estimatedRest
+                    movement: model.movement
                 )
                 .padding(DesignSystem.Spacing.lg)
             } else {

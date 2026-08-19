@@ -107,10 +107,4 @@ final class SleepDisturbanceEstimatorTests: XCTestCase {
         XCTAssertNil(SleepDisturbanceEstimator.longestRestWindow(samples: [], window: window))
     }
 
-    func testOvernightWindowEndsAtNowAndLooksBackByLookback() {
-        let now = base
-        let derived = SleepDisturbanceEstimator.overnightWindow(endingAt: now, lookback: 8 * 3_600)
-        XCTAssertEqual(derived.end, now)
-        XCTAssertEqual(derived.start, now.addingTimeInterval(-8 * 3_600))
-    }
 }

@@ -1630,6 +1630,121 @@ Report changed files, tests, assumptions, risks, and next task.
 - Narrow tests and the full available suite pass.
 - `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
 
+### WG-317: Model evidence coverage in the motion estimator — the blocker under WG-313 H2 and H3
+
+> **Scope extended 2026-08-19 (round ten): H4, H5 and H6 are in this task, and none of them are reachable by a
+> coverage model alone.** **H4** — `nightSpan` closes a block at the *start* of the run that ends it, and the
+> disturbance count is taken over that block, so any awakening of `maxDisturbanceGap` or longer is excluded
+> from its own count; the worse the night, the more certainly the section reported zero. **H5** —
+> `minimumNightDuration` gates the block's *length*, not its quietness, so a stretch that is 77% movement is
+> accepted as the night. **H6** — the evening anchor moved the "section changes when you open it" cliff from
+> 18:00 to local midnight rather than removing it. All three are pinned as single-assertion `XCTExpectFailure`
+> reproductions in `SleepDisturbanceKnownDefectsTests`; a fix must flip those, not just the H2/H3 ones.
+> Note that H4 is a *counting-window* defect and H6 a *candidate-span* defect — a design that only adds a
+> coverage fraction per block will leave both exactly as they are.
+
+**Dependencies:** WG-313 (H1 portion, landed)
+
+**Why this exists.** `SleepDisturbanceEstimator` cannot distinguish **"still, and observed to be still"** from
+**"no data"**. A quiet span means both and nothing in the types says which. WG-313's two remaining defects are
+symptoms of that single omission:
+
+- **H2** — a sedentary daytime block can outrank the real night, because blocks are ranked by raw duration and
+  a still desk has the same motion signature as a bed.
+- **H3** — one stale `.stationary` or low-confidence `.unknown` record fabricates a multi-hour night with zero
+  disturbances, because a sample's classification extends across silence.
+
+**Three fixes have been implemented, taken to a green suite, and reverted on adversarial-review evidence** — a
+wall-clock night band, a 60-minute trailing validity cap, and zero trailing extrapolation. Each was a
+threshold, and each traded a common mild error for a rare severe one. **Do not propose a fourth threshold.**
+Full negative results are in the WG-313 ADR in `docs/DECISIONS.md`.
+
+**Claude Code instruction:**
+
+> Implement WG-317 only: give the estimator an explicit representation of how well-evidenced a candidate quiet
+> block is, and rank or reject blocks on that basis. Do not add a wall-clock assumption about when the user
+> sleeps. No new sensor, permission, or entitlement. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- "Observed quiet" and "unobserved" are **distinct in the type system**, not distinguished by a threshold — a
+  coverage fraction per block (observed sample-minutes over block duration), a maximum credible unobserved
+  stretch, or an `unobserved` span kind alongside `quiet`. The choice is recorded in an ADR with its trade-off
+  stated explicitly.
+- The rule makes **no assumption about when a human sleeps.** A night-shift worker sleeping 08:30–16:30, a day
+  sleeper, and a traveller mid-time-zone-change each still resolve their real night. This is the constraint
+  that killed the night band.
+- **These three existing tests stay green** — they encode the counter-evidence that falsified the previous
+  attempts, and any design that breaks one is wrong for the same reason its predecessor was:
+  `testAnEveningOnTheSofaMustNotOutrankAnUnclosedNight`,
+  `testAStillSleeperWhoHasNotMovedYetStillGetsANight`,
+  `testAQuietGapBetweenTwoRecordsStillResolvesTheWholeNight`.
+- **Interior** gaps and **trailing** gaps are handled by the same rule. A phone powered off overnight must not
+  report a 14.9h undisturbed night. A trailing-only fix is not a fix — that is what H3 established.
+- The four H3 `XCTExpectFailure` reproductions in `SleepDisturbanceSampleValidityTests` and the H2
+  reproductions in `SleepDisturbanceNightAnchorTests` flip to passing, and their `XCTExpectFailure` wrappers
+  are removed in the same change.
+- **Each moving part is mutation-checked independently**, and each is shown to be load-bearing against a
+  fixture that covers the real input shape rather than a convenient synthetic one. A mutation check alone is
+  insufficient — that is what let the H3 fixture-flattery through. Both checks are required.
+- Any change to the shared `classifiedSpans` helper is **parameterized**, not applied to the shared default:
+  `estimate` and `longestRestWindow` have their own published WG-310/311 contracts and are not in scope here.
+- `nil` (unavailable) versus `.none`/`0` (data existed) is never conflated; under-reporting remains the
+  standing bias, and a fabricated night is the failure this task exists to eliminate.
+- `motion-red-team` and `ios-architect` are run **before** the commit, and their mutation claims are
+  re-verified directly rather than taken on trust.
+- Narrow tests and the full available suite pass.
+- `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+**Follow-on, not in scope:** once coverage is representable it should also be *reported* — telling the user how
+much of the night was actually observed. That is a separate surfacing task.
+
+### WG-318: The "Movement overnight" section must never render nothing — say why instead of vanishing
+
+**Dependencies:** WG-312, WG-313
+
+**Why this exists.** The section disappeared entirely whenever there was no estimate — header, both estimates
+and the "Estimated from movement" caveat together. Four very different situations produced one identical
+outcome (nothing on screen): no motion hardware, Motion & Fitness off or never granted, a restricted
+(MDM / parental-controls) device, a transient read failure, and history that resolves no night. The user is
+told nothing and can act on nothing. **An empty region is indistinguishable from a bug**, which a
+safety-sensitive app may not do.
+
+The most-hit instance is the **cold open**: `refresh` publishes `assessment` before awaiting the motion query
+and the card renders as soon as `assessment` is non-nil, so the section was empty on *every* first open for
+the duration of the CoreMotion query.
+
+**Claude Code instruction:**
+
+> Implement WG-318 only: make the readiness screen's "Movement overnight" section always render, stating why
+> there is no estimate when there isn't one, and distinguishing the causes that have different (or no) user
+> actions. Do not add a new sensor, permission, or entitlement. Do not fold anything from this section into
+> the readiness score. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The section renders in **every** state, including before the first result has arrived. "No estimate and no
+  reason" is **not representable** — enforced by a total type, not by a doc comment or an assertion.
+- The distinct causes are distinguishable to the user and in tests: absent hardware, unavailable access,
+  restricted access, a transient failure, and no resolvable night. A `MotionSourceError` payload is mapped to
+  the reason rather than every throw reporting a permission problem.
+- **Copy is true before it is actionable.** No instruction the user cannot carry out on this screen — no
+  "pull down to refresh" without a `.refreshable`, no "turn it on in Settings" where no Settings row exists or
+  where the grant is not the user's to flip.
+- A **cancelled** refresh is not reported as a failure and does not blank an estimate already on screen.
+- Overlapping refreshes apply in start order, not completion order; a cancelled newest refresh does not
+  starve an older one that produced an answer.
+- The cold-open state is reproduced by a failing test **before** the fix, and each moving part is
+  mutation-checked independently.
+- `docs/DEVICE_SMOKE_TEST.md` is updated in the **same change** — a checklist that certifies the old
+  behaviour converts a correct build into a recorded Fail.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
+
+**Not in scope, filed separately:** a `.notDetermined` user still has no way to grant Motion access from this
+screen (the adapter throws at the availability guard, before the call that raises the CoreMotion prompt); and
+`try?` on the sleep query swallows `CancellationError`, blanking the assessment to "not enough data" while the
+movement section is deliberately preserved — pre-existing WG-130 behaviour, not introduced here.
+
 ## E08: Calendar and morning planning
 
 ### WG-140: Define calendar data minimization and redaction
