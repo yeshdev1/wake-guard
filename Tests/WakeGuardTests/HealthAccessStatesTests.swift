@@ -71,13 +71,20 @@ final class HealthAccessStatesTests: XCTestCase {
 
     // MARK: revocation does not crash calculations
 
+    /// A query that throws degrades without crashing. It reports the **read** rather than the user's data:
+    /// nothing was read, so "not enough sleep data" would be a claim the query never established (WG-319).
+    ///
+    /// The throw is no longer labelled "access revoked": HealthKit does not reveal read denial, so a
+    /// revocation returns no samples instead — the case `testDeniedAccessShowsTheUnavailableUI` and
+    /// `testRefreshAfterRevocationLeavesNoStaleReadiness` already cover, both by emptying the source.
     func testAThrowingQueryDegradesWithoutCrashing() async throws {
         let source = MutableSleepSource(night(dayOffset: -1))
-        source.shouldThrow = true  // access revoked mid-flight → the query errors
+        source.shouldThrow = true  // the read itself fails — a query error, not a permission answer
         let model = viewModel(source)
         await model.refresh(now: base)
-        XCTAssertTrue(
-            try XCTUnwrap(model.assessment).factors.isEmpty, "no crash; degrades to unavailable")
+        XCTAssertEqual(
+            model.readiness, .unavailable(.temporarilyUnavailable),
+            "no crash; degrades to a stated read failure rather than a fabricated data shortage")
     }
 
     func testTheCalculatorsDoNotCrashOnRevokedEmptyData() {
@@ -229,12 +236,17 @@ final class HealthAccessStatesTests: XCTestCase {
     }
 }
 
+/// A query error that is **not** a cancellation. It used to throw `CancellationError`, which since WG-319
+/// means something specific and different — "the refresh was abandoned", not "the read failed" — so the one
+/// test using it was exercising the cancellation path while claiming to exercise a failing query.
+private struct SleepReadFailure: Error {}
+
 private final class MutableSleepSource: SleepSampleQuerying, @unchecked Sendable {
     var samples: [SleepSample]
     var shouldThrow = false
     init(_ samples: [SleepSample] = []) { self.samples = samples }
     func sleepSamples(from start: Date, to end: Date) async throws -> [SleepSample] {
-        if shouldThrow { throw CancellationError() }
+        if shouldThrow { throw SleepReadFailure() }
         return samples
     }
 }

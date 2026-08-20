@@ -5735,7 +5735,159 @@ applied unconditionally, while `.cancelled` — the same epistemic state, "nothi
 previous estimate. Two opposite policies for one condition, with only one of them documented here. A timeout
 now yields its own `MovementSummary.timedOut`, handled exactly as `.cancelled`: preserve unless there is
 nothing to preserve, in which case the cold open still falls to `.temporarilyUnavailable` so no spinner
-sticks. Its own case rather than reusing `.cancelled`, so a cancelled refresh stays distinguishable from a
-hung one. Reachable only once a `.refreshable` or scene-phase hook exists — the same latency the generation
+sticks. Reachable only once a `.refreshable` or scene-phase hook exists — the same latency the generation
 guard was hardened for.
 
+**Corrected 2026-08-19 (WG-319, round fifteen).** This paragraph originally justified `.timedOut` as "its own
+case rather than reusing `.cancelled`, so a cancelled refresh stays distinguishable from a hung one". That is
+**false, and was measured rather than argued** — on the sibling sleep path, where the identical claim was
+made, deleting the cancellation `catch` and rewriting the fallback each left the whole suite green.
+`applyMovementSummary` handles `.cancelled` and `.timedOut` in **one `switch` arm**, and the view model is the
+only consumer, so nothing observes which arrived. The separate case is kept for the reader, not for any
+behaviour: a future consumer that needs to tell a dismissed screen from a hung sensor finds the distinction
+already made. It is currently unenforced, and a reader deciding whether to rely on it should know that.
+
+
+### WG-319 (2026-08-19): The readiness card had the spinner defect WG-318 removed from the section it contains
+
+**Context.** WG-318's round ten deferred a finding that was verified from source before it was acted on: the
+card rendered only when `assessment != nil`, `assessment` was assigned only after an undeadlined
+`sleepSamples`, and `HealthKitSleepQueryAdapter` awaits an `HKSampleQuery` completion handler through a
+continuation with no delivery guarantee. Structurally identical to `CoreMotionActivityHistoryAdapter` before
+WG-318's eighth round, and hiding strictly more: **the whole card, including the always-on movement section
+WG-318 exists to guarantee.** This is the "where has silence moved to" question paying off a second time —
+ask it of the *container*, not only of the thing you fixed.
+
+**Decision: a `SleepReadOutcome`, an injectable `sleepTimeout`, and one shared race helper.** `SleepReadOutcome
+{ samples / failed / cancelled / timedOut }` mirrors `MovementSummary`; the deadline sits in the **consumer**
+(`ReadinessViewModel`), per `LivePedometerNormalizer:56-58` and because the adapter is device-only and
+untestable; and `firstResult(of:orAfter:yielding:)` is shared by both bounded reads rather than hand-rolled
+twice. `ReadinessDisplayState` is stored with `assessment` derived — WG-318's stored-total + derived-accessor
+pattern one layer up, so "no assessment and no reason" is unrepresentable.
+
+**Decision: fix cancellation in the same change rather than leaving it to WG-130.** Adding preserve-on-timeout
+while `try?` left cancellation erasing would have shipped two opposite policies for one epistemic condition —
+the exact defect round ten found on the movement path. The governing line: **a concluded read is a result (a
+revoked grant must replace a stale readiness); a nothing-was-read is not.**
+
+**Assumption (a): 15s for `sleepTimeout` is a judgement call, not evidence.** Inherited from
+`movementTimeout`. `SMK-17` collects the resolve-time measurement that should set **`sleepTimeout`**;
+`SMK-16` is the corresponding evidence for `movementTimeout`, and neither measurement can set both.
+**Corrected 2026-08-20 (round seventeen):** this assumption originally said `SMK-17` "should set both" and
+that its measurement "must be read against the composed bound — the two reads are serial, so the card's
+worst case is 30s." The composition is real but it does not bound the **card**. `refresh` awaits the sleep
+read to completion, and `applySleepRead` **exits** `.loading` on every branch, so `cardContent` is non-`nil`
+— and the card therefore on screen — after `sleepTimeout` **alone**. The further 15s bounds the movement
+spinner *inside* the visible card. 30s bounds `refresh` **returning**, which is what the method's own
+docstring says and is the only thing it says. Transposing it onto the card set SMK-17's Fail threshold at
+double the real bound, so a 20-second spinner — a genuine failure of this task's deadline — would have been
+recorded as a Pass. **Round sixteen corrected this number in the docstring and propagated the wrong one into
+two other documents in the same pass: a claim is not fixed until every copy of it is.**
+
+**Assumption (a), amended 2026-08-20 (round eighteen) — twice, both times because a number was stated without
+its frame of reference.** First: **measured from the start of `refresh`** is load-bearing, and was missing
+here and in the WG-319 evidence row. `ReadinessScreen` awaits an **unbounded** `requestAccess()` before
+`refresh` is ever called, so measured from *screen push* — the only clock a device tester can start on a run
+where no permission sheet appears — the wait is `requestAccess()` **plus** 15s, and 15s bounds none of it.
+Stating the bound without its origin let SMK-17 instruct a tester to record a **Fail against this task's
+deadline for the wait this task explicitly scoped out**. That is round sixteen's error again — a number
+derived without reading the caller — in the tightening direction rather than the loosening one. Second:
+**15s is the correct-build worst case, not the failure line.** When the deadline works it fires at t≈15.0s, so
+a Fail threshold set *at* 15s puts a working deadline on the line and no stopwatch resolves it. SMK-17 now
+reads *resolve by ~15s is a Pass, still spinning at 20s is a Fail*, and downgrades the no-sheet case to
+**Blocked** — which also removes its self-contradiction with the stuck-spinner bullet, where the identical
+observation was called both a Fail and an explicitly-not-a-defect.
+
+**Assumption (b): `ReadinessUnavailability` has exactly one case.** A timeout, a cancellation and a read error
+are one situation *for the reader*; the distinction belongs in `SleepReadOutcome`, where it decides whether the
+outcome applies, not in what the card says.
+
+**Falsified: this task's own "no new copy" decision (round twelve).** Six mutations killed, suite green, and
+both reviewers still converged independently: resolving the spinner by writing `readiness(from: [])` renders
+"There isn't enough sleep data yet…" and "Add a few nights of sleep data…" to a user with fourteen nights in
+Health and a hung query. **The spinner was stuck but honest; it was now resolved and false.** The sibling path
+had already refused this policy. **Reusing a string written for "the store is empty" to mean "we did not look"
+is how a false claim ships without anyone writing a false sentence** — ask what each existing string asserts
+*about the user*, not whether it reads sensibly in the new state.
+
+**Falsified: two of round thirteen's three findings, as reported.** Finding 3's harm was false —
+`hasData == false` ⟺ zero factors ⟺ no level, so that card's summary **is** the hedge and there is no
+confident verdict to un-hedge. Finding 4's cause was false: **a revoked HealthKit grant does not throw**,
+because Apple does not reveal read denial; an unauthorized read returns an empty sample set. **That correction
+forced a behaviour change the review never asked for** — since a revocation travels the `.samples([])` path,
+the "no stale readiness claim remains" guarantee rests entirely there, so a thrown read error must **preserve**
+a good assessment. It inverted a test written the session before on the false premise, which was **rewritten,
+not deleted**, to route through the real revocation mechanism. **When you falsify a review's stated cause,
+re-check every decision justified by it — the wrong cause had already propagated into a passing test.**
+
+**Falsified: four doc comments this branch had authored (round fifteen).** "Whichever refresh concludes first
+wins" (`.samples` assigns unconditionally, so the one concluding *last* wins); "terminal for the life of the
+process", six sites (`AlarmListView:133` pushes via `NavigationLink`, so re-entry rebuilds the `@State` model
+and re-runs `.task` — a real escape the screen never offers); "cancellation cannot stop these adapters" (both
+wrap the continuation in `withTaskCancellationHandler`, so the structured `withThrowingTaskGroup` form would
+work against them today); and "WG-318 spent eight rounds" (ten). **The abandon-not-await mechanism was kept and
+its rationale replaced** with the weaker true one: the deadline's guarantee must not be conditional on a
+property no signature enforces. **A mechanism can be right while its stated reason is false, and the reason is
+the more dangerous error, because it is inherited as settled design.**
+
+**Decision (user): the ordering defect is comment-only.** `.samples` assigning unconditionally is real but
+unreachable — no `.refreshable`, no scene-phase hook, so the single `.task` cannot overlap itself — and a
+second generation guard is the mechanism that already misfired once on this branch, starving a cancelled
+newest refresh. The comment states the true weaker property (order-independence holds for the *failure* arm
+only) and names the affordance that makes the guard load-bearing.
+
+**Decision: `SleepReadOutcome` keeps three non-result cases that nothing can observe, and says so.** M11
+(delete `readSamples`' `catch is CancellationError`) and M12 (`?? .cancelled` → `?? .failed`) were reported as
+surviving and were then **confirmed by running them**: all 1448 tests stay green. One `switch` arm, one
+consumer. Collapsing was rejected — `MovementSummary` collapses its own two identically, so parity is real —
+and adding a `lastSleepOutcome` seam was rejected because production state whose sole consumer is a test would
+make the two types diverge to satisfy a mutant. Three docstrings and one paragraph of the WG-318 ADR that
+claimed the discrimination mattered are corrected to say it is kept for future readers and currently
+unenforced. **Re-verify a reviewer's *surviving*-mutant claim by running it, exactly as you would a failing
+one.**
+
+**A false claim shipped in the round whose job was removing false claims (round sixteen).** The new `refresh`
+docstring asserted a "30s worst case before the screen holds no spinner", derived by adding two constants
+without reading the caller — `ReadinessScreen`'s `.task` awaits an **unbounded** `requestAccess()` first, so
+the reader's bound is that wait plus 30s. Both reviewers found it independently. **A number in a doc comment is
+a claim and needs the same reproduce-or-verify discipline as code.** Fourth round running that a
+confidently-stated claim on this branch was wrong while pointing at a real line.
+
+**Scope: `requestAccess()` stays unbounded, and that is recorded rather than fixed.** It blocks on a modal
+sheet the user is looking at, so the spinner behind it is not a falsehood the reader can see, and the
+wedged-daemon case is *inferred*, not verified. **Verified-vs-inferred is a scoping tool, not only a review
+one.** `SMK-17` is the only place that case can surface on this build.
+
+**Deferred as WG-320 — the signature defect in its most common form.** A user who tapped Don't Allow is
+still told they have too little sleep data and instructed to add more. WG-319 bounded the *rare* variant (a
+hung query); the denial variant is every denial, every dismissed sheet, every simulator run. WG-320 was also
+recorded as "filed" in two places before it had been written; a record saying a thing was done is not the
+thing being done.
+
+**Falsified 2026-08-20 (round seventeen): WG-320's stated cause was wrong, and the wrong cause had already
+been written into its acceptance criteria.** Round sixteen filed it on the claim that the "HealthKit hides
+read denial" limitation is "true of the *query* layer and false of the *screen*, which has the answer one
+line above the refresh call", under the lesson "when you scope something out as *the framework can't tell
+us*, check whether a layer you control already knows." **No layer knows.**
+`HKHealthStore.requestAuthorization(toShare:read:)` does not throw when the user taps Don't Allow — it
+throws only when authorization cannot be *requested* — so `HealthKitAuthorizationAdapter` maps Allow and
+Don't Allow alike to `.authorized`, and `HealthAccessSummary` folds both to `.granted`. The adapter's own
+docstring says exactly this ("after a successful request this reports `.authorized` — meaning *the user was
+asked*"), and so does `ReadinessUnavailability.temporarilyUnavailable`'s, **three lines above the false
+sentence in the same comment.** `.notDetermined` and `.partial` are unreachable in production for this
+flow, and "the simulator reaches the denied state trivially" was false.
+
+**Why this was the dangerous kind of wrong: WG-320 was implementable exactly as specified — thread
+`HealthAuthorizationProviding` through, stub it `.denied` in tests, tick every acceptance criterion, go
+green — while changing nothing whatsoever on a real device.** The record would then have said the defect
+was fixed. That is this branch's own "a record saying a thing was done is not the thing being done", one
+level out and with a passing suite behind it.
+
+**Decision: re-scope WG-320 from plumbing to copy.** Since denial and a genuinely empty store are
+indistinguishable by Apple's design at every layer available to this app, the honest fix is to stop the
+empty-result path from asserting the cause. "Add a few nights of sleep data and this will get more useful."
+is an unfollowable instruction aimed at a user whose real problem may be a permission switch; the
+replacement must be true under both readings and actionable under the one the user can do something about.
+**The generalised lesson replaces the one round sixteen drew, which was sound advice applied to a case where
+it did not hold: check whether a layer you control already knows — and when the answer is that none does,
+the fix belongs in what you *say*, not in what you plumb.**

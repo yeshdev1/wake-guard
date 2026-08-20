@@ -42,9 +42,15 @@ private struct ReadinessScreenContent: View {
 
     var body: some View {
         ScrollView {
-            if let assessment = model.assessment {
+            // The spinner belongs to `.loading` and to nothing else (WG-319). Gating on `assessment != nil`
+            // meant it also covered "a read concluded but produced no assessment", so a query whose
+            // completion never arrived left it on screen for as long as the reader stayed here — with no
+            // query in flight, and hiding the whole card including the always-on movement section. (Popping
+            // back to the alarm list and re-entering does rebuild `model` and re-run `.task`; nothing on the
+            // screen says so.)
+            if let content = model.readiness.cardContent {
                 ReadinessCardView(
-                    assessment: assessment, interruptions: model.lastNightInterruptions,
+                    readiness: content, interruptions: model.lastNightInterruptions,
                     movement: model.movement
                 )
                 .padding(DesignSystem.Spacing.lg)

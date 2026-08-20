@@ -1745,6 +1745,248 @@ screen (the adapter throws at the availability guard, before the call that raise
 `try?` on the sleep query swallows `CancellationError`, blanking the assessment to "not enough data" while the
 movement section is deliberately preserved — pre-existing WG-130 behaviour, not introduced here.
 
+### WG-319: The readiness card must never render an unbounded spinner — the same defect one layer up
+
+**Dependencies:** WG-318
+
+**Why this exists.** WG-318 spent ten rounds removing every way the "Movement overnight" *section* could show
+nothing or spin forever. The **card that contains it** was never examined, and it has the identical defect with
+a strictly larger blast radius.
+
+`ReadinessScreenContent` renders `ReadinessCardView` only when `model.assessment != nil`, and otherwise a
+`ProgressView("Checking your sleep readiness…")` with no bound. `assessment` is assigned in
+`ReadinessViewModel.refresh` — *after* `await sleepQuery.sleepSamples(...)`, which has
+**no deadline** at either end: not in the view model, and not in `HealthKitSleepQueryAdapter`, which awaits an
+`HKSampleQuery` completion handler through a continuation. That is structurally the same shape as
+`CoreMotionActivityHistoryAdapter` before WG-318's eighth round — a one-shot framework callback with no
+delivery guarantee — and it was accepted then as a real failure worth a deadline.
+
+The consequence is worse than the one WG-318 fixed. The section spinning hid one section; this hides **the
+whole card**, including the always-on movement section WG-318 exists to guarantee. The screen has no
+`.refreshable` and no scene-phase hook, so nothing re-runs the query for as long as the reader stays on it, and
+the user cannot tell it from a slow read. (An earlier version of this paragraph said "terminal for the life of
+the process". That is false: `AlarmListView:133` pushes this screen via `NavigationLink`, so navigating back
+and re-entering rebuilds the `@State` model and re-runs `.task`. It is an escape, not a mitigation — the screen
+never tells the reader it exists.)
+
+**This is the recurring shape, not a new bug.** Every WG-318 fix recreated the bug one layer up — vanishing
+section, two nilable optionals, a starved generation guard, a permanent `.loading`. Ask *where has silence
+moved to*, not whether the reported case is fixed. It moved to the card.
+
+**Claude Code instruction:**
+
+> Implement WG-319 only: bound the readiness card's load path so a sleep query that never answers cannot leave
+> a permanent spinner, and make the card's loading state resolve to something the user can read. Do not add a
+> new sensor, permission, or entitlement. Do not change the estimator. Do not fold anything into the readiness
+> score. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- A sleep query that **never answers** resolves the card within a bounded time. Reproduced by a failing test
+  **before** the fix — the defect is a hang, so the reproduction is a test that is killed by
+  `-default-test-execution-time-allowance` pre-fix and returns in milliseconds post-fix (the WG-318 round-eight
+  artefact, which is cleaner than an assertion).
+- The deadline is imposed by the **consumer**, in `ReadinessViewModel`, not in the adapter — the project's own
+  `LivePedometerNormalizer:56-58` precedent, and the adapter is device-only and therefore untestable.
+- The loser of the race is **abandoned, not awaited**. A structured `withTaskGroup` awaits its cancelled
+  children on scope exit and is therefore *inert* against a source that ignores cancellation — exactly the hung
+  source a deadline exists for. The double must ignore cancellation so the inert form fails the test.
+- A timeout is **not** conflated with a result. Follow `MovementSummary.timedOut`: nothing was read, so a
+  timeout must not overwrite a good assessment already on screen with a worse one. The cold-open direction
+  (nothing to preserve) must still resolve the spinner.
+- `nil` (no result yet) versus an assessment with **no factors** ("not enough data") is never conflated.
+- **A read that returned nothing never degrades to the state a *denied* query produces.** This criterion
+  originally required the opposite — "a timeout degrades to the same state a denied or errored query already
+  produces" — and round twelve falsified it. A denied or revoked grant is a **concluded** read: HealthKit does
+  not reveal read denial, so it arrives as an empty sample set, and rendering that as "There isn't enough sleep
+  data yet" is true. A timeout, a cancellation or a read *error* learned nothing, and reusing the same strings
+  tells a user with fourteen nights in HealthKit that their data is missing. One policy per epistemic
+  condition, and "concluded with nothing" and "did not conclude" are two conditions, not one. Errored moved
+  sides with them once round thirteen established that a revocation does not throw.
+- The state a nothing-was-read outcome resolves to carries **no instruction the reader cannot act on** and
+  makes no claim about data that was never looked at.
+- Each moving part is **mutation-checked independently**, and the fixtures are separately shown to cover the
+  real input shape. Both checks are required; neither substitutes for the other.
+- `motion-red-team` and `ios-architect` run **before** the commit, and their mutation claims are re-verified
+  from source rather than taken on trust.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` is updated with evidence and
+  `docs/DEVICE_SMOKE_TEST.md` gains the corresponding check.
+
+**Explicitly not in scope, and stated as a limitation rather than fixed:** `ReadinessScreen`'s `.task` also awaits
+`HealthAuthorizationCoordinator.requestAccess()` unbounded, before anything is published. That await is
+**not** treated as the same defect: it blocks on a modal system sheet the user is looking at, so the spinner
+behind it is not a falsehood the reader can see, and the wedged-daemon case is *inferred*, not verified.
+Bounding it would also require threading `HealthAuthorizationProviding` through `AppEnvironment` to be
+testable at all, which is a separate change. Two related observations recorded here rather than acted on: the
+result of `requestAccess()` is discarded (`_ =`) and `isReadinessAvailable(_:)` is never consulted on this
+screen; and `ReadinessViewModel` takes a **default** `Calendar(identifier: .gregorian)`, a snapshot of ambient
+`TimeZone.current` that `AppEnvironment` never injects and `SystemTimeZoneMonitor` never reaches.
+
+**The denied-grant case is now WG-320, and it is not benign.** This note originally called it so, "because a
+denied grant yields no samples and the card already degrades correctly". Round fifteen falsified that:
+degrading correctly is exactly what it does *not* do — a user who tapped Don't Allow is told "There isn't
+enough sleep data yet" and instructed to add more nights, which is WG-319's own signature defect in its most
+common form. WG-319 bounded the **rare** variant (a hung query); every denial, every dismissed sheet and
+every simulator run hits the common one.
+
+**Corrected 2026-08-20 (round seventeen):** this paragraph previously blamed the *discarded* `requestAccess()`
+result and asserted that the "HealthKit hides read denial" argument is "true of the *query* layer and false of
+the *screen*, which has the answer one line above the refresh call." **That is false — the screen has no
+answer to discard.** `HKHealthStore.requestAuthorization` does not throw on Don't Allow, so
+`HealthKitAuthorizationAdapter` returns `.authorized` for Allow and Don't Allow alike and the summary folds to
+`.granted`. The limitation is framework-imposed at *every* layer, so WG-320 is a **copy** fix, not a plumbing
+one. Left in place rather than deleted because the false version had already been written into WG-320's
+acceptance criteria, where it would have been ticked off without changing anything on a device.
+
+### WG-320: A denied Health grant must not be reported as a shortage of sleep data
+
+**Dependencies:** WG-319
+
+**Why this exists.** WG-319 bounded the *rare* way the readiness card makes a false claim about the user's
+data — a HealthKit query that never answers. It left the **common** one untouched, and they are the same
+defect: the card says "There isn't enough sleep data yet" and "Add a few nights of sleep data and this will
+get more useful" to a user who has just tapped **Don't Allow**.
+
+Every denial, every dismissed sheet, and every simulator run reaches this; the hung-query variant WG-319 fixed
+reaches almost nobody.
+
+**This task was filed on a false cause, and was re-scoped 2026-08-20 before any of it was implemented.** As
+originally written it blamed `ReadinessScreen` discarding the authorization result (`_ = await
+…requestAccess()`) together with `HealthAuthorization.isReadinessAvailable(_:)` being called by nothing in
+`Sources/`, and instructed the implementer to "use the authorization result the screen already has."
+
+**There is no such result.** `HKHealthStore.requestAuthorization(toShare:read:)` does not throw when the user
+taps Don't Allow — it throws only when authorization cannot be *requested* (Health unavailable, restricted
+environment, bad types) — so `HealthKitAuthorizationAdapter` maps Allow and Don't Allow alike to
+`.authorized`, and `HealthAccessSummary` folds both to `.granted`. The adapter's own docstring says so. For
+this flow `.notDetermined` and `.partial` are unreachable in production, and the old criterion claiming "the
+simulator reaches the denied state trivially" was false: tapping Don't Allow in the simulator yields
+`.granted`.
+
+**The old version was implementable to green while changing nothing on a device** — thread the provider, stub
+it `.denied`, tick every criterion — after which the record would have said the defect was fixed. The
+criteria are kept below in corrected form rather than deleted, because that failure mode is the point.
+
+**What is actually true.** Denial and a genuinely empty store are indistinguishable at *every* layer available
+to this app, by Apple's design. So the card cannot state the cause. What it can stop doing is asserting one:
+"Add a few nights of sleep data and this will get more useful." is an unfollowable instruction aimed at a
+user whose real problem may be a permission switch two taps away.
+
+**Claude Code instruction:**
+
+> Implement WG-320 only: change what the readiness card **says** on the empty-result path so it is true
+> whether the store is genuinely empty or the read was silently unauthorized, and so it names the one thing
+> the reader can actually check. Do **not** thread the authorization result through in order to branch on a
+> denial — no layer can detect one, and a card that says "access is off" when it is on is the defect
+> `ReadinessUnavailability` exists to prevent. Do not add a new sensor, permission, or entitlement. Do not
+> change the estimator or the readiness score. Do not bound `requestAccess()` itself — that remains WG-319's
+> stated limitation. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The empty-result copy is **true under both readings** — genuinely no data, and denied-so-no-data — and
+  asserts neither. It must not tell the user they have too little sleep data, because that is not known.
+  Reproduced by a failing test **before** the fix.
+- It names the **one action the reader can take**: checking Health access for Alarm Agent in Settings. That
+  is followable from where they stand, unlike "add a few nights of sleep data", and unlike a retry this
+  screen cannot perform. The standing branch rule holds — no instruction the reader cannot act on, and no
+  glyph promising an affordance that does not exist.
+  **Unresolved tension, flagged 2026-08-20 — settle it before implementing, do not discover it mid-fix.** For
+  the user whose store is *genuinely* empty (every simulator run, every new user), "check Health access" is
+  exactly as unfollowable as "add a few nights": they open Settings, find the toggle already on, and learn
+  nothing. That is the same dead end `testNoMessageSendsTheUserToASettingsToggleThatCannotHelp` already
+  forbids for `ReadinessUnavailability`, and it sits against this task's own instruction that "a card that can
+  only guess must not assert either way". There is no test-level conflict today — the prohibition suite covers
+  `ReadinessUnavailability`, while this copy lives on the `ReadinessExplanation` path — so this is a
+  specification question, not a defect: decide whether the Settings pointer is offered as *a thing worth
+  checking* (survivable under both readings) or as *the cause* (false under one of them).
+- **All three strings on this path are in scope**, not the two the reader notices first:
+  `ReadinessExplanation.swift:48` ("There isn't enough sleep data yet…"), `:57` ("Add a few nights of sleep
+  data…"), **and** the factor list built inline at `ReadinessCardView.swift` ("We don't have enough data yet
+  for: …"). The third is `private` to the view and reachable by no copy test, which is exactly the
+  "copy no test can reach is copy no rule applies to" case — and WG-319's own suite already treats it as one
+  of the three false claims (`ReadinessColdOpenClaimTests.testATimedOutColdOpenDoesNotListEveryFactorAsMissing`).
+  A fix that leaves it in place is not this task done.
+- **No new case is added to distinguish denial**, and no test stubs an authorization status **as evidence that
+  the user tapped Don't Allow**. Note the narrower wording, corrected 2026-08-20: an earlier version forbade
+  stubbing `.denied` "as though production could produce one", which is **false** — production reaches
+  `.denied` whenever the *request itself* fails, since `HealthKitAuthorizationAdapter` fails closed to
+  `.restricted` for every type and `HealthAccessSummary.of` folds that to `.denied`. That route is real and
+  `HealthAuthorizationCoordinatorTests` covers it correctly for this very flow; read literally, the old
+  criterion asked for those tests to be deleted. What is unreachable is `.denied` *meaning a user declined*.
+  If a future iOS release exposes read authorization, that is a new task with new evidence.
+- The copy is tested with an **exhaustive positive `switch`**, not a set of prohibitions: a prohibition suite
+  constrains the multiset of strings and never the case→meaning binding, which this branch has already shipped
+  a defect through. **Name the type it switches over.** There is no `CaseIterable` reason type on this path
+  today — the copy comes from `private static func summary(for: ReadinessLevel?)` and
+  `certaintyNote(for:hasData:)` — so satisfy this either by anchoring to `ReadinessLevel` (adding
+  `CaseIterable`) plus the `hasData: false` case, or by moving the empty-result copy behind a small
+  `CaseIterable` type the way `MovementUnavailability` was. Left unanchored, it will be ticked against
+  whichever enum is convenient — most likely `ReadinessUnavailability`, which is **not** the path being fixed.
+- `HealthKitAuthorizationAdapter`'s contract is **documented at the adapter, not pinned by a test** — a
+  `// WHY:` on `requestReadAccess` recording that the non-throwing branch covers Allow *and* Don't Allow
+  alike, pointing here. Corrected 2026-08-20: the earlier criterion demanded *a test* pinning it, which is
+  **not achievable** — the adapter holds a `private let store = HKHealthStore()` with no injection seam,
+  `statuses(for:_:)` is `private`, no test in the repo touches any device-only adapter, and WG-319's own ADR
+  justifies its consumer-side deadline on that same untestability. Demanding a test here would either license
+  a lookalike that pins the *port* (`HealthAuthorizationCoordinator` over a stub provider) and therefore would
+  **not** have caught the original filing, or silently require the very plumbing this task's instruction
+  forbids. Nothing pins the mapping today, so a future contributor can still "fix" it by inventing a
+  `.denied` the framework never supplies; the comment is the guard, and its absence is the gap.
+- **Keep the new copy in the app layer**, alongside `MovementUnavailability`'s. The replacement sentence names
+  the display name ("Alarm Agent") and a Settings action; both live in `Sources/WakeGuardApp` today, and
+  putting product naming into `Sources/HealthDomain/ReadinessExplanation.swift` pushes app-shell concerns into
+  the domain layer (ARCHITECTURE §1).
+- The always-on movement section still renders on this path — a sleep-side shortage must not hide it, which
+  is the guarantee WG-318 exists to make.
+- Each moving part is **mutation-checked independently**, with a control, and the fixtures are separately shown
+  to cover the real input shape.
+- `motion-red-team` and `ios-architect` run **before** the commit, and their mutation claims — surviving ones
+  included — are re-verified by running them rather than taken on trust.
+- Narrow tests and the full available suite pass; `docs/IMPLEMENTATION_STATUS.md` gains an evidence row and
+  `docs/DEVICE_SMOKE_TEST.md` the corresponding check — which supersedes SMK-17 step 6, currently marked
+  expected-to-fail. Real hardware still matters, but not for the reason the old criterion gave: what needs a
+  device is confirming the *revoked-after-granted* path renders the new copy, not reaching a "denied state"
+  that no layer reports.
+
+### WG-321: A restricted device is told its permanent sleep-read failure is momentary
+
+**Dependencies:** WG-319
+
+**Claude Code instruction:**
+
+> Implement WG-321 only: on a **restricted** device, `ReadinessUnavailability.temporarilyUnavailable`'s "We
+> couldn't check your sleep readiness **just now**." is false — the failure is permanent, not momentary.
+> Verified path: `HKHealthStore.requestAuthorization` throws in an MDM / parental-controls environment,
+> `HealthKitAuthorizationAdapter.requestReadAccess` fails closed to `.restricted` for every type,
+> `ReadinessScreen` **discards** that result, `refresh` runs the query anyway, and the query errors — arriving
+> as `SleepReadOutcome.failed` and rendering the one unavailable case. For that user it is every attempt,
+> forever, and the card asks them to wait for something that will never resolve. The sibling section already
+> models exactly this distinction (`MovementUnavailability.accessRestricted`, "Settings won't change this");
+> the sleep path collapses it. Note this is a **different** situation from WG-320's: a denial is undetectable
+> at every layer, whereas a restriction **is** reported, and thrown away one line above the refresh call.
+> Do not add a new sensor, permission, or entitlement. Do not change the estimator or the readiness score.
+> Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- A test reproduces the false claim **before** the fix: a restricted authorization result plus a failing read
+  renders a message asserting transience. It must fail for that reason, not merely be absent.
+- The restricted case is distinguishable from a transient read failure **in what the card says**. Whether that
+  is a second `ReadinessUnavailability` case or a different routing is an implementation choice, but the
+  one-case docstring must be corrected either way — it currently enumerates three causes while the arm catches
+  four, which is what hid this.
+- The copy names no action the reader can take **when there is none**, and says so plainly rather than
+  implying waiting will help. Mirror `MovementUnavailability.accessRestricted`'s framing; do not invent a
+  Settings instruction a supervised user cannot follow.
+- Whatever consumes `requestAccess()`'s result consumes it **deliberately** — the current `_ =` discard is the
+  actual root cause, and it is the one place on this screen where an authorization answer genuinely exists.
+  This is explicitly **not** the WG-320 case and must not be justified by WG-320's "no layer knows" finding.
+- The copy is covered by an **exhaustive positive `switch`**, and the cross-type check that the readiness and
+  movement failure lines differ still holds — both render on one card at once.
+- SMK-17 gains the restricted-device observation it currently disclaims, or records why it cannot be reached.
+- `motion-red-team` and `ios-architect` run **before** the commit; mutation claims are re-verified by running.
+
 ## E08: Calendar and morning planning
 
 ### WG-140: Define calendar data minimization and redaction

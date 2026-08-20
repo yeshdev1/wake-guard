@@ -139,13 +139,17 @@ final class ReadinessMovementRefreshOrderingTests: XCTestCase {
 
     /// A query whose answer **never arrives**. `CoreMotionActivityHistoryAdapter` awaits a one-shot
     /// completion handler with no deadline, so a handler that never fires leaves `movement` at `.loading`
-    /// for the life of the process — and this screen has no `.refreshable` and no scene-phase hook, so
-    /// nothing ever re-runs the query. "Checking your movement…" forever is not a state the user can
-    /// distinguish from a slow read, and it is WG-318's vanished section in its last costume: a spinner is
-    /// not an answer.
+    /// for as long as the reader stays on the screen — there is no `.refreshable` and no scene-phase hook, so
+    /// nothing re-runs the query. (Navigating back and pushing the screen again rebuilds its `@State` model
+    /// and does re-run `.task`, but the screen never offers that escape; an earlier version of this comment
+    /// said "for the life of the process", which is false.) "Checking your movement…" until the reader gives
+    /// up is not a state they can distinguish from a slow read, and it is WG-318's vanished section in its
+    /// last costume: a spinner is not an answer.
     ///
     /// The double ignores cancellation on purpose (see `GatedMotionHistory`) — a deadline that cancels its
-    /// racer and then waits for it is inert against exactly the hung source it exists to survive.
+    /// racer and then waits for it is inert against a source that ignores cancellation. Not a claim that
+    /// `CoreMotionActivityHistoryAdapter` is such a source (it is not; it resumes on cancellation), but the
+    /// deadline must not *depend* on that. See `ReadinessViewModel.firstResult`.
     func testAQueryThatNeverAnswersDoesNotLeaveAPermanentSpinner() async {
         let motion = GatedMotionHistory()
         // The only test that injects a deadline. Both directions are deterministic rather than timing-
@@ -172,6 +176,44 @@ final class ReadinessMovementRefreshOrderingTests: XCTestCase {
 
         // Release the abandoned read so the double is not left holding an unresumed continuation.
         await motion.finish(0, with: [])
+    }
+
+    /// The deadline must not fire on a read that is merely **slow**. Every test above injects
+    /// `.milliseconds(50)` so the timeout direction is deterministic, which leaves the **production**
+    /// `movementTimeout` exercised by nothing: `.milliseconds(15)` in place of `.seconds(15)` — one word —
+    /// would ship green while the section abandoned every real CoreMotion read and told every user their
+    /// movement couldn't be checked. No mutation of the *mechanism* can reach it; the mechanism is correct and
+    /// the constant is wrong.
+    ///
+    /// The sibling constant has had this cover since WG-319
+    /// (`ReadinessCardLoadBoundTests.testTheDefaultDeadlineDoesNotAbandonAReadThatIsStillRunning`); this one
+    /// did not, which is round seven's "which sibling branches does this rule also govern" missed one layer
+    /// down. Asserted as a **property** — a read still in flight after 150ms has not been abandoned — so it
+    /// survives `SMK-16` replacing the 15s guess with a measured value.
+    func testTheDefaultDeadlineDoesNotAbandonAMovementReadThatIsStillRunning() async throws {
+        let motion = GatedMotionHistory()
+        // Deliberately no `movementTimeout:` — this test exists to exercise the shipped default.
+        let model = ReadinessViewModel(
+            sleepQuery: StubSleepSource(), motionHistory: motion, calendar: makeCalendar())
+
+        let refresh = Task { await model.refresh(now: base) }
+        await motion.waitForQueries(1)
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(
+            model.movement, .loading,
+            """
+            the query is still in flight, so the deadline must not have fired — a deadline shorter than a \
+            real CoreMotion read makes "we couldn't read it" the permanent state for everyone
+            """)
+
+        await motion.finish(0, with: nightSamples())
+        await refresh.value
+
+        guard case .available = model.movement else {
+            return XCTFail(
+                "and the slow read still lands, rather than being discarded by a fired deadline")
+        }
     }
 
     /// A deadline read **nothing**, which is the same epistemic state as a cancellation — and the ADR's
@@ -303,57 +345,4 @@ final class ReadinessMovementRefreshOrderingTests: XCTestCase {
 
 private struct StubSleepSource: SleepSampleQuerying {
     func sleepSamples(from start: Date, to end: Date) async throws -> [SleepSample] { [] }
-}
-
-/// Holds queries open so the test can observe the view model *during* a refresh, and interleave two of
-/// them. A double that returns immediately makes both the mid-refresh blank and the overlapping-refresh
-/// race unobservable — which is why neither was caught.
-///
-/// Queries are addressed by start order and **never removed** from `pending`, so indices stay stable across
-/// `waitForQueries`. Completing one twice is misuse and fails the test rather than trapping the process on
-/// a double-resumed continuation.
-private actor GatedMotionHistory: MotionActivityHistorySource {
-    private var pending: [Int: CheckedContinuation<[MotionActivitySample], any Error>] = [:]
-    private var arrivals: [CheckedContinuation<Void, Never>] = []
-    private var started = 0
-
-    func activitySamples(in window: DateInterval) async throws -> [MotionActivitySample] {
-        let id = started
-        started += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            while let waiter = arrivals.popLast() { waiter.resume() }
-        }
-    }
-
-    /// Suspend until at least `count` queries have started, so ordering is deterministic rather than
-    /// dependent on how many times the test happens to yield.
-    func waitForQueries(_ count: Int) async {
-        while started < count {
-            await withCheckedContinuation { arrivals.append($0) }
-        }
-    }
-
-    func finish(_ id: Int, with samples: [MotionActivitySample]) {
-        take(id)?.resume(returning: samples)
-    }
-
-    func fail(_ id: Int, with error: any Error) {
-        take(id)?.resume(throwing: error)
-    }
-
-    private func take(_ id: Int) -> CheckedContinuation<[MotionActivitySample], any Error>? {
-        guard let continuation = pending.removeValue(forKey: id) else {
-            XCTFail("query \(id) was already completed or never started")
-            return nil
-        }
-        return continuation
-    }
-
-    deinit {
-        // An abandoned continuation otherwise surfaces only as a "leaked its continuation" runtime log.
-        // `deinit` is nonisolated, so read the count into a local before asserting on it.
-        let abandoned = pending.count
-        XCTAssertEqual(abandoned, 0, "a gated query was never completed")
-    }
 }
