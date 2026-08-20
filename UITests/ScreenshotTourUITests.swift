@@ -77,10 +77,49 @@ final class ScreenshotTourUITests: XCTestCase {
         snap(app, "10-conversational-failclosed")
     }
 
+    /// Readiness itself is degraded here — the simulator has no HealthKit sleep data — but the **movement**
+    /// section is the graph's `FixtureMotionActivityHistory` night, so this is the only place the section's
+    /// success rendering is exercised end-to-end (WG-318). Asserting it *before* the snap is deliberate: the
+    /// reference screenshot previously captured "This device can't track movement" and nothing checked what
+    /// was in it, so a false claim sat in a committed artefact across four rounds of review. A screenshot no
+    /// assertion guards is a picture of whatever happened.
     func testTour4ReadinessDegraded() {
         let app = launch()
         tap(app, "readinessButton")
-        _ = find(app, "readinessMissing").waitForExistence(timeout: 12)
+
+        // **The positive control for tour 7.** These two identifiers are the ones
+        // `testTour7ReadinessSleepReadFailed` asserts are *absent*, and until this round nothing anywhere
+        // observed either of them present: the `readinessMissing` wait below discarded its own result, and
+        // `readinessSummary` was referenced by no test at any layer. A negative assertion against a selector
+        // never once seen to match is satisfied by a rename, a merged accessibility element, or a screen that
+        // failed to load — it would pass forever while asserting nothing. Asserting them here is what makes
+        // tour 7's `XCTAssertFalse`s evidence rather than decoration.
+        XCTAssertTrue(
+            find(app, "readinessMissing").waitForExistence(timeout: 12),
+            """
+            the .assessed branch is not naming its missing factors, so tour 7's assertion that the \
+            .unavailable branch omits them is vacuous
+            """)
+        XCTAssertTrue(
+            find(app, "readinessSummary").exists,
+            """
+            the .assessed branch is not rendering its readiness summary, so tour 7's assertion that the \
+            .unavailable branch makes no such claim is vacuous
+            """)
+
+        XCTAssertTrue(
+            find(app, "readinessRestEstimate").waitForExistence(timeout: 12),
+            "the movement section shows no rest estimate, so the screenshot documents an empty section"
+        )
+        XCTAssertTrue(
+            find(app, "readinessDisturbances").exists,
+            "the movement section shows no disturbance line")
+        XCTAssertFalse(
+            find(app, "readinessMovementUnavailable").exists,
+            """
+            the movement section is reporting a reason it has no estimate; the reference screenshot would \
+            record that claim as the product's appearance
+            """)
         snap(app, "11-readiness-degraded")
     }
 
@@ -123,11 +162,119 @@ final class ScreenshotTourUITests: XCTestCase {
         }
     }
 
+    /// The readiness card's **`.unavailable`** branch — a sleep read that failed (WG-322). Reached only via
+    /// `-uiTestingSleepReadFails`; the default graph's `UnavailableSleepQuery` returns `[]`, a *concluded*
+    /// read, which is why `testTour4ReadinessDegraded` above lands in `.assessed` instead.
+    ///
+    /// This is the branch the **M4** mutant reached in WG-319 round fourteen — rewriting
+    /// `ReadinessDisplayState.cardContent`'s `.unavailable` arm to `return nil` left all 1435 tests green
+    /// while restoring the permanent spinner, the hidden card and the hidden movement section.
+    ///
+    /// **M4 itself is no longer the gap:** round fourteen closed it at the unit layer, and
+    /// `ReadinessDisplayStateTests.testOnlyLoadingWithholdsTheCardSoAConcludedReadAlwaysRendersOne` now
+    /// asserts `cardContent == .unavailable(reason)` for every case, inside `ci-fast`. What that test cannot
+    /// reach is the seam one layer further out: the `if let content = model.readiness.cardContent` at
+    /// `ReadinessScreen.swift:51` that *consumes* the property. Re-gating that `if let` on `assessment != nil`
+    /// — WG-319's original defect verbatim — survives all 1448 unit tests and is killed only here. That is
+    /// what this case is for; describing it as "closing M4" names the right line for the wrong reason.
+    ///
+    /// So the first assertion is **positive** — it fails if the card is not on screen — and the rest state
+    /// what this branch is forbidden from doing.
+    func testTour7ReadinessSleepReadFailed() {
+        let app = launch(sleepReadFails: true)
+        tap(app, "readinessButton")
+
+        XCTAssertTrue(
+            find(app, "readinessUnavailableReason").waitForExistence(timeout: 20),
+            """
+            the card is not showing why the sleep read produced nothing; if the spinner is still up this is \
+            WG-319's defect restored (the M4 mutant), and the whole card — including the always-on movement \
+            section — is hidden with it
+            """)
+        XCTAssertFalse(
+            find(app, "readinessLoading").exists,
+            "the screen is still showing 'Checking your sleep readiness…' with no query in flight")
+
+        // The *sentence*, not just the identifier. `unavailableSection` binds `Label(reason.message, …)` to
+        // the enum, and nothing observed that binding: `ReadinessDisplayStateTests` pins
+        // `ReadinessUnavailability.message` (the enum), while the assertion above pins only that some element
+        // carries this identifier. So `Label("There isn't enough sleep data yet.", …)` — the exact false
+        // claim WG-319 exists to remove — survived the whole suite, unit and UI. The prohibition list is
+        // `testNoMessageMakesAClaimAboutHowMuchSleepDataTheUserHas`'s, applied one layer out to what the
+        // reader actually sees.
+        let reasonLabel = find(app, "readinessUnavailableReason").label.lowercased()
+        XCTAssertTrue(
+            reasonLabel.contains("couldn't check your sleep readiness"),
+            """
+            the card's unavailability line is not the sentence bound to ReadinessUnavailability.message; \
+            it reads "\(reasonLabel)"
+            """)
+        for claim in ["enough", "sleep data", "add a few nights", "more data", "no data"] {
+            XCTAssertFalse(
+                reasonLabel.contains(claim),
+                """
+                the card says "\(claim)" on a read that returned nothing — a statement about the user's \
+                sleep data made from data the query never looked at: "\(reasonLabel)"
+                """)
+        }
+
+        // WG-318's guarantee under WG-319's failure branch: a failed *sleep* read must not take the
+        // always-on movement section down with it. No check anywhere observes the two together.
+        //
+        // Asserting the section **resolves**, not merely that its header is present:
+        // `readinessMovementHeader` is emitted by all three arms of the movement switch (loading, available,
+        // unavailable), and on a cold open the movement read is still in flight when the sleep read has
+        // already thrown — so a header check alone cannot tell "survived" from "spinning forever", and a
+        // mutant deleting `applyMovementSummary` would survive it. The graph's `FixtureMotionActivityHistory`
+        // is unchanged by `-uiTestingSleepReadFails`, so a real night is expected here exactly as in tour 4.
+        XCTAssertTrue(
+            find(app, "readinessMovementHeader").exists,
+            "a failed sleep read has hidden the always-on Movement overnight section")
+        XCTAssertTrue(
+            find(app, "readinessRestEstimate").waitForExistence(timeout: 20),
+            """
+            the Movement overnight section is present but never resolved on the failed-sleep-read branch — \
+            the section is there and says nothing, which is the defect WG-318 exists to prevent
+            """)
+        XCTAssertFalse(
+            find(app, "readinessMovementUnavailable").exists,
+            """
+            a failed *sleep* read has been reported as a failed *movement* read; the two are independent and \
+            this card renders both at once
+            """)
+
+        // Round twelve's defect, pinned end to end for the first time: nothing was read, so the card must
+        // make no claim about how much sleep data the reader has.
+        XCTAssertFalse(
+            find(app, "readinessSummary").exists,
+            "the card is explaining a readiness assessment it never computed")
+        XCTAssertFalse(
+            find(app, "readinessMissing").exists,
+            """
+            the card is naming factors as absent from data the query never looked at — the "There isn't \
+            enough sleep data yet" claim WG-319 removed from this branch
+            """)
+
+        // Round eighteen moved the disclaimer outside both switches precisely so it holds on this branch,
+        // where the card contains no estimate to disclaim. It localizes only by being a literal in `Text`,
+        // so no unit test can reach it (recorded in SMK-17); this branch renders it, so the check is free.
+        XCTAssertTrue(
+            find(app, "readinessDisclaimer").exists,
+            "the not-a-diagnosis note is absent on the .unavailable branch (#39, PRODUCT_SPEC.md:65)"
+        )
+
+        snap(app, "19-readiness-sleep-read-failed")
+    }
+
     // MARK: - Helpers
 
-    private func launch() -> XCUIApplication {
+    /// `sleepReadFails` composes a throwing sleep query (WG-322). Defaulted, so every tour above launches the
+    /// unchanged graph — a graph that could only fail would delete the success coverage tour 4 documents.
+    private func launch(sleepReadFails: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-uiTesting"]
+        app.launchArguments =
+            sleepReadFails
+            ? ["-uiTesting", "-uiTestingSleepReadFails"] : ["-uiTesting"]
         app.launch()
         return app
     }
