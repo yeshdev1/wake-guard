@@ -157,9 +157,16 @@ struct AppEnvironment: Sendable {
     /// The test/preview graph: an ephemeral in-memory store, with the clock and id
     /// generator injectable so deterministic tests can fix time and ids. Previews use
     /// the live defaults — the *store* is the fake (nothing touches disk).
+    ///
+    /// `sleepQuery` is injectable **only** so the `-uiTestingSleepReadFails` launch argument can compose a
+    /// failing read and put the screenshot tour on the readiness card's `.unavailable` branch (WG-322), which
+    /// nothing exercised end to end. It defaults to `UnavailableSleepQuery`, so every existing caller — the
+    /// previews, the ordinary `-uiTesting` tour, `ReadinessWiringTests` — is unchanged and still gets a
+    /// concluded, empty read.
     static func inMemory(
         clock: any WallClock = SystemClock(),
-        identifierGenerator: any IdentifierGenerator = SystemIdentifierGenerator()
+        identifierGenerator: any IdentifierGenerator = SystemIdentifierGenerator(),
+        sleepQuery: any SleepSampleQuerying = UnavailableSleepQuery()
     ) throws -> AppEnvironment {
         let persistence = try PersistenceController(inMemory: true)
         // Tests/previews never touch AlarmKit or a system navigation — the interim deferred adapter
@@ -177,7 +184,7 @@ struct AppEnvironment: Sendable {
                 languageModelProvider: UnavailableLanguageModelProvider(),
                 guidedAlarmParser: nil,
                 modelAvailabilityProvider: FixedModelAvailabilityProvider(),
-                sleepQuery: UnavailableSleepQuery(),
+                sleepQuery: sleepQuery,
                 motionActivityHistory: FixtureMotionActivityHistory(),
                 cloudTokenStore: InMemoryCloudTokenStore(),
                 makeConsentProvider: { _, _, _ in FixedConsentStatusProvider() }))

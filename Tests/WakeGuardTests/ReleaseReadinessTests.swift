@@ -20,16 +20,34 @@ final class ReleaseReadinessTests: XCTestCase {
 
     // MARK: debug tools are compiled out of release
 
-    func testMotionTraceRecorderIsEntirelyDebugGated() throws {
-        // The calibration trace recorder (WG-075) is a debug-only tool; the whole file must open with
-        // `#if DEBUG`, so a release build excludes it and shipping code can't reference it.
-        let code = try contents("Sources/MotionInfrastructure/MotionTraceRecorder.swift")
+    /// A whole-file debug gate: the first line of real code must be `#if DEBUG`, so a release build excludes
+    /// the file and shipping code cannot reference what is in it.
+    private func assertEntirelyDebugGated(
+        _ relativePath: String, _ what: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let code = try contents(relativePath)
         let firstCodeLine = code.split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty && !$0.hasPrefix("//") }
         XCTAssertEqual(
             firstCodeLine, "#if DEBUG",
-            "the debug-only trace recorder must be entirely #if DEBUG so it can't ship")
+            "\(what) must be entirely #if DEBUG so it can't ship", file: file, line: line)
+    }
+
+    func testMotionTraceRecorderIsEntirelyDebugGated() throws {
+        // The calibration trace recorder (WG-075) is a debug-only tool.
+        try assertEntirelyDebugGated(
+            "Sources/MotionInfrastructure/MotionTraceRecorder.swift",
+            "the debug-only trace recorder")
+    }
+
+    func testFailingSleepQueryIsEntirelyDebugGated() throws {
+        // WG-322's throwing sleep double exists only to let the screenshot tour reach the readiness card's
+        // `.unavailable` branch. It followed `MotionTraceRecorder`'s convention without its test: nothing
+        // failed if the `#if DEBUG` were deleted, because the walk below covered one directory and this file
+        // is in another. A sleep query that always throws must never be compilable into a shipped build.
+        try assertEntirelyDebugGated(
+            "Sources/AppComposition/FailingSleepQuery.swift", "the throwing sleep-query double")
     }
 
     func testUITestingHookIsUnreachableInRelease() throws {
@@ -37,7 +55,13 @@ final class ReleaseReadinessTests: XCTestCase {
         // compiles it out. A file-wide `contains("#if DEBUG")` would pass even if the hook were moved
         // out (as long as any unrelated DEBUG block remained), so walk the guards and assert every
         // `-uiTesting` line is within a debug region (WG-260 review P1-3).
-        let directory = repoRoot().appendingPathComponent("Sources/WakeGuardApp")
+        //
+        // Scoped to all of `Sources/` rather than `Sources/WakeGuardApp` (WG-322): the narrower walk bought
+        // its coverage from the *location* of the hook, so moving the launch-argument read one directory
+        // over — into `AppComposition`, where graph composition otherwise lives — would have silently
+        // stopped the gate applying, with nothing failing. Doc comments that merely mention the argument are
+        // already ignored by the `//` strip below, and several in `AppComposition` do.
+        let directory = repoRoot().appendingPathComponent("Sources")
         let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: nil)
         while let url = enumerator?.nextObject() as? URL {

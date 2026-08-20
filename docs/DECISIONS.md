@@ -5533,6 +5533,11 @@ the main screen (above the list), and add short educational text emphasizing cri
   below; the toolbar `+` menu is removed as redundant; the empty state slims to a one-liner. Pure
   presentation — no alarm-authority / persistence / safety-invariant impact. Accessibility identifiers
   (`describeAlarmButton`, `addManualAlarmButton`) are preserved so the flows are unchanged for tests.
+  **False as recorded (corrected 2026-08-20).** This commit *replaced* `addAlarmButton` with
+  `addManualAlarmButton` and updated `ScreenshotTourUITests` only; `UITests/CoreAlarmFlowsUITests.swift`
+  still drives the old identifier, so all six core-flow UI tests have failed ever since — silently,
+  because `make test-ui` is in neither `ci` nor `ci-fast`. Tracked as WG-323. The sentence above was a
+  claim about a file nobody ran.
 - **Educational text (below the options).** Below the critical and walk follow-up questions, plain text
   emphasizes why each matters. It is **honest and non-diagnostic** (#39): the critical copy is the
   commitment-device rationale (rings through silent/Focus/DND); the walk copy is grounded in the

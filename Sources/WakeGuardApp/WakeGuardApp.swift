@@ -19,7 +19,22 @@ struct WakeGuardApp: App {
         // can never be reached in a shipped app (launch args can't be injected there anyway).
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-uiTesting") {
-                composition = Result { try AppEnvironment.inMemory() }
+                // WG-322: `-uiTestingSleepReadFails` composes a sleep read that throws, which is the only
+                // way the tour reaches the readiness card's `.unavailable` branch — the default graph's
+                // `UnavailableSleepQuery` returns `[]`, a concluded read, so it lands in `.assessed`. That
+                // branch is where the surviving M4 mutant lived and where no check observed the rendering.
+                // Additive by design: absent this argument the graph is bit-for-bit what it was, so the
+                // existing tour keeps documenting the success path.
+                //
+                // It is read *inside* the `-uiTesting` branch, so it does nothing on its own: a launch
+                // passing only `-uiTestingSleepReadFails` gets the production on-disk graph and an ordinary
+                // readiness card, not a failed read. Pass both, as `launch(sleepReadFails:)` does.
+                let sleepReadFails = ProcessInfo.processInfo.arguments.contains(
+                    "-uiTestingSleepReadFails")
+                composition = Result {
+                    try AppEnvironment.inMemory(
+                        sleepQuery: sleepReadFails ? FailingSleepQuery() : UnavailableSleepQuery())
+                }
                 return
             }
         #endif

@@ -12,7 +12,7 @@ defer a gate to the end.
 
 | CP | Run after | Focus | Gate |
 |----|-----------|-------|------|
-| **A — Core UX** | E03 ✅ (now) | Create / edit / delete / all config sections / history on device; VoiceOver, Dynamic Type, dark mode, 12/24h. Simulator UI suite (`make test-ui`) already green. *Alarms don't ring yet — that's CP-B.* | |
+| **A — Core UX** | E03 ✅ (now) | Create / edit / delete / all config sections / history on device; VoiceOver, Dynamic Type, dark mode, 12/24h. Simulator UI suite (`make test-ui`) is **red**: the seven screenshot tours pass, but all six `CoreAlarmFlowsUITests` — create / edit / delete / critical / travel, i.e. exactly this checkpoint's focus — fail on a stale identifier and have not run in months (WG-323). **Do not sign CP-A on automated evidence; these flows must be exercised by hand until WG-323 lands.** *Alarms don't ring yet — that's CP-B.* | |
 | **B — Alarms actually ring** | AlarmKit integration (real `SystemAlarmManagerAdapter` + auth UI + scheme registration) | `DEVICE_SMOKE_TEST.md` SMK-01–15, especially **SMK-04/08/09**: rings through silent / Focus / DND, after force-quit, after reboot; lock-screen actions; deep-link delivery once `wakeguard://` is registered. | ★ **This makes every alarm-safety claim real.** Block E05+ device trust on it. |
 | **C — Walk challenge** | E04 | `motion-red-team` device pass: false-pass (shaking / rhythmic tap), false-fail (a legitimate walk), the accessible alternative, phone-carry disclosure, 10-second timing. | ★ wake integrity |
 | **D — Pre-alarm** | E05 | Pre-alarm prompt: no response ⇒ alarm unchanged (#7); a critical alarm needs confirmation (#6); awake-inference false-positive / false-negative feel; opportunistic (no reliance on a background run). | |

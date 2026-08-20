@@ -20,7 +20,16 @@ import XCTest
 /// What is true is narrower and more useful — the tour only ever reaches the `.assessed` branch, so the
 /// `.unavailable` branch is what nothing exercises end to end, and `make test-ui` is not part of `ci` or
 /// `ci-fast`. Closing that seam is a launch argument and one assertion in the existing tour, not new
-/// infrastructure; it is deliberately not done here, and it is the first gap worth closing next.
+/// infrastructure.
+///
+/// **Closed 2026-08-20 by WG-322**: `-uiTestingSleepReadFails` composes a throwing sleep read and
+/// `ScreenshotTourUITests.testTour7ReadinessSleepReadFailed` renders the `.unavailable` branch under
+/// assertion. Note what that test covers and this file does not — the `if let content =
+/// model.readiness.cardContent` at `ReadinessScreen.swift:51` that *consumes* this property. The tests
+/// below kill the original M4 mutant outright; re-gating that `if let` on `assessment != nil` is a
+/// different mutant, it survives this whole target, and only the tour catches it. `make test-ui` is still
+/// in neither `ci` nor `ci-fast`, and as of 2026-08-20 it cannot be: the target is red for an unrelated
+/// pre-existing reason (WG-323).
 ///
 /// The copy tests are `MovementUnavailabilityCopyTests` applied to the sibling type, for the reason that file
 /// gives: copy no test can reach is copy no rule applies to, and every defect this branch has shipped in six

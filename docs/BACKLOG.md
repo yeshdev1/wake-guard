@@ -672,6 +672,37 @@ Report changed files, tests, assumptions, risks, and next task.
 - Narrow tests and the full available suite pass.
 - `docs/IMPLEMENTATION_STATUS.md` is updated with evidence.
 
+### WG-323: `CoreAlarmFlowsUITests` drives a button that no longer exists — WG-050's coverage is dead
+
+**Dependencies:** WG-050
+
+**Claude Code instruction:**
+
+> Implement WG-323 only: **all six** `CoreAlarmFlowsUITests` fail, and have been failing silently, because
+> every one of them routes through `app.buttons["addAlarmButton"]` — directly, or via the private
+> `createAlarm` helper at line 25. **That identifier does not exist anywhere in `Sources/`.** The alarm-list
+> entry point is `addManualAlarmButton` (`AlarmCreationHeader.swift:23`), renamed when the creation header
+> gained the describe/manual split; `ScreenshotTourUITests` was updated and this file was not. Verified
+> 2026-08-20 by running `make test-ui` in full: 13 tests, **6 failures, all in this class**, all seven tours
+> passing. Confirmed pre-existing and unrelated to WG-322 — `git grep addAlarmButton a04ce4a -- Sources/`
+> returns nothing. Repair the identifiers so the flows actually run; **do not delete the tests to get a green
+> target**, and expect the repair to surface further drift behind the first failure, since nothing in this
+> class has executed past its first tap in some time. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- `make test-ui` is green in full — **0 failures across the whole target** (13 tests as it stands today) — not merely the tour class. The count is stated as of filing, not as a target to hit: the guard required below may well add a test, and criterion 1 must not read as forbidding it.
+- Each repaired test is confirmed to **exercise** its flow rather than to stop passing loudly: check what each
+  one asserts after the tap, since a test that has not run in months may assert nothing that still holds.
+- The create/edit/delete/critical/travel flows named in WG-050's own acceptance criteria are each demonstrably
+  covered again, or the gap is recorded where the criterion is, not left implied.
+- A guard against silent recurrence is added or explicitly declined with a reason. Note the general shape:
+  **a UI test referencing a stale identifier fails only when someone runs that target**, and `make test-ui` is
+  in neither `ci` nor `ci-fast` — which is why this went unnoticed. Whether to add the target to `ci` is
+  decided here, on evidence, and recorded.
+- `docs/IMPLEMENTATION_STATUS.md`'s WG-050 row is corrected: it currently stands as evidence of coverage that
+  has not run.
+
 ## E04: Motion sensing and ten-second wake challenge
 
 ### WG-060: Define normalized motion source protocols
@@ -1986,6 +2017,45 @@ user whose real problem may be a permission switch two taps away.
   movement failure lines differ still holds — both render on one card at once.
 - SMK-17 gains the restricted-device observation it currently disclaims, or records why it cannot be reached.
 - `motion-red-team` and `ios-architect` run **before** the commit; mutation claims are re-verified by running.
+
+### WG-322: The readiness card's `.unavailable` branch is exercised end to end by nothing
+
+**Dependencies:** WG-319
+
+**Claude Code instruction:**
+
+> Implement WG-322 only: close the **M4** coverage gap. `ReadinessDisplayState.cardContent`'s `.unavailable`
+> arm was mutated to `return nil` during WG-319 round fourteen and **survived all 1435 tests** — restoring the
+> permanent spinner, the hidden card and the hidden always-on movement section, which is precisely the defect
+> WG-319 exists to remove. Unit coverage was added (`ReadinessDisplayStateTests`), but it asserts on the
+> display state, and **no check at any layer observes what the reader actually sees on that branch**: the
+> identifiers `readinessUnavailableReason` and `readinessLoading` are referenced by nothing anywhere, no step
+> in `SMK-17` reaches the card, and `ScreenshotTourUITests` lands in `.assessed` because the `-uiTesting`
+> graph's `UnavailableSleepQuery` returns `[]` rather than throwing. Add a debug-only launch argument that
+> composes a **failing** sleep read, and a tour case that asserts the card on that branch before snapping it.
+> Do not add a new sensor, permission, or entitlement. Do not change the estimator, the readiness score, the
+> deadline, or any user-facing copy. Preserve every safety invariant.
+
+**Acceptance criteria:**
+
+- The new tour case **fails when M4 is re-applied** (`cardContent`'s `.unavailable` arm rewritten to
+  `return nil`) and passes on the unmutated tree. The mutation is run, not reasoned about — this criterion is
+  the whole task, and a test that merely reaches the branch without discriminating M4 does not satisfy it.
+- It asserts positively that `readinessUnavailableReason` is on screen, so it cannot pass vacuously by the
+  screen failing to load, and asserts `readinessLoading` is **absent** — the spinner is the defect.
+- It asserts the **movement section survives a failed sleep read** (`readinessMovementHeader` present). That
+  is WG-318's always-on guarantee under WG-319's failure branch, and no test observes the pair today.
+- It asserts the card makes **no data-shortage claim** on this branch (`readinessSummary` and
+  `readinessMissing` absent) — round twelve's defect, currently pinned only at the unit layer.
+- The launch argument is unreachable in Release. Name it so it contains the substring `-uiTesting`, which puts
+  it under the existing `ReleaseReadinessTests.testUITestingHookIsUnreachableInRelease` walk for free; do not
+  add a second, parallel gate.
+- `testTour4ReadinessDegraded` still lands in `.assessed` and still passes. The existing double is not
+  replaced — a graph that can only fail would delete the success coverage WG-318 round nine added.
+- `docs/DEVICE_SMOKE_TEST.md`'s SMK-17 coverage-gap note is updated: it currently states this hole as open and
+  prescribes "a never-answering sleep query", which is **not** what should be built — a throwing query reaches
+  the same arm instantly, while a hang costs 15s and depends on a `sleepTimeout` the graph cannot inject.
+- Whether `make test-ui` should join `ci` / `ci-fast` is decided and recorded, not left implied.
 
 ## E08: Calendar and morning planning
 
